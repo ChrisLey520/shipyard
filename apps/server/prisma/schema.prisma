@@ -1,0 +1,366 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── 用户与认证 ───────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  oauthAccounts      UserOAuthAccount[]
+  refreshTokens      RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  orgMembers         OrgMember[]
+  invitationsSent    OrgInvitation[]      @relation("InvitedBy")
+  triggeredDeployments Deployment[]       @relation("TriggeredBy")
+  approvalRequests   ApprovalRequest[]    @relation("RequestedBy")
+  approvalReviews    ApprovalRequest[]    @relation("ReviewedBy")
+  auditLogs          AuditLog[]
+}
+
+model UserOAuthAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  accessToken       String
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique @default(uuid())
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── 组织与成员 ───────────────────────────────────────────────────────────────
+
+model Organization {
+  id                 String   @id @default(uuid())
+  name               String
+  slug               String   @unique
+  buildConcurrency   Int      @default(2)
+  artifactRetention  Int      @default(10)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  members     OrgMember[]
+  invitations OrgInvitation[]
+  projects    Project[]
+  servers     Server[]
+  auditLogs   AuditLog[]
+}
+
+model OrgMember {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model OrgInvitation {
+  id             String   @id @default(uuid())
+  organizationId String
+  email          String
+  role           String
+  token          String   @unique @default(uuid())
+  status         String   @default("pending")
+  expiresAt      DateTime
+  invitedByUserId String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([token])
+}
+
+// ─── 项目与配置 ───────────────────────────────────────────────────────────────
+
+model Project {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  slug           String
+  frameworkType  String
+  repoFullName   String
+  gitConnectionId String? @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  gitConnection  GitConnection?  @relation("ProjectGitConnection")
+  pipelineConfig PipelineConfig?
+  environments   Environment[]
+  deployments    Deployment[]
+  previews       Preview[]
+  notifications  Notification[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+}
+
+model PipelineConfig {
+  id             String   @id @default(uuid())
+  projectId      String   @unique
+  installCommand String   @default("pnpm install")
+  buildCommand   String   @default("pnpm build")
+  lintCommand    String?
+  testCommand    String?
+  outputDir      String   @default("dist")
+  nodeVersion    String   @default("20")
+  cacheEnabled   Boolean  @default(true)
+  timeoutSeconds Int      @default(900)
+  ssrEntryPoint  String?
+  updatedAt      DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model GitConnection {
+  id               String    @id @default(uuid())
+  projectId        String    @unique
+  gitProvider      String
+  accessToken      String
+  refreshToken     String?
+  tokenExpiresAt   DateTime?
+  gitUsername      String?
+  webhookSecret    String
+  remoteWebhookId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project Project? @relation("ProjectGitConnection", fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ─── 服务器与环境 ─────────────────────────────────────────────────────────────
+
+model Server {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  host           String
+  port           Int      @default(22)
+  user           String
+  privateKey     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  environments Environment[]
+
+  @@index([organizationId])
+}
+
+model Environment {
+  id             String   @id @default(uuid())
+  projectId      String
+  name           String
+  triggerBranch  String
+  serverId       String
+  deployPath     String
+  domain         String?
+  healthCheckUrl String?
+  protected      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  server      Server       @relation(fields: [serverId], references: [id])
+  envVariables EnvVariable[]
+  deployments  Deployment[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model EnvVariable {
+  id            String   @id @default(uuid())
+  environmentId String
+  key           String
+  value         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  environment Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, key])
+  @@index([environmentId])
+}
+
+// ─── 部署 ─────────────────────────────────────────────────────────────────────
+
+model Deployment {
+  id                String    @id @default(uuid())
+  projectId         String
+  environmentId     String?
+  status            String    @default("queued")
+  trigger           String    @default("manual")
+  triggeredByUserId String?
+  commitSha         String?
+  branch            String?
+  commitMessage     String?
+  commitAuthor      String?
+  configSnapshot    Json?
+  artifactId        String?   @unique
+  startedAt         DateTime?
+  completedAt       DateTime?
+  durationMs        Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment Environment? @relation(fields: [environmentId], references: [id])
+  triggeredBy User?        @relation("TriggeredBy", fields: [triggeredByUserId], references: [id])
+  artifact    BuildArtifact? @relation("DeploymentArtifact")
+  logs        DeploymentLog[]
+  approvalRequest ApprovalRequest?
+  preview     Preview?
+
+  @@index([projectId])
+  @@index([environmentId])
+}
+
+model DeploymentLog {
+  id           String   @id @default(uuid())
+  deploymentId String
+  seq          Int
+  content      String
+  createdAt    DateTime @default(now())
+
+  deployment Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@index([deploymentId, seq])
+}
+
+model BuildArtifact {
+  id           String   @id @default(uuid())
+  deploymentId String   @unique
+  storagePath  String
+  sizeBytes    BigInt   @default(0)
+  createdAt    DateTime @default(now())
+
+  deployment Deployment @relation("DeploymentArtifact", fields: [deploymentId], references: [id], onDelete: Cascade)
+}
+
+// ─── PR 预览 ──────────────────────────────────────────────────────────────────
+
+model Preview {
+  id           String    @id @default(uuid())
+  projectId    String
+  deploymentId String    @unique
+  prNumber     Int
+  prBranch     String
+  url          String
+  allocatedPort Int?
+  gitProvider  String
+  commentId    String?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deployment Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, prNumber])
+  @@index([projectId])
+}
+
+// ─── 审批 ─────────────────────────────────────────────────────────────────────
+
+model ApprovalRequest {
+  id                String    @id @default(uuid())
+  deploymentId      String    @unique
+  requestedByUserId String
+  reviewedByUserId  String?
+  status            String    @default("pending")
+  comment           String?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  deployment  Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  requestedBy User       @relation("RequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy  User?      @relation("ReviewedBy", fields: [reviewedByUserId], references: [id])
+}
+
+// ─── 审计日志 ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  action         String
+  resource       String
+  resourceId     String?
+  before         Json?
+  after          Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+}
+
+// ─── 通知配置 ─────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  projectId String
+  channel   String
+  config    Json
+  events    String[]
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}

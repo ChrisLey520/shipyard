@@ -1,0 +1,39 @@
+import { Module } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { PrismaModule } from './common/prisma/prisma.module';
+import { RedisModule } from './common/redis/redis.module';
+import { CryptoModule } from './common/crypto/crypto.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { OrgsModule } from './modules/orgs/orgs.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+import { ServersModule } from './modules/servers/servers.module';
+import { EnvironmentsModule } from './modules/environments/environments.module';
+import { PipelineModule } from './modules/pipeline/pipeline.module';
+import { DeployModule } from './modules/deploy/deploy.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { GatewayModule } from './common/gateway/gateway.module';
+
+@Module({
+  imports: [
+    ThrottlerModule.forRoot([
+      {
+        name: 'global',
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
+    PrismaModule,
+    RedisModule,
+    CryptoModule,
+    GatewayModule,
+    AuthModule,
+    OrgsModule,
+    ProjectsModule,
+    ServersModule,
+    EnvironmentsModule,
+    PipelineModule,
+    DeployModule,
+    WebhooksModule,
+  ],
+})
+export class AppModule {}
