@@ -48,8 +48,19 @@
         <div style="flex: 1" />
         <n-dropdown :options="userMenuOptions" @select="handleUserMenu">
           <n-button quaternary>
-            <n-avatar round size="small" style="margin-right: 8px">
-              {{ auth.user?.name?.[0]?.toUpperCase() }}
+            <n-avatar
+              v-if="userAvatarResolvedUrl && !userAvatarFailed"
+              :key="userAvatarResolvedUrl"
+              :src="userAvatarResolvedUrl"
+              round
+              size="small"
+              object-fit="cover"
+              :img-props="{ style: { objectFit: 'cover' } }"
+              style="margin-right: 8px"
+              :on-error="handleUserAvatarError"
+            />
+            <n-avatar v-else round size="small" style="margin-right: 8px">
+              {{ (auth.user?.name ?? auth.user?.email ?? 'U').slice(0, 1).toUpperCase() }}
             </n-avatar>
             {{ auth.user?.name }}
           </n-button>
@@ -93,6 +104,24 @@ const orgStore = useOrgStore();
 
 const collapsed = ref(false);
 const currentOrgSlug = ref((route.params['orgSlug'] as string | undefined) ?? orgStore.currentOrgSlug ?? '');
+
+const userAvatarFailed = ref(false);
+const userAvatarUrl = computed(() => auth.user?.avatarUrl ?? null);
+const userAvatarBust = computed(() => (auth.user?.avatarUrl ? auth.user.avatarUrl : ''));
+const userAvatarDisplayUrl = computed(() => {
+  if (!userAvatarUrl.value) return null;
+  const sep = userAvatarUrl.value.includes('?') ? '&' : '?';
+  // 使用 avatarUrl 本身作为 bust 来源，避免每次渲染都变
+  return `${userAvatarUrl.value}${sep}v=${encodeURIComponent(userAvatarBust.value)}`;
+});
+const userAvatarResolvedUrl = computed(() => {
+  if (!userAvatarDisplayUrl.value) return null;
+  return new URL(userAvatarDisplayUrl.value, window.location.origin).toString();
+});
+
+function handleUserAvatarError() {
+  userAvatarFailed.value = true;
+}
 
 const orgOptions = computed(() =>
   orgStore.orgs.map((o) => ({ label: o.name, value: o.slug })),

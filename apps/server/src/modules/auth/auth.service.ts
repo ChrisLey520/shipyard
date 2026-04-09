@@ -34,6 +34,7 @@ export class AuthService {
     return new Promise((resolve, reject) => {
       bcrypt.hash(password, rounds, (err, hash) => {
         if (err) return reject(err);
+        if (!hash) return reject(new Error('密码哈希生成失败'));
         resolve(hash);
       });
     });
@@ -161,7 +162,7 @@ export class AuthService {
   async getUserById(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true, email: true, createdAt: true },
+      select: { id: true, name: true, email: true, avatarUrl: true, createdAt: true },
     });
   }
 

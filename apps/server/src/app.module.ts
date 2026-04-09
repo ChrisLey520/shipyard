@@ -13,6 +13,7 @@ import { DeployModule } from './modules/deploy/deploy.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { GatewayModule } from './common/gateway/gateway.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { GatewayModule } from './common/gateway/gateway.module';
     CryptoModule,
     GatewayModule,
     AuthModule,
+    UsersModule,
     OrgsModule,
     ProjectsModule,
     ServersModule,

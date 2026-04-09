@@ -9,7 +9,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { RedisService } from '../redis/redis.service';
 
@@ -31,18 +31,23 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly redisService: RedisService,
+    @Inject(RedisService) private readonly redisService: RedisService,
   ) {}
 
   afterInit() {
     this.logger.log('WebSocket gateway initialized');
-    // 订阅所有 log-stream 频道，转发给对应房间
-    const sub = this.redisService.getSubscriber();
-    sub.psubscribe('log-stream:*');
-    sub.on('pmessage', (_pattern: string, channel: string, message: string) => {
-      const deploymentId = channel.replace('log-stream:', '');
-      this.server.to(`deployment:${deploymentId}`).emit('log:line', JSON.parse(message));
-    });
+    try {
+      // 订阅所有 log-stream 频道，转发给对应房间
+      const sub = this.redisService.getSubscriber();
+      sub.psubscribe('log-stream:*');
+      sub.on('pmessage', (_pattern: string, channel: string, message: string) => {
+        const deploymentId = channel.replace('log-stream:', '');
+        this.server.to(`deployment:${deploymentId}`).emit('log:line', JSON.parse(message));
+      });
+    } catch (err) {
+      // 避免 Redis 注入/连接异常导致服务崩溃（WebSocket 日志订阅降级）
+      this.logger.warn(`Redis log subscription disabled: ${String(err)}`);
+    }
   }
 
   handleConnection(client: Socket) {

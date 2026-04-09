@@ -4,6 +4,34 @@
 
     <n-card style="margin-top: 16px" title="基础信息">
       <n-form label-placement="left" label-width="120">
+        <n-form-item label="头像" :label-style="{ lineHeight: '48px' }">
+          <div style="display: flex; align-items: center; gap: 12px; min-height: 48px">
+            <div ref="avatarBoxRef" style="width: 48px; height: 48px; flex: 0 0 48px">
+              <n-avatar
+                v-if="avatarResolvedUrl && !avatarImgFailed"
+                :key="avatarResolvedUrl"
+                :src="avatarResolvedUrl"
+                round
+                :size="48"
+                object-fit="cover"
+                :img-props="{ style: { objectFit: 'cover' } }"
+                :on-error="handleAvatarError"
+              />
+              <n-avatar v-else round :size="48">
+                {{ (auth.user?.name ?? auth.user?.email ?? 'U').slice(0, 1).toUpperCase() }}
+              </n-avatar>
+            </div>
+            <n-upload
+              :show-file-list="false"
+              accept="image/png,image/jpeg,image/webp"
+              :max="1"
+              :disabled="uploadingAvatar"
+              @before-upload="handleBeforeUpload"
+            >
+              <n-button size="small" :loading="uploadingAvatar">上传头像</n-button>
+            </n-upload>
+          </div>
+        </n-form-item>
         <n-form-item label="姓名">
           <n-input v-model:value="name" placeholder="请输入姓名" />
         </n-form-item>
@@ -82,18 +110,49 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { NButton, NCard, NForm, NFormItem, NInput, NModal, NPageHeader, NSpace, useDialog, useMessage } from 'naive-ui';
+import {
+  NAvatar,
+  NButton,
+  NCard,
+  NForm,
+  NFormItem,
+  NInput,
+  NModal,
+  NPageHeader,
+  NSpace,
+  NUpload,
+  useDialog,
+  useMessage,
+  type UploadFileInfo,
+} from 'naive-ui';
 import { useAuthStore } from '../../stores/auth';
 import { authApi } from '../../api/auth';
+import { usersApi } from '../../api/users';
 
 const message = useMessage();
 const auth = useAuthStore();
 const router = useRouter();
 const dialog = useDialog();
 
+const avatarBoxRef = ref<HTMLElement | null>(null);
+
 const saving = ref(false);
 const email = computed(() => auth.user?.email ?? '');
 const name = ref(auth.user?.name ?? '');
+const avatarUrl = computed(() => auth.user?.avatarUrl ?? null);
+const avatarBust = ref(Date.now());
+const avatarDisplayUrl = computed(() => {
+  if (!avatarUrl.value) return null;
+  const sep = avatarUrl.value.includes('?') ? '&' : '?';
+  return `${avatarUrl.value}${sep}v=${avatarBust.value}`;
+});
+const avatarResolvedUrl = computed(() => {
+  if (!avatarDisplayUrl.value) return null;
+  return new URL(avatarDisplayUrl.value, window.location.origin).toString();
+});
+
+const uploadingAvatar = ref(false);
+const avatarImgFailed = ref(false);
 
 const showChangePassword = ref(false);
 const changingPassword = ref(false);
@@ -115,6 +174,34 @@ async function save() {
   } finally {
     saving.value = false;
   }
+}
+
+async function handleBeforeUpload(options: { file: UploadFileInfo }) {
+  const raw = options.file.file;
+  if (!raw) {
+    message.error('读取文件失败');
+    return false;
+  }
+  uploadingAvatar.value = true;
+  try {
+    const { avatarUrl: newAvatarUrl } = await usersApi.uploadMyAvatar(raw);
+    // 立即更新 UI（避免依赖 fetchMe 或浏览器缓存）
+    if (auth.user) auth.user = { ...auth.user, avatarUrl: newAvatarUrl };
+    avatarBust.value = Date.now();
+    await auth.fetchMe().catch(() => {});
+    message.success('头像已更新');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(e?.response?.data?.message ?? '上传失败');
+  } finally {
+    uploadingAvatar.value = false;
+  }
+  return false;
+}
+
+function handleAvatarError() {
+  avatarImgFailed.value = true;
+  message.error('头像加载失败：请检查 /uploads 是否可访问');
 }
 
 function openChangePassword() {

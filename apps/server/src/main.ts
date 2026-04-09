@@ -1,14 +1,24 @@
+import { config as loadDotenv } from 'dotenv';
+import { resolve } from 'path';
+
+// monorepo：强制从仓库根目录加载环境变量（pnpm filter 运行时 cwd 可能在 apps/server）
+loadDotenv({ path: resolve(__dirname, '../../../.env') });
+loadDotenv({ path: resolve(__dirname, '../../../.env.local') });
+
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
+import express from 'express';
+import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
+  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
   app.enableCors({
     origin: process.env['CORS_ORIGIN'] ?? 'http://localhost:5173',
