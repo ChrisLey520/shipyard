@@ -45,24 +45,24 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
     errorColor: '#ef4444',
     infoColor: '#3b82f6',
 
-    baseColor: isDark.value ? '#0b0c0f' : '#ffffff',
-    bodyColor: isDark.value ? '#0b0c0f' : '#f6f8fa',
-    cardColor: isDark.value ? '#111827' : '#ffffff',
+    baseColor: isDark.value ? '#0b1220' : '#ffffff',
+    bodyColor: isDark.value ? '#0b1220' : '#f6f8fa',
+    cardColor: isDark.value ? '#0f1b2e' : '#ffffff',
 
     textColorBase: isDark.value ? '#e6edf3' : '#0f172a',
     textColor1: isDark.value ? '#e6edf3' : '#0f172a',
     textColor2: isDark.value ? '#cbd5e1' : '#334155',
     textColor3: isDark.value ? '#94a3b8' : '#64748b',
 
-    borderColor: isDark.value ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.14)',
+    borderColor: isDark.value ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.14)',
     borderRadius: '8px',
     fontSize: '14px',
     fontSizeSmall: '12px',
   },
   Layout: {
-    siderColor: isDark.value ? '#0f1115' : '#ffffff',
-    headerColor: isDark.value ? '#0f1115' : '#ffffff',
-    contentColor: isDark.value ? '#0b0c0f' : '#f6f8fa',
+    siderColor: isDark.value ? '#0a1426' : '#ffffff',
+    headerColor: isDark.value ? '#0a1426' : '#ffffff',
+    contentColor: isDark.value ? '#0b1220' : '#f6f8fa',
   },
   Card: {
     borderRadius: '10px',

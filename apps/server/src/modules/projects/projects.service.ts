@@ -29,10 +29,12 @@ export class ProjectsService {
     const project = await this.prisma.project.findFirst({
       where: { organizationId: orgId, slug: projectSlug },
       include: {
+        gitConnection: { select: { id: true, gitProvider: true, gitUsername: true, createdAt: true, updatedAt: true } },
         pipelineConfig: true,
         environments: {
           include: { server: { select: { id: true, name: true, host: true } } },
         },
+        _count: { select: { deployments: true, environments: true } },
       },
     });
     if (!project) throw new NotFoundException('项目不存在');

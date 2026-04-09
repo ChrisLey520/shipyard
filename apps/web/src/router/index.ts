@@ -8,6 +8,14 @@ const routes: RouteRecordRaw[] = [
   { path: '/forgot-password', component: () => import('../pages/auth/ForgotPasswordPage.vue') },
   { path: '/reset-password', component: () => import('../pages/auth/ResetPasswordPage.vue') },
 
+  // 个人设置（有 Layout，但不属于某个组织）
+  {
+    path: '/settings',
+    component: () => import('../components/layout/AppLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [{ path: '', component: () => import('../pages/settings/PersonalSettingsPage.vue') }],
+  },
+
   // 组织选择页（有 Layout）
   {
     path: '/orgs',

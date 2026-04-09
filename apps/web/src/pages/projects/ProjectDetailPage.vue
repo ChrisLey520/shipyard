@@ -2,9 +2,14 @@
   <div>
     <n-page-header :title="project?.name ?? '...'" @back="router.push(`/orgs/${orgSlug}/projects`)">
       <template #extra>
-        <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/settings`)">
-          设置
-        </n-button>
+        <n-space>
+          <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
+            环境管理
+          </n-button>
+          <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/settings`)">
+            设置
+          </n-button>
+        </n-space>
       </template>
       <template #subtitle>
         <n-text depth="3">{{ project?.repoFullName }}</n-text>
@@ -13,9 +18,56 @@
 
     <n-tabs style="margin-top: 16px">
       <n-tab-pane name="overview" tab="概览">
+        <n-grid :cols="3" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
+          <n-grid-item class="overview-top-grid-item">
+            <n-card title="项目信息" size="small" class="overview-top-card">
+              <n-descriptions label-placement="left" :column="1" size="small">
+                <n-descriptions-item label="Slug">{{ project?.slug ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="框架">{{ project?.frameworkType ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="仓库">{{ project?.repoFullName ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="创建时间">{{ project?.createdAt ? new Date(project.createdAt).toLocaleString() : '—' }}</n-descriptions-item>
+              </n-descriptions>
+            </n-card>
+          </n-grid-item>
+
+          <n-grid-item class="overview-top-grid-item">
+            <n-card title="Git 连接" size="small" class="overview-top-card">
+              <n-descriptions label-placement="left" :column="1" size="small">
+                <n-descriptions-item label="Provider">{{ project?.gitConnection?.gitProvider ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="用户名">{{ project?.gitConnection?.gitUsername ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="状态">{{ project?.gitConnection ? '已绑定' : '未绑定' }}</n-descriptions-item>
+              </n-descriptions>
+            </n-card>
+          </n-grid-item>
+
+          <n-grid-item class="overview-top-grid-item">
+            <n-card title="构建配置" size="small" class="overview-top-card">
+              <n-descriptions label-placement="left" :column="1" size="small">
+                <n-descriptions-item label="Node">{{ project?.pipelineConfig?.nodeVersion ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="安装">{{ project?.pipelineConfig?.installCommand ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="构建">{{ project?.pipelineConfig?.buildCommand ?? '—' }}</n-descriptions-item>
+                <n-descriptions-item label="输出">{{ project?.pipelineConfig?.outputDir ?? '—' }}</n-descriptions-item>
+              </n-descriptions>
+            </n-card>
+          </n-grid-item>
+        </n-grid>
+
+        <n-card title="环境" size="small" style="margin-top: 16px">
+        <n-empty
+          v-if="!project || project.environments.length === 0"
+          description="还没有部署环境"
+          style="margin-top: 8px"
+        >
+          <template #extra>
+            <n-button type="primary" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
+              去创建环境
+            </n-button>
+          </template>
+        </n-empty>
+
         <!-- 环境列表 -->
-        <n-grid :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
-          <n-grid-item v-for="env in project?.environments" :key="env.id">
+        <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
+          <n-grid-item v-for="env in project.environments" :key="env.id">
             <n-card :title="env.name" size="small">
               <div style="display: flex; gap: 8px; flex-wrap: wrap">
                 <n-tag size="small">{{ env.triggerBranch }}</n-tag>
@@ -23,6 +75,9 @@
                   {{ env.protected ? '🔒 受保护' : '开放' }}
                 </n-tag>
               </div>
+              <n-text depth="3" style="display:block;margin-top:8px;font-size:12px">
+                {{ env.server?.name }} ({{ env.server?.host }}) · {{ env.deployPath }}
+              </n-text>
               <div style="margin-top: 12px; display: flex; gap: 8px">
                 <n-button size="small" type="primary" @click="triggerDeploy(env.id)">
                   立即部署
@@ -34,6 +89,7 @@
             </n-card>
           </n-grid-item>
         </n-grid>
+        </n-card>
       </n-tab-pane>
 
       <n-tab-pane name="deployments" tab="部署历史">
@@ -55,7 +111,7 @@ import { ref, h, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
-  NTag, NButton, NText, NDataTable, useMessage,
+  NTag, NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem,
   type DataTableColumns,
 } from 'naive-ui';
 import { formatDuration } from '@shipyard/shared';
@@ -142,3 +198,18 @@ onMounted(async () => {
   ]);
 });
 </script>
+
+<style scoped>
+.overview-top-grid {
+  align-items: stretch;
+}
+
+.overview-top-grid-item {
+  display: flex;
+}
+
+.overview-top-card {
+  flex: 1;
+  height: 100%;
+}
+</style>

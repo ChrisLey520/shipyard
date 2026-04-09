@@ -11,9 +11,43 @@ export interface ProjectListItem {
 }
 
 export interface ProjectDetail {
+  id: string;
   name: string;
+  slug: string;
   repoFullName: string;
-  environments: { id: string; name: string; triggerBranch: string; protected: boolean }[];
+  frameworkType: string;
+  createdAt: string;
+  updatedAt: string;
+  gitConnection: null | {
+    id: string;
+    gitProvider: string;
+    gitUsername: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  pipelineConfig: null | {
+    installCommand: string;
+    buildCommand: string;
+    lintCommand: string | null;
+    testCommand: string | null;
+    outputDir: string;
+    nodeVersion: string;
+    cacheEnabled: boolean;
+    timeoutSeconds: number;
+    ssrEntryPoint: string | null;
+    updatedAt: string;
+  };
+  _count?: { deployments: number; environments: number };
+  environments: {
+    id: string;
+    name: string;
+    triggerBranch: string;
+    protected: boolean;
+    deployPath: string;
+    domain: string | null;
+    healthCheckUrl: string | null;
+    server: { id: string; name: string; host: string };
+  }[];
 }
 
 export interface DeploymentListItem {

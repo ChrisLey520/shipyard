@@ -18,24 +18,28 @@
       </n-grid-item>
     </n-grid>
 
-    <n-grid :cols="2" :x-gap="16">
+    <n-grid :cols="2" :x-gap="16" class="dash-main-grid">
       <!-- 最近部署 -->
-      <n-grid-item>
-        <n-card title="最近部署">
-          <n-data-table
-            :columns="deployColumns"
-            :data="recentDeployments"
-            :loading="loading"
-            size="small"
-            :pagination="false"
-          />
+      <n-grid-item class="dash-main-grid-item">
+        <n-card title="最近部署" class="dash-card">
+          <div class="dash-card-body">
+            <n-data-table
+              :columns="deployColumns"
+              :data="recentDeployments"
+              :loading="loading"
+              size="small"
+              :pagination="false"
+            />
+          </div>
         </n-card>
       </n-grid-item>
 
       <!-- 构建次数图表 -->
-      <n-grid-item>
-        <n-card title="最近 7 天构建">
-          <v-chart :option="chartOption" style="height: 240px" autoresize />
+      <n-grid-item class="dash-main-grid-item">
+        <n-card title="最近 7 天构建" class="dash-card">
+          <div class="dash-card-body">
+            <v-chart :option="chartOption" class="dash-chart" autoresize />
+          </div>
         </n-card>
       </n-grid-item>
     </n-grid>
@@ -136,3 +140,29 @@ onMounted(async () => {
   }
 });
 </script>
+
+<style scoped>
+.dash-main-grid {
+  align-items: stretch;
+}
+
+.dash-main-grid-item {
+  display: flex;
+}
+
+.dash-card {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-card-body {
+  flex: 1;
+  min-height: 260px;
+}
+
+.dash-chart {
+  height: 260px;
+}
+</style>

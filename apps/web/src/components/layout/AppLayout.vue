@@ -56,8 +56,17 @@
         </n-dropdown>
       </n-layout-header>
 
-      <n-layout-content style="padding: 24px; overflow-y: auto; height: calc(100vh - 56px)">
-        <router-view />
+      <n-layout-content style="overflow-y: auto; height: calc(100vh - 56px)">
+        <div class="app-shell">
+          <div class="app-bg">
+            <div class="app-bg-grid" />
+            <div class="app-bg-blur-1" />
+            <div class="app-bg-blur-2" />
+          </div>
+          <div style="position: relative; padding: 24px">
+            <router-view />
+          </div>
+        </div>
       </n-layout-content>
     </n-layout>
   </n-layout>
@@ -84,7 +93,6 @@ const orgStore = useOrgStore();
 
 const collapsed = ref(false);
 const currentOrgSlug = ref((route.params['orgSlug'] as string | undefined) ?? orgStore.currentOrgSlug ?? '');
-const currentOrg = computed(() => orgStore.currentOrg);
 
 const orgOptions = computed(() =>
   orgStore.orgs.map((o) => ({ label: o.name, value: o.slug })),

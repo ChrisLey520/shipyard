@@ -52,6 +52,7 @@
               </n-form-item>
               <n-form-item label="密码">
                 <n-input
+                  ref="passwordInputRef"
                   v-model:value="form.password"
                   type="password"
                   placeholder="请输入密码"
@@ -83,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { NCard, NForm, NFormItem, NInput, NButton, NDivider, useMessage } from 'naive-ui';
 import { useAuthStore } from '../../stores/auth';
@@ -95,6 +96,18 @@ const message = useMessage();
 const loading = ref(false);
 
 const form = ref({ email: '', password: '' });
+const passwordInputRef = ref<InstanceType<typeof NInput> | null>(null);
+
+function syncEmailFromQueryAndFocusPassword() {
+  const qEmail = (route.query['email'] as string | undefined) ?? '';
+  if (qEmail) form.value.email = qEmail;
+  void nextTick(() => {
+    passwordInputRef.value?.focus?.();
+  });
+}
+
+onMounted(syncEmailFromQueryAndFocusPassword);
+watch(() => route.query['email'], syncEmailFromQueryAndFocusPassword);
 
 async function handleSubmit() {
   if (!form.value.email || !form.value.password) {
