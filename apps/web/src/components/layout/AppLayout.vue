@@ -23,9 +23,24 @@
         v-model:value="currentOrgSlug"
         :options="orgOptions"
         size="small"
-        style="margin: 8px 12px"
+        style="margin: 8px 12px; width: calc(100% - 24px)"
+        :menu-props="{ style: { maxWidth: '220px' } }"
         @update:value="switchOrg"
-      />
+      >
+        <template #action>
+          <div style="padding: 0 2px 2px">
+            <n-button
+              size="small"
+              quaternary
+              block
+              style="height: 32px; width: 100%"
+              @click="openCreateOrg"
+            >
+              + 创建组织
+            </n-button>
+          </div>
+        </template>
+      </n-select>
 
       <n-menu
         :collapsed="collapsed"
@@ -81,6 +96,23 @@
       </n-layout-content>
     </n-layout>
   </n-layout>
+
+  <n-modal v-model:show="showCreateOrg" title="创建组织" preset="card" style="width: 440px">
+    <n-form :model="createOrgForm" label-placement="left" label-width="80">
+      <n-form-item label="组织名称">
+        <n-input v-model:value="createOrgForm.name" @input="autoSlugForCreateOrg" />
+      </n-form-item>
+      <n-form-item label="URL 标识">
+        <n-input v-model:value="createOrgForm.slug" placeholder="只能包含小写字母、数字和连字符" />
+      </n-form-item>
+    </n-form>
+    <template #footer>
+      <n-space justify="end">
+        <n-button :disabled="creatingOrg" @click="showCreateOrg = false">取消</n-button>
+        <n-button type="primary" :loading="creatingOrg" @click="handleCreateOrg">创建</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -88,11 +120,12 @@ import { ref, computed, h, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutHeader, NLayoutContent,
-  NMenu, NButton, NIcon, NAvatar, NDropdown, NSelect,
+  NMenu, NButton, NIcon, NAvatar, NDropdown, NSelect, NModal, NForm, NFormItem, NInput, NSpace,
   type MenuOption,
 } from 'naive-ui';
 import { useAuthStore } from '../../stores/auth';
 import { useOrgStore } from '../../stores/org';
+import { createOrg } from '../../pages/orgs/api';
 
 // 临时图标组件（实际项目中使用 @vicons）
 const MenuOutlined = { render: () => h('span', '☰') };
@@ -104,6 +137,10 @@ const orgStore = useOrgStore();
 
 const collapsed = ref(false);
 const currentOrgSlug = ref((route.params['orgSlug'] as string | undefined) ?? orgStore.currentOrgSlug ?? '');
+
+const showCreateOrg = ref(false);
+const creatingOrg = ref(false);
+const createOrgForm = ref({ name: '', slug: '' });
 
 const userAvatarFailed = ref(false);
 const userAvatarUrl = computed(() => auth.user?.avatarUrl ?? null);
@@ -121,6 +158,33 @@ const userAvatarResolvedUrl = computed(() => {
 
 function handleUserAvatarError() {
   userAvatarFailed.value = true;
+}
+
+function openCreateOrg() {
+  createOrgForm.value = { name: '', slug: '' };
+  showCreateOrg.value = true;
+}
+
+function autoSlugForCreateOrg() {
+  createOrgForm.value.slug = createOrgForm.value.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+async function handleCreateOrg() {
+  if (!createOrgForm.value.name || !createOrgForm.value.slug) return;
+  creatingOrg.value = true;
+  try {
+    await createOrg({ name: createOrgForm.value.name, slug: createOrgForm.value.slug });
+    await orgStore.fetchOrgs();
+    showCreateOrg.value = false;
+    currentOrgSlug.value = createOrgForm.value.slug;
+    orgStore.setCurrentOrg(createOrgForm.value.slug);
+    void router.push(`/orgs/${createOrgForm.value.slug}`);
+  } finally {
+    creatingOrg.value = false;
+  }
 }
 
 const orgOptions = computed(() =>
