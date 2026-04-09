@@ -58,27 +58,23 @@ import {
   NTag, NButton, NText, NDataTable, useMessage,
   type DataTableColumns,
 } from 'naive-ui';
-import { http } from '../../api/client';
 import { formatDuration } from '@shipyard/shared';
-
-interface Deployment {
-  id: string;
-  branch: string;
-  commitMessage: string;
-  status: string;
-  durationMs: number | null;
-  createdAt: string;
-  environment?: { name: string };
-  artifactId: string | null;
-}
+import {
+  getProject,
+  listDeployments,
+  triggerDeploy as apiTriggerDeploy,
+  rollbackDeployment,
+  type DeploymentListItem,
+  type ProjectDetail,
+} from './api';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const orgSlug = route.params['orgSlug'] as string;
 const projectSlug = route.params['projectSlug'] as string;
-const project = ref<{ name: string; repoFullName: string; environments: { id: string; name: string; triggerBranch: string; protected: boolean }[] } | null>(null);
-const deployments = ref<Deployment[]>([]);
+const project = ref<ProjectDetail | null>(null);
+const deployments = ref<DeploymentListItem[]>([]);
 const deploymentsLoading = ref(false);
 
 const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
@@ -86,7 +82,7 @@ const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'defa
   deploying: 'info', queued: 'default', pending_approval: 'warning',
 };
 
-const deployColumns: DataTableColumns<Deployment> = [
+const deployColumns: DataTableColumns<DeploymentListItem> = [
   { title: '环境', key: 'env', render: (r) => r.environment?.name ?? 'Preview', width: 100 },
   { title: '分支', key: 'branch', width: 120 },
   { title: 'Commit', key: 'commitMessage', ellipsis: { tooltip: true } },
@@ -111,7 +107,7 @@ const deployColumns: DataTableColumns<Deployment> = [
 
 async function triggerDeploy(environmentId: string) {
   try {
-    await http.post(`/orgs/${orgSlug}/projects/${projectSlug}/deploy`, { environmentId });
+    await apiTriggerDeploy(orgSlug, projectSlug, { environmentId });
     message.success('部署已入队');
     await loadDeployments();
   } catch (err: unknown) {
@@ -122,7 +118,7 @@ async function triggerDeploy(environmentId: string) {
 
 async function rollback(deploymentId: string) {
   try {
-    await http.post(`/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}/rollback`);
+    await rollbackDeployment(orgSlug, projectSlug, deploymentId);
     message.success('回滚已入队');
     await loadDeployments();
   } catch {
@@ -132,15 +128,16 @@ async function rollback(deploymentId: string) {
 
 async function loadDeployments() {
   deploymentsLoading.value = true;
-  deployments.value = await http
-    .get<Deployment[]>(`/orgs/${orgSlug}/projects/${projectSlug}/deployments`)
-    .then((r) => r.data)
-    .finally(() => { deploymentsLoading.value = false; });
+  try {
+    deployments.value = await listDeployments(orgSlug, projectSlug);
+  } finally {
+    deploymentsLoading.value = false;
+  }
 }
 
 onMounted(async () => {
   [project.value] = await Promise.all([
-    http.get(`/orgs/${orgSlug}/projects/${projectSlug}`).then((r) => r.data),
+    getProject(orgSlug, projectSlug),
     loadDeployments(),
   ]);
 });

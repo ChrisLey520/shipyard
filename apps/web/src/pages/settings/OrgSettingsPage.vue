@@ -25,8 +25,8 @@
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { NPageHeader, NCard, NForm, NFormItem, NInput, NInputNumber, NButton, useMessage } from 'naive-ui';
-import { http } from '../../api/client';
 import { useOrgStore } from '../../stores/org';
+import { getOrg, updateOrg } from './api';
 
 const route = useRoute();
 const message = useMessage();
@@ -38,7 +38,7 @@ const form = ref({ name: '', buildConcurrency: 2, artifactRetention: 10 });
 async function save() {
   saving.value = true;
   try {
-    await http.patch(`/orgs/${orgSlug}`, form.value);
+    await updateOrg(orgSlug, form.value);
     await orgStore.fetchOrgs();
     message.success('保存成功');
   } catch {
@@ -49,7 +49,7 @@ async function save() {
 }
 
 onMounted(async () => {
-  const org = await http.get(`/orgs/${orgSlug}`).then((r) => r.data);
+  const org = await getOrg(orgSlug);
   form.value = {
     name: org.name,
     buildConcurrency: org.buildConcurrency,

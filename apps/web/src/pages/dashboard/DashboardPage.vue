@@ -54,27 +54,18 @@ import { use } from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { http } from '../../api/client';
 import { formatDuration } from '@shipyard/shared';
+import { listProjectsForOrg, listDeploymentsForProject, type DashboardDeploymentLite } from './api';
 
 use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
 const route = useRoute();
 const loading = ref(false);
 
-interface Deployment {
-  id: string;
-  branch: string;
-  status: string;
-  durationMs: number | null;
-  createdAt: string;
-  environment?: { name: string };
-}
-
-const recentDeployments = ref<Deployment[]>([]);
+const recentDeployments = ref<DashboardDeploymentLite[]>([]);
 const stats = ref({ totalDeploys: 0, successRate: 0, avgDuration: '—', activeProjects: 0 });
 
-const deployColumns: DataTableColumns<Deployment> = [
+const deployColumns: DataTableColumns<DashboardDeploymentLite> = [
   { title: '环境', key: 'environment', render: (row) => row.environment?.name ?? 'Preview' },
   { title: '分支', key: 'branch' },
   {
@@ -120,15 +111,13 @@ onMounted(async () => {
   const orgSlug = route.params['orgSlug'] as string;
   loading.value = true;
   try {
-    const projects = await http.get<{ id: string; slug: string }[]>(`/orgs/${orgSlug}/projects`).then((r) => r.data);
+    const projects = await listProjectsForOrg(orgSlug);
     stats.value.activeProjects = projects.length;
 
     // 拉取各项目最近部署
-    const allDeployments: Deployment[] = [];
+    const allDeployments: DashboardDeploymentLite[] = [];
     for (const p of projects.slice(0, 3)) {
-      const deps = await http
-        .get<Deployment[]>(`/orgs/${orgSlug}/projects/${p.slug}/deployments`)
-        .then((r) => r.data.slice(0, 5));
+      const deps = (await listDeploymentsForProject(orgSlug, p.slug)).slice(0, 5);
       allDeployments.push(...deps);
     }
     recentDeployments.value = allDeployments

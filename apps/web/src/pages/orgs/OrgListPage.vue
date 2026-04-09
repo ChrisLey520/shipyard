@@ -42,7 +42,7 @@ import {
   NModal, NForm, NFormItem, NInput, NSpace, useMessage,
 } from 'naive-ui';
 import { useOrgStore } from '../../stores/org';
-import { http } from '../../api/client';
+import { createOrg } from './api';
 
 const router = useRouter();
 const orgStore = useOrgStore();
@@ -65,7 +65,7 @@ async function handleCreate() {
   }
   creating.value = true;
   try {
-    await http.post('/orgs', form.value);
+    await createOrg(form.value);
     await orgStore.fetchOrgs();
     showCreate.value = false;
     message.success('组织创建成功');

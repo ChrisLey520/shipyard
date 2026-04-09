@@ -288,7 +288,7 @@ export class BuildWorkerService implements OnModuleInit {
       await this.prisma.approvalRequest.create({
         data: {
           deploymentId,
-          requestedByUserId: deployment.triggeredByUserId ?? deploymentId, // Webhook 触发时用 deploymentId 作占位
+          requestedByUserId: deployment.triggeredByUserId ?? undefined,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           status: 'pending',
         },

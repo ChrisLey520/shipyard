@@ -40,20 +40,18 @@ import {
   NPageHeader, NDataTable, NButton, NModal, NForm, NFormItem,
   NInput, NInputNumber, NSpace, useMessage, type DataTableColumns,
 } from 'naive-ui';
-import { http } from '../../api/client';
-
-interface Server { id: string; name: string; host: string; port: number; user: string }
+import { createServer, deleteServer as apiDeleteServer, listServers, testServer, type ServerItem } from './api';
 
 const route = useRoute();
 const message = useMessage();
 const orgSlug = route.params['orgSlug'] as string;
-const servers = ref<Server[]>([]);
+const servers = ref<ServerItem[]>([]);
 const loading = ref(false);
 const showAdd = ref(false);
 const adding = ref(false);
 const form = ref({ name: '', host: '', port: 22, user: 'root', privateKey: '' });
 
-const columns: DataTableColumns<Server> = [
+const columns: DataTableColumns<ServerItem> = [
   { title: '名称', key: 'name' },
   { title: 'Host', key: 'host' },
   { title: 'SSH 端口', key: 'port', width: 100 },
@@ -68,13 +66,13 @@ const columns: DataTableColumns<Server> = [
 ];
 
 async function testConn(serverId: string) {
-  const result = await http.post<{ success: boolean; message: string }>(`/orgs/${orgSlug}/servers/${serverId}/test`).then((r) => r.data);
+  const result = await testServer(orgSlug, serverId);
   if (result.success) message.success(result.message);
   else message.error(result.message);
 }
 
 async function deleteServer(serverId: string) {
-  await http.delete(`/orgs/${orgSlug}/servers/${serverId}`);
+  await apiDeleteServer(orgSlug, serverId);
   message.success('已删除');
   await load();
 }
@@ -82,7 +80,7 @@ async function deleteServer(serverId: string) {
 async function handleAdd() {
   adding.value = true;
   try {
-    await http.post(`/orgs/${orgSlug}/servers`, form.value);
+    await createServer(orgSlug, form.value);
     message.success('服务器已添加');
     showAdd.value = false;
     await load();
@@ -96,7 +94,11 @@ async function handleAdd() {
 
 async function load() {
   loading.value = true;
-  servers.value = await http.get<Server[]>(`/orgs/${orgSlug}/servers`).then((r) => r.data).finally(() => { loading.value = false; });
+  try {
+    servers.value = await listServers(orgSlug);
+  } finally {
+    loading.value = false;
+  }
 }
 
 onMounted(load);

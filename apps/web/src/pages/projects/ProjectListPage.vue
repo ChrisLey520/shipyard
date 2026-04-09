@@ -36,28 +36,18 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NPageHeader, NGrid, NGridItem, NCard, NText, NTag, NSpin, NEmpty, NButton } from 'naive-ui';
-import { http } from '../../api/client';
-
-interface Project {
-  id: string;
-  name: string;
-  slug: string;
-  repoFullName: string;
-  frameworkType: string;
-  environments: { id: string }[];
-  _count: { deployments: number };
-}
+import { listProjects, type ProjectListItem } from './api';
 
 const route = useRoute();
 const router = useRouter();
 const orgSlug = route.params['orgSlug'] as string;
 const loading = ref(false);
-const projects = ref<Project[]>([]);
+const projects = ref<ProjectListItem[]>([]);
 
 onMounted(async () => {
   loading.value = true;
   try {
-    projects.value = await http.get<Project[]>(`/orgs/${orgSlug}/projects`).then((r) => r.data);
+    projects.value = await listProjects(orgSlug);
   } finally {
     loading.value = false;
   }

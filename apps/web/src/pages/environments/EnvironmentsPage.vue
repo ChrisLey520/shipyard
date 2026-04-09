@@ -69,10 +69,17 @@ import {
   NModal, NForm, NFormItem, NInput, NSelect, NSwitch, NDataTable,
   useMessage, type DataTableColumns,
 } from 'naive-ui';
-import { http } from '../../api/client';
-
-interface Env { id: string; name: string; triggerBranch: string; deployPath: string; protected: boolean; domain: string | null }
-interface EnvVar { id: string; key: string }
+import {
+  listEnvironments,
+  createEnvironment,
+  deleteEnvironment,
+  listServersForOrg,
+  listEnvVars,
+  upsertEnvVar,
+  deleteEnvVar,
+  type Env,
+  type EnvVar,
+} from './api';
 
 const route = useRoute();
 const router = useRouter();
@@ -107,24 +114,24 @@ function openVarModal(env: Env) {
 }
 
 async function loadVars(envId: string) {
-  envVars.value = await http.get<EnvVar[]>(`/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}/variables`).then((r) => r.data);
+  envVars.value = await listEnvVars(orgSlug, projectSlug, envId);
 }
 
 async function addVar() {
   if (!newVar.value.key || !newVar.value.value || !selectedEnv.value) return;
-  await http.post(`/orgs/${orgSlug}/projects/${projectSlug}/environments/${selectedEnv.value.id}/variables`, newVar.value);
+  await upsertEnvVar(orgSlug, projectSlug, selectedEnv.value.id, newVar.value);
   newVar.value = { key: '', value: '' };
   await loadVars(selectedEnv.value.id);
   message.success('已添加');
 }
 
 async function deleteVar(varId: string) {
-  await http.delete(`/orgs/${orgSlug}/projects/${projectSlug}/environments/${selectedEnv.value!.id}/variables/${varId}`);
+  await deleteEnvVar(orgSlug, projectSlug, selectedEnv.value!.id, varId);
   await loadVars(selectedEnv.value!.id);
 }
 
 async function deleteEnv(envId: string) {
-  await http.delete(`/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}`);
+  await deleteEnvironment(orgSlug, projectSlug, envId);
   message.success('已删除');
   await load();
 }
@@ -132,7 +139,7 @@ async function deleteEnv(envId: string) {
 async function handleAddEnv() {
   adding.value = true;
   try {
-    await http.post(`/orgs/${orgSlug}/projects/${projectSlug}/environments`, envForm.value);
+    await createEnvironment(orgSlug, projectSlug, envForm.value);
     message.success('环境创建成功');
     showAdd.value = false;
     await load();
@@ -145,8 +152,8 @@ async function handleAddEnv() {
 
 async function load() {
   const [envData, serverData] = await Promise.all([
-    http.get<Env[]>(`/orgs/${orgSlug}/projects/${projectSlug}/environments`).then((r) => r.data),
-    http.get<{ id: string; name: string }[]>(`/orgs/${orgSlug}/servers`).then((r) => r.data),
+    listEnvironments(orgSlug, projectSlug),
+    listServersForOrg(orgSlug),
   ]);
   envs.value = envData;
   servers.value = serverData;

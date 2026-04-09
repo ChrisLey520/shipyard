@@ -39,18 +39,12 @@ import {
   NPageHeader, NDataTable, NButton, NTag, NModal, NForm, NFormItem,
   NInput, NSelect, NSpace, useMessage, type DataTableColumns,
 } from 'naive-ui';
-import { http } from '../../api/client';
-
-interface Member {
-  userId: string;
-  role: string;
-  user: { name: string; email: string };
-}
+import { inviteMember, listMembers, removeMember as apiRemoveMember, type TeamMember } from './api';
 
 const route = useRoute();
 const message = useMessage();
 const orgSlug = route.params['orgSlug'] as string;
-const members = ref<Member[]>([]);
+const members = ref<TeamMember[]>([]);
 const loading = ref(false);
 const showInvite = ref(false);
 const inviting = ref(false);
@@ -66,7 +60,7 @@ const roleTypeMap: Record<string, 'error' | 'warning' | 'info' | 'default'> = {
   owner: 'error', admin: 'warning', developer: 'info', viewer: 'default',
 };
 
-const columns: DataTableColumns<Member> = [
+const columns: DataTableColumns<TeamMember> = [
   { title: '名称', key: 'name', render: (r) => r.user.name },
   { title: '邮箱', key: 'email', render: (r) => r.user.email },
   {
@@ -84,7 +78,7 @@ const columns: DataTableColumns<Member> = [
 async function handleInvite() {
   inviting.value = true;
   try {
-    await http.post(`/orgs/${orgSlug}/members/invite`, inviteForm.value);
+    await inviteMember(orgSlug, inviteForm.value);
     message.success('邀请已发送');
     showInvite.value = false;
   } catch (err: unknown) {
@@ -96,14 +90,18 @@ async function handleInvite() {
 }
 
 async function removeMember(userId: string) {
-  await http.delete(`/orgs/${orgSlug}/members/${userId}`);
+  await apiRemoveMember(orgSlug, userId);
   message.success('成员已移除');
   await load();
 }
 
 async function load() {
   loading.value = true;
-  members.value = await http.get<Member[]>(`/orgs/${orgSlug}/members`).then((r) => r.data).finally(() => { loading.value = false; });
+  try {
+    members.value = await listMembers(orgSlug);
+  } finally {
+    loading.value = false;
+  }
 }
 
 onMounted(load);

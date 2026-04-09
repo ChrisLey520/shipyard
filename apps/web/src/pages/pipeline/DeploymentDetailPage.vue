@@ -40,26 +40,18 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { io } from 'socket.io-client';
-import { http } from '../../api/client';
 import { formatDuration } from '@shipyard/shared';
 import { useAuthStore } from '../../stores/auth';
-
-interface Deployment {
-  id: string;
-  branch: string;
-  commitMessage: string;
-  status: string;
-  trigger: string;
-  durationMs: number | null;
-  environment?: { name: string };
-}
+import { getDeploymentDetail, getDeploymentLogs, type DeploymentDetail } from './api';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const orgSlug = route.params['orgSlug'] as string;
+const projectSlug = route.params['projectSlug'] as string;
 const deploymentId = route.params['deploymentId'] as string;
 const terminalEl = ref<HTMLElement | null>(null);
-const deployment = ref<Deployment | null>(null);
+const deployment = ref<DeploymentDetail | null>(null);
 
 const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
   success: 'success', failed: 'error', building: 'warning',
@@ -70,7 +62,7 @@ let terminal: Terminal | null = null;
 let socket: ReturnType<typeof io> | null = null;
 
 onMounted(async () => {
-  deployment.value = await http.get<Deployment>(`/api/deployments/${deploymentId}`).then((r) => r.data).catch(() => null);
+  deployment.value = await getDeploymentDetail(orgSlug, projectSlug, deploymentId).catch(() => null);
 
   // 初始化终端
   terminal = new Terminal({ theme: { background: '#1e1e1e' }, fontSize: 13, fontFamily: 'monospace' });
@@ -82,9 +74,7 @@ onMounted(async () => {
   }
 
   // 加载历史日志
-  const logs = await http.get<{ content: string; seq: number }[]>(`/api/deployments/${deploymentId}/logs`)
-    .then((r) => r.data)
-    .catch(() => []);
+  const logs = await getDeploymentLogs(orgSlug, projectSlug, deploymentId).catch(() => []);
   const sorted = [...logs].sort((a, b) => a.seq - b.seq);
   for (const log of sorted) {
     terminal.writeln(log.content);

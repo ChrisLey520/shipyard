@@ -72,7 +72,7 @@ import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
   NInput, NSelect, NRadioGroup, NRadio, NButton, NSpace, useMessage,
 } from 'naive-ui';
-import { http } from '../../api/client';
+import { createProject } from './api';
 
 const route = useRoute();
 const router = useRouter();
@@ -118,7 +118,7 @@ function autoSlug() {
 async function handleCreate() {
   creating.value = true;
   try {
-    await http.post(`/orgs/${orgSlug}/projects`, form.value);
+    await createProject(orgSlug, form.value);
     message.success('项目创建成功！');
     void router.push(`/orgs/${orgSlug}/projects/${form.value.slug}`);
   } catch (err: unknown) {

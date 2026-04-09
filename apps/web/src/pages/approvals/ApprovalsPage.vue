@@ -43,17 +43,7 @@ import {
   NButton, NSpace, NEmpty, NDataTable, NTag, useMessage,
   type DataTableColumns,
 } from 'naive-ui';
-import { http } from '../../api/client';
-
-interface ApprovalItem {
-  id: string;
-  deploymentId: string;
-  status: string;
-  deployment?: { branch: string; commitMessage: string; environment?: { name: string } };
-  requestedBy?: { name: string };
-  reviewer?: { name: string };
-  createdAt: string;
-}
+import { listApprovals, reviewApproval, type ApprovalItem } from './api';
 
 const route = useRoute();
 const message = useMessage();
@@ -72,17 +62,17 @@ const histColumns: DataTableColumns<ApprovalItem> = [
       size: 'small',
     }, { default: () => r.status }),
   },
-  { title: '审批人', key: 'reviewer', render: (r) => r.reviewer?.name ?? '—' },
+  { title: '审批人', key: 'reviewedBy', render: (r) => r.reviewedBy?.name ?? '—' },
 ];
 
 async function review(id: string, decision: 'approved' | 'rejected') {
-  await http.post(`/orgs/${orgSlug}/approvals/${id}/review`, { decision });
+  await reviewApproval(orgSlug, id, { decision });
   message.success(decision === 'approved' ? '已批准' : '已拒绝');
   await load();
 }
 
 async function load() {
-  const all = await http.get<ApprovalItem[]>(`/orgs/${orgSlug}/approvals`).then((r) => r.data);
+  const all = await listApprovals(orgSlug);
   pendingItems.value = all.filter((a) => a.status === 'pending');
   histItems.value = all.filter((a) => a.status !== 'pending');
 }

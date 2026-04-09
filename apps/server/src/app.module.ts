@@ -11,6 +11,7 @@ import { EnvironmentsModule } from './modules/environments/environments.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
 import { DeployModule } from './modules/deploy/deploy.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { GatewayModule } from './common/gateway/gateway.module';
 
 @Module({
@@ -34,6 +35,7 @@ import { GatewayModule } from './common/gateway/gateway.module';
     PipelineModule,
     DeployModule,
     WebhooksModule,
+    ApprovalsModule,
   ],
 })
 export class AppModule {}

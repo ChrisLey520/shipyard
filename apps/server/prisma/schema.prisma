@@ -315,7 +315,7 @@ model Preview {
 model ApprovalRequest {
   id                String    @id @default(uuid())
   deploymentId      String    @unique
-  requestedByUserId String
+  requestedByUserId String?
   reviewedByUserId  String?
   status            String    @default("pending")
   comment           String?
@@ -324,7 +324,7 @@ model ApprovalRequest {
   updatedAt         DateTime  @updatedAt
 
   deployment  Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
-  requestedBy User       @relation("RequestedBy", fields: [requestedByUserId], references: [id])
+  requestedBy User?      @relation("RequestedBy", fields: [requestedByUserId], references: [id])
   reviewedBy  User?      @relation("ReviewedBy", fields: [reviewedByUserId], references: [id])
 }
 
