@@ -12,7 +12,7 @@ interface Org {
 
 export const useOrgStore = defineStore('org', () => {
   const orgs = ref<Org[]>([]);
-  const currentOrgSlug = ref<string | null>(null);
+  const currentOrgSlug = ref<string | null>(localStorage.getItem('currentOrgSlug'));
   const currentOrg = computed(() => orgs.value.find((o) => o.slug === currentOrgSlug.value));
 
   async function fetchOrgs() {
@@ -22,6 +22,7 @@ export const useOrgStore = defineStore('org', () => {
 
   function setCurrentOrg(slug: string) {
     currentOrgSlug.value = slug;
+    localStorage.setItem('currentOrgSlug', slug);
   }
 
   return { orgs, currentOrg, currentOrgSlug, fetchOrgs, setCurrentOrg };

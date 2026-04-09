@@ -25,14 +25,19 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  const config = new DocumentBuilder()
-    .setTitle('Shipyard API')
-    .setDescription('前端 CI/CD 平台 API 文档')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  try {
+    const config = new DocumentBuilder()
+      .setTitle('Shipyard API')
+      .setDescription('前端 CI/CD 平台 API 文档')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  } catch (err) {
+    // 避免 Swagger 元数据问题导致服务无法启动
+    console.warn('[swagger] disabled due to error:', err);
+  }
 
   const port = process.env['PORT'] ?? 3000;
   await app.listen(port);

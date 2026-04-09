@@ -19,7 +19,7 @@
 
       <!-- 组织切换 -->
       <n-select
-        v-if="!collapsed && currentOrg"
+        v-if="!collapsed && orgOptions.length > 0"
         v-model:value="currentOrgSlug"
         :options="orgOptions"
         size="small"
@@ -83,7 +83,7 @@ const auth = useAuthStore();
 const orgStore = useOrgStore();
 
 const collapsed = ref(false);
-const currentOrgSlug = ref(route.params['orgSlug'] as string ?? '');
+const currentOrgSlug = ref((route.params['orgSlug'] as string | undefined) ?? orgStore.currentOrgSlug ?? '');
 const currentOrg = computed(() => orgStore.currentOrg);
 
 const orgOptions = computed(() =>
@@ -130,10 +130,25 @@ async function handleUserMenu(key: string) {
 onMounted(async () => {
   await orgStore.fetchOrgs();
   if (!auth.user) await auth.fetchMe();
-  const slug = route.params['orgSlug'] as string;
-  if (slug) {
-    currentOrgSlug.value = slug;
-    orgStore.setCurrentOrg(slug);
+  const slugFromRoute = route.params['orgSlug'] as string | undefined;
+  if (slugFromRoute) {
+    currentOrgSlug.value = slugFromRoute;
+    orgStore.setCurrentOrg(slugFromRoute);
+    return;
+  }
+
+  // 在 /orgs（无 orgSlug）时，尽量自动进入一个组织，避免侧边栏为空
+  const remembered = orgStore.currentOrgSlug ?? null;
+  if (remembered) {
+    currentOrgSlug.value = remembered;
+    void router.replace(`/orgs/${remembered}`);
+    return;
+  }
+  if (orgStore.orgs.length === 1) {
+    const only = orgStore.orgs[0]!;
+    currentOrgSlug.value = only.slug;
+    orgStore.setCurrentOrg(only.slug);
+    void router.replace(`/orgs/${only.slug}`);
   }
 });
 </script>

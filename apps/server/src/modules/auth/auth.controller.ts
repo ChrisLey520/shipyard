@@ -9,37 +9,57 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { IsEmail, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
 
 class RegisterBody {
+  @IsString()
   name!: string;
+
+  @IsEmail()
   email!: string;
+
+  @IsString()
+  @MinLength(8)
   password!: string;
 }
 
 class LoginBody {
+  @IsEmail()
   email!: string;
+
+  @IsString()
   password!: string;
 }
 
 class RefreshBody {
+  @IsString()
   refreshToken!: string;
 }
 
 class ForgotPasswordBody {
+  @IsEmail()
   email!: string;
 }
 
 class ResetPasswordBody {
+  @IsString()
   token!: string;
+
+  @IsString()
+  @MinLength(8)
   password!: string;
 }
 
 class ChangePasswordBody {
+  @IsString()
   oldPassword!: string;
+
+  @IsString()
+  @MinLength(8)
   newPassword!: string;
 }
 

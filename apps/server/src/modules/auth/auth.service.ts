@@ -6,9 +6,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from './mail.service';
-import * as bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface JwtPayload {
@@ -29,11 +30,29 @@ export class AuthService {
     private readonly mail: MailService,
   ) {}
 
+  private hashPassword(password: string, rounds = 12): Promise<string> {
+    return new Promise((resolve, reject) => {
+      bcrypt.hash(password, rounds, (err, hash) => {
+        if (err) return reject(err);
+        resolve(hash);
+      });
+    });
+  }
+
+  private verifyPassword(password: string, passwordHash: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      bcrypt.compare(password, passwordHash, (err, same) => {
+        if (err) return reject(err);
+        resolve(Boolean(same));
+      });
+    });
+  }
+
   async register(name: string, email: string, password: string) {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('邮箱已被注册');
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await this.hashPassword(password, 12);
     const user = await this.prisma.user.create({
       data: { name, email, passwordHash },
     });
@@ -45,7 +64,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user?.passwordHash) throw new UnauthorizedException('邮箱或密码错误');
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
+    const valid = await this.verifyPassword(password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('邮箱或密码错误');
 
     return this.issueTokens(user.id, user.email);
@@ -103,7 +122,7 @@ export class AuthService {
       throw new BadRequestException('重置链接无效或已过期');
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const passwordHash = await this.hashPassword(newPassword, 12);
 
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
@@ -136,7 +155,6 @@ export class AuthService {
   }
 
   private hashToken(token: string): string {
-    const { createHash } = require('crypto') as { createHash: (alg: string) => { update: (data: string) => { digest: (enc: string) => string } } };
     return createHash('sha256').update(token).digest('hex');
   }
 
@@ -151,10 +169,10 @@ export class AuthService {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!user.passwordHash) throw new BadRequestException('账号使用 OAuth 登录，无法修改密码');
 
-    const valid = await bcrypt.compare(oldPassword, user.passwordHash);
+    const valid = await this.verifyPassword(oldPassword, user.passwordHash);
     if (!valid) throw new UnauthorizedException('原密码错误');
 
-    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const passwordHash = await this.hashPassword(newPassword, 12);
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
       this.prisma.refreshToken.updateMany({

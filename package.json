@@ -16,7 +16,6 @@
       "@nestjs/core",
       "@prisma/client",
       "@prisma/engines",
-      "bcrypt",
       "cpu-features",
       "esbuild",
       "msgpackr-extract",

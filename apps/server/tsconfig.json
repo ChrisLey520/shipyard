@@ -10,9 +10,7 @@
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
-    "paths": {
-      "@shipyard/shared": ["../../packages/shared/dist/index.d.ts"]
-    }
+    "paths": {}
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
