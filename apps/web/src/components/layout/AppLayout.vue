@@ -174,7 +174,10 @@ onMounted(async () => {
     return;
   }
 
-  // 在 /orgs（无 orgSlug）时，尽量自动进入一个组织，避免侧边栏为空
+  // 仅在组织选择页（/orgs）时，尽量自动进入一个组织，避免侧边栏为空
+  // 其它不带 orgSlug 的页面（例如 /settings）刷新时不应被强制跳转到 dashboard
+  if (route.path !== '/orgs') return;
+
   const remembered = orgStore.currentOrgSlug ?? null;
   if (remembered) {
     currentOrgSlug.value = remembered;
