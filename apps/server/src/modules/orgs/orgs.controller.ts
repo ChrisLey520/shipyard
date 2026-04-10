@@ -36,7 +36,12 @@ export class OrgsController {
 
   @Patch(':orgSlug')
   @Roles(OrgRole.ADMIN)
-  updateOrg(@OrgId() orgId: string, @Body() body: { name?: string; buildConcurrency?: number; artifactRetention?: number }) {
+  updateOrg(@OrgId() orgId: string, @Body() body: {
+    name?: string;
+    slug?: string;
+    buildConcurrency?: number;
+    artifactRetention?: number;
+  }) {
     return this.orgs.updateOrg(orgId, body);
   }
 

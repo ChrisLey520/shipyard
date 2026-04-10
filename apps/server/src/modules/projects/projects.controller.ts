@@ -32,9 +32,7 @@ export class ProjectsController {
       slug: string;
       frameworkType: string;
       repoFullName: string;
-      gitProvider: string;
-      accessToken: string;
-      gitUsername?: string;
+      gitAccountId: string;
       buildCommand?: string;
       outputDir?: string;
     },
@@ -53,7 +51,7 @@ export class ProjectsController {
   update(
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
-    @Body() body: { name?: string; frameworkType?: string },
+    @Body() body: { name?: string; frameworkType?: string; slug?: string },
   ) {
     return this.projects.updateProject(orgId, projectSlug, body);
   }
@@ -93,5 +91,66 @@ export class ProjectsController {
     @Query('environmentId') environmentId?: string,
   ) {
     return this.projects.getDeployments(orgId, projectSlug, environmentId);
+  }
+
+  @Delete(':projectSlug/deployments')
+  @Roles(OrgRole.DEVELOPER)
+  @HttpCode(HttpStatus.OK)
+  clearDeployments(
+    @OrgId() orgId: string,
+    @Param('projectSlug') projectSlug: string,
+    @Query('environmentId') environmentId?: string,
+  ) {
+    return this.projects.clearDeployments(orgId, projectSlug, environmentId);
+  }
+
+  @Post(':projectSlug/deployments/bulk-delete')
+  @Roles(OrgRole.DEVELOPER)
+  bulkDeleteDeployments(
+    @OrgId() orgId: string,
+    @Param('projectSlug') projectSlug: string,
+    @Body() body: { ids: string[] },
+  ) {
+    return this.projects.bulkDeleteDeployments(orgId, projectSlug, body.ids ?? []);
+  }
+
+  @Delete(':projectSlug/deployments/:deploymentId')
+  @Roles(OrgRole.DEVELOPER)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteDeployment(
+    @OrgId() orgId: string,
+    @Param('projectSlug') projectSlug: string,
+    @Param('deploymentId') deploymentId: string,
+  ) {
+    return this.projects.deleteDeployment(orgId, projectSlug, deploymentId);
+  }
+
+  // ─── 项目级构建环境变量（Build-time env） ──────────────────────────────────
+
+  @Get(':projectSlug/build-env')
+  @Roles(OrgRole.VIEWER)
+  listBuildEnv(@OrgId() orgId: string, @Param('projectSlug') projectSlug: string) {
+    return this.projects.listProjectBuildEnvVars(orgId, projectSlug);
+  }
+
+  @Post(':projectSlug/build-env')
+  @Roles(OrgRole.DEVELOPER)
+  upsertBuildEnv(
+    @OrgId() orgId: string,
+    @Param('projectSlug') projectSlug: string,
+    @Body() body: { key: string; value: string },
+  ) {
+    return this.projects.upsertProjectBuildEnvVar(orgId, projectSlug, body.key, body.value);
+  }
+
+  @Delete(':projectSlug/build-env/:varId')
+  @Roles(OrgRole.DEVELOPER)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteBuildEnv(
+    @OrgId() orgId: string,
+    @Param('projectSlug') projectSlug: string,
+    @Param('varId') varId: string,
+  ) {
+    return this.projects.deleteProjectBuildEnvVar(orgId, projectSlug, varId);
   }
 }

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shipyard-artifacts
+spec:
+  accessModes:
+    # server/worker 会同时挂载；生产建议用 RWX 存储（NFS/CephFS/EFS 等）
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+

@@ -3,15 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/main.ts",
-    "worker": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/worker.ts",
-    "build": "tsc",
+    "dev": "prisma generate && ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/main.ts",
+    "worker": "prisma generate && ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/worker.ts",
+    "build": "prisma generate && tsc",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/main.js",
-    "start:worker": "node dist/worker.js",
-    "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio",
+    "start": "prisma generate && node dist/main.js",
+    "start:worker": "prisma generate && node dist/worker.js",
+    "db:migrate": "node scripts/run-prisma.cjs migrate dev",
+    "db:migrate:deploy": "node scripts/run-prisma.cjs migrate deploy",
+    "db:studio": "node scripts/run-prisma.cjs studio",
     "db:generate": "prisma generate"
   },
   "dependencies": {

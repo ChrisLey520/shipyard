@@ -22,7 +22,7 @@ export class PipelineService {
 
   getOrCreateQueue(orgId: string): Queue {
     if (!this.queues.has(orgId)) {
-      const q = new Queue(`build:${orgId}`, {
+      const q = new Queue(`build-${orgId}`, {
         connection: this.redis.getClient(),
       });
       this.queues.set(orgId, q);
@@ -92,9 +92,13 @@ export class PipelineService {
     const d = await this.prisma.deployment.findUnique({
       where: { id: deploymentId },
       include: {
-        environment: true,
+        environment: {
+          include: { server: { select: { id: true, name: true, host: true } } },
+        },
+        project: { select: { id: true, slug: true, name: true, frameworkType: true } },
         triggeredBy: { select: { id: true, name: true } },
-        artifact: true,
+        // 勿包含 sizeBytes：Prisma BigInt 无法被 JSON.stringify，会导致详情接口 500、前端无数据
+        artifact: { select: { id: true, deploymentId: true, storagePath: true, createdAt: true } },
         approvalRequest: true,
       },
     });

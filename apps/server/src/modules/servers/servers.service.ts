@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ServerOs, isServerOs } from '@shipyard/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { Client as SshClient } from 'ssh2';
+
+function parseServerOs(v: unknown): ServerOs {
+  if (v === undefined || v === null) return ServerOs.LINUX;
+  if (typeof v === 'string' && isServerOs(v)) return v;
+  throw new BadRequestException('无效的操作系统类型');
+}
 
 @Injectable()
 export class ServersService {
@@ -12,9 +19,10 @@ export class ServersService {
 
   async createServer(
     orgId: string,
-    data: { name: string; host: string; port: number; user: string; privateKey: string },
+    data: { name: string; host: string; port: number; user: string; privateKey: string; os?: unknown },
   ) {
     const encryptedKey = this.crypto.encrypt(data.privateKey);
+    const os = parseServerOs(data.os);
     return this.prisma.server.create({
       data: {
         organizationId: orgId,
@@ -23,15 +31,36 @@ export class ServersService {
         port: data.port,
         user: data.user,
         privateKey: encryptedKey,
+        os,
       },
-      select: { id: true, name: true, host: true, port: true, user: true, createdAt: true },
+      select: { id: true, name: true, host: true, port: true, user: true, os: true, createdAt: true },
     });
   }
 
   async listServers(orgId: string) {
     return this.prisma.server.findMany({
       where: { organizationId: orgId },
-      select: { id: true, name: true, host: true, port: true, user: true, createdAt: true },
+      select: { id: true, name: true, host: true, port: true, user: true, os: true, createdAt: true },
+    });
+  }
+
+  async updateServer(
+    orgId: string,
+    serverId: string,
+    data: { name?: string; host?: string; port?: number; user?: string; privateKey?: string; os?: unknown },
+  ) {
+    await this.getServer(orgId, serverId);
+    return this.prisma.server.update({
+      where: { id: serverId },
+      data: {
+        name: data.name ?? undefined,
+        host: data.host ?? undefined,
+        port: data.port ?? undefined,
+        user: data.user ?? undefined,
+        privateKey: data.privateKey ? this.crypto.encrypt(data.privateKey) : undefined,
+        os: data.os !== undefined ? parseServerOs(data.os) : undefined,
+      },
+      select: { id: true, name: true, host: true, port: true, user: true, os: true, createdAt: true },
     });
   }
 

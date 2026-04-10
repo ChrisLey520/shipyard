@@ -61,8 +61,8 @@
       title="修改密码"
       preset="card"
       style="width: 480px"
-      :mask-closable="!changingPassword"
-      :close-on-esc="!changingPassword"
+      :mask-closable="false"
+      :close-on-esc="false"
     >
       <n-form label-placement="left" label-width="90">
         <n-form-item label="原密码">

@@ -7,6 +7,9 @@ export interface Env {
   deployPath: string;
   protected: boolean;
   domain: string | null;
+  accessUrl?: string | null;
+  healthCheckUrl?: string | null;
+  server?: { id: string; name: string; host: string; os: string } | null;
 }
 
 export interface EnvVar {
@@ -18,8 +21,37 @@ export async function listEnvironments(orgSlug: string, projectSlug: string) {
   return http.get<Env[]>(`/orgs/${orgSlug}/projects/${projectSlug}/environments`).then((r) => r.data);
 }
 
+export async function getEnvironmentAccessUrls(orgSlug: string, projectSlug: string) {
+  return http
+    .get<Record<string, string | null>>(
+      `/orgs/${orgSlug}/projects/${projectSlug}/environments/access-urls`,
+    )
+    .then((r) => r.data);
+}
+
 export async function createEnvironment(orgSlug: string, projectSlug: string, payload: Record<string, unknown>) {
   return http.post(`/orgs/${orgSlug}/projects/${projectSlug}/environments`, payload).then((r) => r.data);
+}
+
+export type UpdateEnvironmentPayload = Partial<{
+  name: string;
+  triggerBranch: string;
+  serverId: string;
+  deployPath: string;
+  domain: string | null;
+  healthCheckUrl: string | null;
+  protected: boolean;
+}>;
+
+export async function updateEnvironment(
+  orgSlug: string,
+  projectSlug: string,
+  envId: string,
+  payload: UpdateEnvironmentPayload,
+) {
+  return http
+    .patch(`/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}`, payload)
+    .then((r) => r.data);
 }
 
 export async function deleteEnvironment(orgSlug: string, projectSlug: string, envId: string) {
@@ -27,7 +59,19 @@ export async function deleteEnvironment(orgSlug: string, projectSlug: string, en
 }
 
 export async function listServersForOrg(orgSlug: string) {
-  return http.get<{ id: string; name: string }[]>(`/orgs/${orgSlug}/servers`).then((r) => r.data);
+  return http.get<Array<{ id: string; name: string; os: string }>>(`/orgs/${orgSlug}/servers`).then((r) => r.data);
+}
+
+export async function listProjectGithubBranches(orgSlug: string, projectSlug: string) {
+  return http
+    .get<string[]>(`/orgs/${orgSlug}/projects/${projectSlug}/git/github/branches`)
+    .then((r) => r.data);
+}
+
+export async function listProjectBranches(orgSlug: string, projectSlug: string) {
+  return http
+    .get<string[]>(`/orgs/${orgSlug}/projects/${projectSlug}/git/branches`)
+    .then((r) => r.data);
 }
 
 export async function listEnvVars(orgSlug: string, projectSlug: string, envId: string) {

@@ -10,6 +10,10 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import {
+  PrismaKnownRequestExceptionFilter,
+  PrismaValidationExceptionFilter,
+} from './common/filters/prisma-exception.filter';
 import helmet from 'helmet';
 import express from 'express';
 import { join } from 'path';
@@ -24,6 +28,11 @@ async function bootstrap() {
     origin: process.env['CORS_ORIGIN'] ?? 'http://localhost:5173',
     credentials: true,
   });
+
+  app.useGlobalFilters(
+    new PrismaKnownRequestExceptionFilter(),
+    new PrismaValidationExceptionFilter(),
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({

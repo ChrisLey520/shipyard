@@ -2,7 +2,7 @@
   <div>
     <n-page-header title="服务器管理">
       <template #extra>
-        <n-button type="primary" @click="showAdd = true">+ 添加服务器</n-button>
+        <n-button type="primary" @click="openAdd">+ 添加服务器</n-button>
       </template>
     </n-page-header>
 
@@ -13,20 +13,35 @@
       style="margin-top: 16px"
     />
 
-    <n-modal v-model:show="showAdd" title="添加服务器" preset="card" style="width: 520px">
+    <n-modal
+      v-model:show="showAdd"
+      :title="editingServerId ? '编辑服务器' : '添加服务器'"
+      preset="card"
+      style="width: 520px"
+      :mask-closable="false"
+      :close-on-esc="false"
+    >
       <n-form :model="form" label-placement="left" label-width="100">
         <n-form-item label="名称"><n-input v-model:value="form.name" /></n-form-item>
+        <n-form-item label="操作系统">
+          <n-select v-model:value="form.os" :options="osOptions" placeholder="请选择操作系统" />
+        </n-form-item>
         <n-form-item label="Host/IP"><n-input v-model:value="form.host" /></n-form-item>
         <n-form-item label="SSH 端口"><n-input-number v-model:value="form.port" /></n-form-item>
         <n-form-item label="用户名"><n-input v-model:value="form.user" /></n-form-item>
         <n-form-item label="SSH 私钥">
           <n-input v-model:value="form.privateKey" type="textarea" :rows="6" placeholder="-----BEGIN..." />
+          <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
+            编辑时不填私钥表示不更新
+          </n-text>
         </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
           <n-button @click="showAdd = false">取消</n-button>
-          <n-button type="primary" :loading="adding" @click="handleAdd">添加</n-button>
+          <n-button type="primary" :loading="adding" @click="handleSave">
+            {{ editingServerId ? '保存' : '添加' }}
+          </n-button>
         </n-space>
       </template>
     </n-modal>
@@ -34,31 +49,56 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue';
+import { ref, h, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NDataTable, NButton, NModal, NForm, NFormItem,
-  NInput, NInputNumber, NSpace, useMessage, type DataTableColumns,
+  NInput, NInputNumber, NSelect, NSpace, NText, useMessage, type DataTableColumns,
 } from 'naive-ui';
-import { createServer, deleteServer as apiDeleteServer, listServers, testServer, type ServerItem } from './api';
+import { ServerOs, SERVER_OS_LABELS, isServerOs, serverOsLabel } from '@shipyard/shared';
+import {
+  createServer,
+  updateServer,
+  deleteServer as apiDeleteServer,
+  listServers,
+  testServer,
+  type ServerItem,
+} from './api';
 
 const route = useRoute();
 const message = useMessage();
-const orgSlug = route.params['orgSlug'] as string;
+const orgSlug = computed(() => route.params['orgSlug'] as string);
 const servers = ref<ServerItem[]>([]);
 const loading = ref(false);
 const showAdd = ref(false);
 const adding = ref(false);
-const form = ref({ name: '', host: '', port: 22, user: 'root', privateKey: '' });
+const editingServerId = ref<string | null>(null);
+const form = ref({
+  name: '',
+  os: ServerOs.LINUX,
+  host: '',
+  port: 22,
+  user: 'root',
+  privateKey: '',
+});
+
+const osOptions = computed(() =>
+  (Object.values(ServerOs) as ServerOs[]).map((value) => ({
+    label: SERVER_OS_LABELS[value],
+    value,
+  })),
+);
 
 const columns: DataTableColumns<ServerItem> = [
   { title: '名称', key: 'name' },
+  { title: '系统', key: 'os', width: 88, render: (row) => serverOsLabel(row.os) },
   { title: 'Host', key: 'host' },
   { title: 'SSH 端口', key: 'port', width: 100 },
   { title: '用户', key: 'user' },
   {
-    title: '操作', key: 'actions', width: 160,
+    title: '操作', key: 'actions', width: 220,
     render: (row) => h('div', { style: 'display:flex;gap:8px' }, [
+      h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => '编辑' }),
       h(NButton, { size: 'small', onClick: () => testConn(row.id) }, { default: () => '连通测试' }),
       h(NButton, { size: 'small', type: 'error', onClick: () => deleteServer(row.id) }, { default: () => '删除' }),
     ]),
@@ -66,27 +106,52 @@ const columns: DataTableColumns<ServerItem> = [
 ];
 
 async function testConn(serverId: string) {
-  const result = await testServer(orgSlug, serverId);
+  const result = await testServer(orgSlug.value, serverId);
   if (result.success) message.success(result.message);
   else message.error(result.message);
 }
 
 async function deleteServer(serverId: string) {
-  await apiDeleteServer(orgSlug, serverId);
+  await apiDeleteServer(orgSlug.value, serverId);
   message.success('已删除');
   await load();
 }
 
-async function handleAdd() {
+function openAdd() {
+  editingServerId.value = null;
+  form.value = { name: '', os: ServerOs.LINUX, host: '', port: 22, user: 'root', privateKey: '' };
+  showAdd.value = true;
+}
+
+function openEdit(row: ServerItem) {
+  editingServerId.value = row.id;
+  const os = isServerOs(row.os) ? row.os : ServerOs.LINUX;
+  form.value = { name: row.name, os, host: row.host, port: row.port, user: row.user, privateKey: '' };
+  showAdd.value = true;
+}
+
+async function handleSave() {
   adding.value = true;
   try {
-    await createServer(orgSlug, form.value);
-    message.success('服务器已添加');
+    if (editingServerId.value) {
+      await updateServer(orgSlug.value, editingServerId.value, {
+        name: form.value.name,
+        os: form.value.os,
+        host: form.value.host,
+        port: form.value.port,
+        user: form.value.user,
+        ...(form.value.privateKey ? { privateKey: form.value.privateKey } : {}),
+      });
+      message.success('服务器已更新');
+    } else {
+      await createServer(orgSlug.value, form.value);
+      message.success('服务器已添加');
+    }
     showAdd.value = false;
     await load();
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '添加失败');
+    message.error(e?.response?.data?.message ?? (editingServerId.value ? '更新失败' : '添加失败'));
   } finally {
     adding.value = false;
   }
@@ -95,11 +160,17 @@ async function handleAdd() {
 async function load() {
   loading.value = true;
   try {
-    servers.value = await listServers(orgSlug);
+    servers.value = await listServers(orgSlug.value);
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(e?.response?.data?.message ?? '加载服务器列表失败');
+    servers.value = [];
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(load);
+watch(orgSlug, () => {
+  void load();
+}, { immediate: true });
 </script>

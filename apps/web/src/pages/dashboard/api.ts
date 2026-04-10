@@ -7,6 +7,8 @@ export interface DashboardProjectLite {
 
 export interface DashboardDeploymentLite {
   id: string;
+  /** Dashboard 合并多项目列表时由前端写入，用于跳转部署日志页 */
+  projectSlug?: string;
   branch: string;
   status: string;
   durationMs: number | null;

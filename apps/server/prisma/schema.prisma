@@ -82,6 +82,7 @@ model Organization {
 
   members     OrgMember[]
   invitations OrgInvitation[]
+  gitAccounts GitAccount[]
   projects    Project[]
   servers     Server[]
   auditLogs   AuditLog[]
@@ -136,6 +137,7 @@ model Project {
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   gitConnection  GitConnection?  @relation("ProjectGitConnection")
   pipelineConfig PipelineConfig?
+  buildEnvVars   ProjectBuildEnvVariable[]
   environments   Environment[]
   deployments    Deployment[]
   previews       Preview[]
@@ -166,6 +168,7 @@ model GitConnection {
   id               String    @id @default(uuid())
   projectId        String    @unique
   gitProvider      String
+  baseUrl          String?
   accessToken      String
   refreshToken     String?
   tokenExpiresAt   DateTime?
@@ -178,6 +181,38 @@ model GitConnection {
   project Project? @relation("ProjectGitConnection", fields: [projectId], references: [id], onDelete: Cascade)
 }
 
+model GitAccount {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  gitProvider    String
+  baseUrl        String?
+  accessToken    String
+  gitUsername    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([gitProvider])
+  @@unique([organizationId, name])
+}
+
+model ProjectBuildEnvVariable {
+  id        String   @id @default(uuid())
+  projectId String
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key])
+  @@index([projectId])
+}
+
 // ─── 服务器与环境 ─────────────────────────────────────────────────────────────
 
 model Server {
@@ -188,6 +223,7 @@ model Server {
   port           Int      @default(22)
   user           String
   privateKey     String
+  os             String   @default("linux")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -205,6 +241,7 @@ model Environment {
   serverId       String
   deployPath     String
   domain         String?
+  accessUrl      String?
   healthCheckUrl String?
   protected      Boolean  @default(false)
   createdAt      DateTime @default(now())

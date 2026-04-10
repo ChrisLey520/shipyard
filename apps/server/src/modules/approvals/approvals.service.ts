@@ -114,7 +114,7 @@ export class ApprovalsService {
       }),
     ]);
 
-    const queue = new Queue(`deploy:${opts.orgId}`, { connection: this.redis.getClient() });
+    const queue = new Queue(`deploy-${opts.orgId}`, { connection: this.redis.getClient() });
     await queue.add(
       'deploy',
       {

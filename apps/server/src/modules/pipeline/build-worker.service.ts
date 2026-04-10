@@ -54,7 +54,7 @@ export class BuildWorkerService implements OnModuleInit {
     if (this.workers.has(orgId)) return;
 
     const worker = new Worker<BuildJobData>(
-      `build:${orgId}`,
+      `build-${orgId}`,
       async (job) => this.processBuild(job.data),
       {
         connection: this.redis.getClient(),
@@ -69,7 +69,7 @@ export class BuildWorkerService implements OnModuleInit {
     this.workers.set(orgId, worker);
 
     // 为该组织准备 DeployQueue
-    const deployQueue = new Queue(`deploy:${orgId}`, {
+    const deployQueue = new Queue(`deploy-${orgId}`, {
       connection: this.redis.getClient(),
     });
     this.deployQueues.set(orgId, deployQueue);
@@ -101,17 +101,17 @@ export class BuildWorkerService implements OnModuleInit {
         gitConn.gitUsername ?? undefined,
       );
 
+      // 每次构建使用干净目录；Job 重试或异常退出时可能残留同名目录
+      if (existsSync(tmpDir)) {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
       mkdirSync(tmpDir, { recursive: true });
 
-      // 获取环境变量（注入构建）
-      const envVars = environmentId ? await this.getDecryptedEnvVars(environmentId) : {};
-
-      // 写入 .env 文件（Phase 1）
-      const envFilePath = path.join(tmpDir, '.env');
-      const envContent = Object.entries(envVars)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('\n');
-      await writeFile(envFilePath, envContent, 'utf8');
+      // 获取构建环境变量（注入构建）
+      // 合并策略：项目级构建变量作为默认值，环境变量同名覆盖（更符合“按环境覆盖”）
+      const projectBuildEnv = await this.getDecryptedProjectBuildEnvVars(projectId);
+      const environmentEnv = environmentId ? await this.getDecryptedEnvVars(environmentId) : {};
+      const envVars = { ...projectBuildEnv, ...environmentEnv };
 
       let logSeq = 0;
 
@@ -161,8 +161,15 @@ export class BuildWorkerService implements OnModuleInit {
         });
       };
 
-      // Git clone
+      // Git clone（须在空目录执行；.env 需在 clone 之后写入，否则目标目录非空会报 fatal: ... already exists）
+      await this.appendLog(deploymentId, logSeq++, '[clone] 开始拉取代码…');
       await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone');
+
+      const envFilePath = path.join(tmpDir, '.env');
+      const envContent = Object.entries(envVars)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n');
+      await writeFile(envFilePath, envContent, 'utf8');
 
       // 检测包管理器
       const pm = await this.detectPackageManager(tmpDir);
@@ -170,30 +177,56 @@ export class BuildWorkerService implements OnModuleInit {
       // install
       const installCmd = pipelineConfig.installCommand ?? `${pm} install`;
       const [installBin, ...installArgs] = installCmd.split(' ');
+      await this.appendLog(deploymentId, logSeq++, '[install] 开始安装依赖…');
       await runCmd(installBin!, installArgs, tmpDir, 'install');
 
       // lint（可选）
       if (pipelineConfig.lintCommand) {
         const [bin, ...args] = pipelineConfig.lintCommand.split(' ');
+        await this.appendLog(deploymentId, logSeq++, '[lint] 开始代码检查…');
         await runCmd(bin!, args, tmpDir, 'lint');
+      } else {
+        await this.appendLog(deploymentId, logSeq++, '[lint] 已跳过（未配置 lintCommand）');
       }
 
       // test（可选）
       if (pipelineConfig.testCommand) {
         const [bin, ...args] = pipelineConfig.testCommand.split(' ');
+        await this.appendLog(deploymentId, logSeq++, '[test] 开始测试…');
         await runCmd(bin!, args, tmpDir, 'test');
+      } else {
+        await this.appendLog(deploymentId, logSeq++, '[test] 已跳过（未配置 testCommand）');
       }
 
       // build
       const [buildBin, ...buildArgs] = pipelineConfig.buildCommand.split(' ');
+      await this.appendLog(deploymentId, logSeq++, '[build] 开始构建…');
       await runCmd(buildBin!, buildArgs, tmpDir, 'build');
 
-      // 打包产物
+      // 打包产物（outputDir 为仓库根下的相对路径，需与真实构建输出一致）
       const artifactDir = process.env['ARTIFACT_STORE_PATH'] ?? './artifacts';
       mkdirSync(artifactDir, { recursive: true });
       const artifactPath = path.join(artifactDir, `${deploymentId}.tar.gz`);
-      const outputDir = path.join(tmpDir, pipelineConfig.outputDir);
+      const tmpAbs = path.resolve(tmpDir);
+      const outputDir = path.resolve(tmpAbs, pipelineConfig.outputDir);
+      const relToRepo = path.relative(tmpAbs, outputDir);
+      if (relToRepo.startsWith('..') || path.isAbsolute(relToRepo)) {
+        throw new Error('输出目录配置非法：必须位于仓库根目录内');
+      }
+      if (!existsSync(outputDir)) {
+        let listing = '';
+        try {
+          const names = await readdir(tmpAbs);
+          listing = names.length ? ` 仓库根下现有项: ${names.slice(0, 40).join(', ')}${names.length > 40 ? ' …' : ''}` : ' 仓库根下为空';
+        } catch {
+          listing = '';
+        }
+        throw new Error(
+          `产物目录不存在: 「${pipelineConfig.outputDir}」→ ${outputDir}。请在项目「编辑 → 构建配置」把「输出目录」改成与构建结果一致（如 Vite 多为 dist，部分模板为 build 或子包路径 apps/web/dist）。${listing}`,
+        );
+      }
 
+      await this.appendLog(deploymentId, logSeq++, `[archive] 开始打包产物（目录 ${pipelineConfig.outputDir}）…`);
       await tar.create({ gzip: true, file: artifactPath, cwd: outputDir }, ['.']);
 
       await this.appendLog(deploymentId, logSeq++, `[archive] 产物打包完成: ${artifactPath}`);
@@ -266,6 +299,15 @@ export class BuildWorkerService implements OnModuleInit {
     return result;
   }
 
+  private async getDecryptedProjectBuildEnvVars(projectId: string): Promise<Record<string, string>> {
+    const vars = await this.prisma.projectBuildEnvVariable.findMany({ where: { projectId } });
+    const result: Record<string, string> = {};
+    for (const v of vars) {
+      result[v.key] = this.crypto.decrypt(v.value);
+    }
+    return result;
+  }
+
   private async getStartedAt(deploymentId: string): Promise<number> {
     const d = await this.prisma.deployment.findUnique({
       where: { id: deploymentId },
@@ -298,7 +340,7 @@ export class BuildWorkerService implements OnModuleInit {
 
     // 入 DeployQueue
     await this.prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'queued' } });
-    const queue = this.deployQueues.get(orgId) ?? new Queue(`deploy:${orgId}`, { connection: this.redis.getClient() });
+    const queue = this.deployQueues.get(orgId) ?? new Queue(`deploy-${orgId}`, { connection: this.redis.getClient() });
     await queue.add('deploy', { deploymentId, projectId, environmentId, orgId }, {
       jobId: `deploy-${deploymentId}`,
     });

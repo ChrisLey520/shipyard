@@ -1,3 +1,88 @@
+/** 是否为本地回环类主机名（用于部署域名 / SSH host 判断） */
+export function isLoopbackHostLabel(s: string | null | undefined): boolean {
+  const t = (s ?? '').trim();
+  return /^localhost$/i.test(t) || t === '127.0.0.1' || t === '::1';
+}
+
+/**
+ * 环境「域名」为 localhost/127.0.0.1 且 SSH 目标非本机时，返回服务器 host 作为对外访问主机与 Nginx server_name；
+ * 避免用户在本机浏览器访问 localhost 却访问不到远端已部署站点。
+ */
+export function resolveDeployAccessHost(
+  envDomain: string | null | undefined,
+  serverSshHost: string | null | undefined,
+): string {
+  const d = (envDomain ?? '').trim();
+  const h = (serverSshHost ?? '').trim();
+  if (!d) return '';
+  const domainIsLoopback = isLoopbackHostLabel(d);
+  const hostIsLoopback = !h || isLoopbackHostLabel(h);
+  if (domainIsLoopback && !hostIsLoopback) return h;
+  return d;
+}
+
+/**
+ * Nginx `server_name` 空格分隔列表：本机填 localhost 时同时写入 localhost、127.0.0.1、::1，
+ * 避免仅用 localhost 时浏览器访问 http://127.0.0.1 不命中；SSH 使用局域网 IP 时一并加入。
+ */
+export function buildNginxServerNameList(envDomain: string, sshHost: string): string {
+  const d = envDomain.trim();
+  const h = (sshHost ?? '').trim();
+  const set = new Set<string>();
+
+  if (isLoopbackHostLabel(d)) {
+    set.add('localhost');
+    set.add('127.0.0.1');
+    set.add('::1');
+  } else {
+    set.add(resolveDeployAccessHost(d, h) || d);
+  }
+
+  if (h && !isLoopbackHostLabel(h)) {
+    set.add(h);
+  }
+
+  return [...set].join(' ');
+}
+
+/** 部署状态展示文案（中文） */
+export function deploymentStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case 'pending_approval':
+      return '待审批';
+    case 'queued':
+      return '排队中';
+    case 'building':
+      return '构建中';
+    case 'deploying':
+      return '部署中';
+    case 'success':
+      return '成功';
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '已取消';
+    case 'skipped':
+      return '已跳过';
+    default:
+      return status ?? '—';
+  }
+}
+
+/** 触发方式展示文案（中文） */
+export function deploymentTriggerLabel(trigger: string | null | undefined): string {
+  switch (trigger) {
+    case 'manual':
+      return '手动';
+    case 'webhook':
+      return 'Webhook';
+    case 'rollback':
+      return '回滚';
+    default:
+      return trigger ?? '—';
+  }
+}
+
 /**
  * 格式化毫秒为人类可读时长
  */

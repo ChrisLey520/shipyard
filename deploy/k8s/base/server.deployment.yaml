@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shipyard-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shipyard-server
+  template:
+    metadata:
+      labels:
+        app: shipyard-server
+    spec:
+      containers:
+        - name: server
+          image: shipyard-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: shipyard-config
+            - secretRef:
+                name: shipyard-secret
+          volumeMounts:
+            - name: artifacts
+              mountPath: /app/artifacts
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: shipyard-artifacts
+

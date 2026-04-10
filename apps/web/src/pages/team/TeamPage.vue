@@ -13,7 +13,14 @@
       style="margin-top: 16px"
     />
 
-    <n-modal v-model:show="showInvite" title="邀请成员" preset="card" style="width: 440px">
+    <n-modal
+      v-model:show="showInvite"
+      title="邀请成员"
+      preset="card"
+      style="width: 440px"
+      :mask-closable="false"
+      :close-on-esc="false"
+    >
       <n-form :model="inviteForm" label-placement="left" label-width="70">
         <n-form-item label="邮箱">
           <n-input v-model:value="inviteForm.email" type="text" :input-props="{ type: 'email' }" />
@@ -33,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue';
+import { ref, h, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NDataTable, NButton, NTag, NModal, NForm, NFormItem,
@@ -43,7 +50,7 @@ import { inviteMember, listMembers, removeMember as apiRemoveMember, type TeamMe
 
 const route = useRoute();
 const message = useMessage();
-const orgSlug = route.params['orgSlug'] as string;
+const orgSlug = computed(() => route.params['orgSlug'] as string);
 const members = ref<TeamMember[]>([]);
 const loading = ref(false);
 const showInvite = ref(false);
@@ -78,7 +85,7 @@ const columns: DataTableColumns<TeamMember> = [
 async function handleInvite() {
   inviting.value = true;
   try {
-    await inviteMember(orgSlug, inviteForm.value);
+    await inviteMember(orgSlug.value, inviteForm.value);
     message.success('邀请已发送');
     showInvite.value = false;
   } catch (err: unknown) {
@@ -90,7 +97,7 @@ async function handleInvite() {
 }
 
 async function removeMember(userId: string) {
-  await apiRemoveMember(orgSlug, userId);
+  await apiRemoveMember(orgSlug.value, userId);
   message.success('成员已移除');
   await load();
 }
@@ -98,11 +105,13 @@ async function removeMember(userId: string) {
 async function load() {
   loading.value = true;
   try {
-    members.value = await listMembers(orgSlug);
+    members.value = await listMembers(orgSlug.value);
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(load);
+watch(orgSlug, () => {
+  void load();
+}, { immediate: true });
 </script>

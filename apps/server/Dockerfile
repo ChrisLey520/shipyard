@@ -16,7 +16,6 @@ COPY apps/server ./apps/server
 COPY tsconfig.base.json ./
 RUN pnpm --filter @shipyard/shared build
 RUN pnpm --filter @shipyard/server build
-RUN pnpm --filter @shipyard/server db:generate
 
 # 运行时
 FROM node:20-alpine AS runner
@@ -32,6 +31,6 @@ COPY --from=builder /app/apps/server/prisma ./apps/server/prisma
 WORKDIR /app/apps/server
 
 # 默认启动 API Server，Worker 通过 command 覆盖
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && node dist/main.js"]
 
 EXPOSE 3000

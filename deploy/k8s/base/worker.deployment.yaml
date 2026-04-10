@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shipyard-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shipyard-worker
+  template:
+    metadata:
+      labels:
+        app: shipyard-worker
+    spec:
+      containers:
+        - name: worker
+          image: shipyard-server:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "dist/worker.js"]
+          envFrom:
+            - configMapRef:
+                name: shipyard-config
+            - secretRef:
+                name: shipyard-secret
+          volumeMounts:
+            - name: artifacts
+              mountPath: /app/artifacts
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: shipyard-artifacts
+

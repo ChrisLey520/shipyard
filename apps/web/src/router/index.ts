@@ -56,6 +56,9 @@ const routes: RouteRecordRaw[] = [
       // 审批
       { path: 'approvals', component: () => import('../pages/approvals/ApprovalsPage.vue') },
 
+      // Git 账户
+      { path: 'git-accounts', component: () => import('../pages/git-accounts/GitAccountsPage.vue') },
+
       // 组织设置
       { path: 'settings', component: () => import('../pages/settings/OrgSettingsPage.vue') },
     ],

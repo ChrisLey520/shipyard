@@ -36,6 +36,14 @@ export class EnvironmentsController {
     return this.envs.listEnvironments(projectId);
   }
 
+  /** 获取各环境最近一次成功部署的访问地址（用于概览展示） */
+  @Get('access-urls')
+  @Roles(OrgRole.VIEWER)
+  async accessUrls(@OrgId() orgId: string, @Param('projectSlug') projectSlug: string) {
+    const projectId = await this.getProjectId(orgId, projectSlug);
+    return this.envs.getEnvironmentAccessUrls(projectId);
+  }
+
   @Post()
   @Roles(OrgRole.DEVELOPER)
   async create(
@@ -64,7 +72,7 @@ export class EnvironmentsController {
     @Body() body: Partial<{ name: string; triggerBranch: string; serverId: string; deployPath: string; domain: string; healthCheckUrl: string; protected: boolean }>,
   ) {
     const projectId = await this.getProjectId(orgId, projectSlug);
-    return this.envs.updateEnvironment(envId, projectId, body);
+    return this.envs.updateEnvironment(envId, projectId, orgId, body);
   }
 
   @Delete(':envId')

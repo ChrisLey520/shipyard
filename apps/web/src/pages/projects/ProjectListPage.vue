@@ -21,35 +21,190 @@
                 {{ p.frameworkType }}
               </n-tag>
             </div>
-            <div style="margin-top: 12px; font-size: 12px; color: var(--n-text-color-3)">
-              {{ p.environments.length }} 个环境 · {{ p._count.deployments }} 次部署
+            <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px">
+              <div style="font-size: 12px; color: var(--n-text-color-3)">
+                {{ p.environments.length }} 个环境 · {{ p._count.deployments }} 次部署
+              </div>
+              <n-space size="small">
+                <n-button size="tiny" @click.stop="openEdit(p)">编辑</n-button>
+                <n-button size="tiny" type="error" @click.stop="confirmDelete(p)">移除</n-button>
+              </n-space>
             </div>
           </n-card>
         </n-grid-item>
       </n-grid>
       <n-empty v-if="!loading && projects.length === 0" description="暂无项目" style="margin-top: 40px" />
     </n-spin>
+
+    <project-edit-modal
+      v-model:show="showEdit"
+      :saving="saving"
+      :initial="editInitial"
+      @save="saveEdit"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NPageHeader, NGrid, NGridItem, NCard, NText, NTag, NSpin, NEmpty, NButton } from 'naive-ui';
-import { listProjects, type ProjectListItem } from './api';
+import {
+  NPageHeader,
+  NGrid,
+  NGridItem,
+  NCard,
+  NText,
+  NTag,
+  NSpin,
+  NEmpty,
+  NButton,
+  NSpace,
+  useDialog,
+  useMessage,
+} from 'naive-ui';
+import {
+  listProjects,
+  getProject,
+  updateProject,
+  updatePipelineConfig,
+  deleteProject,
+  type ProjectListItem,
+  type ProjectDetail,
+} from './api';
+import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
 
 const route = useRoute();
 const router = useRouter();
-const orgSlug = route.params['orgSlug'] as string;
+const orgSlug = computed(() => route.params['orgSlug'] as string);
 const loading = ref(false);
 const projects = ref<ProjectListItem[]>([]);
+const message = useMessage();
+const dialog = useDialog();
 
-onMounted(async () => {
+const showEdit = ref(false);
+const saving = ref(false);
+const editing = ref<ProjectListItem | null>(null);
+const editingDetail = ref<ProjectDetail | null>(null);
+const editInitial = ref<ProjectEditFormValues>({
+  name: '',
+  slug: '',
+  frameworkType: 'static',
+  installCommand: 'pnpm install',
+  buildCommand: 'pnpm build',
+  lintCommand: '',
+  testCommand: '',
+  outputDir: 'dist',
+  nodeVersion: '20',
+  cacheEnabled: true,
+  timeoutSeconds: 900,
+  ssrEntryPoint: 'dist/index.js',
+});
+
+async function openEdit(p: ProjectListItem) {
+  editing.value = p;
+  try {
+    editingDetail.value = await getProject(orgSlug.value, p.slug);
+    const pc = editingDetail.value.pipelineConfig;
+    editInitial.value = {
+      name: editingDetail.value.name,
+      slug: editingDetail.value.slug,
+      frameworkType: editingDetail.value.frameworkType,
+      installCommand: pc?.installCommand ?? 'pnpm install',
+      buildCommand: pc?.buildCommand ?? 'pnpm build',
+      lintCommand: pc?.lintCommand ?? '',
+      testCommand: pc?.testCommand ?? '',
+      outputDir: pc?.outputDir ?? 'dist',
+      nodeVersion: pc?.nodeVersion ?? '20',
+      cacheEnabled: pc?.cacheEnabled ?? true,
+      timeoutSeconds: pc?.timeoutSeconds ?? 900,
+      ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    };
+    showEdit.value = true;
+  } catch {
+    message.error('加载项目失败');
+    editing.value = null;
+    editingDetail.value = null;
+  }
+}
+
+function confirmDelete(p: ProjectListItem) {
+  dialog.warning({
+    title: '确认移除项目？',
+    content: `将移除「${p.name}」，并删除其环境、部署记录等数据，且无法恢复。`,
+    positiveText: '移除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await deleteProject(orgSlug.value, p.slug);
+      message.success('项目已移除');
+      await load();
+    },
+  });
+}
+
+const slugPattern = /^[a-z0-9-]+$/;
+
+async function saveEdit(v: ProjectEditFormValues) {
+  if (!editing.value) return;
+  if (!v.name || !v.slug) return;
+  if (!slugPattern.test(v.slug) || v.slug.length > 64) {
+    message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
+    return;
+  }
+  if (!v.installCommand.trim() || !v.buildCommand.trim() || !v.outputDir.trim()) {
+    message.error('请填写安装命令、构建命令与输出目录');
+    return;
+  }
+  if (v.timeoutSeconds == null || v.timeoutSeconds < 60) {
+    message.error('构建超时至少 60 秒');
+    return;
+  }
+  saving.value = true;
+  const slugBefore = editing.value.slug;
+  try {
+    await updateProject(orgSlug.value, slugBefore, {
+      name: v.name,
+      slug: v.slug,
+      frameworkType: v.frameworkType,
+    });
+    const slugAfter = v.slug;
+
+    if (editingDetail.value?.pipelineConfig) {
+      await updatePipelineConfig(orgSlug.value, slugAfter, {
+        installCommand: v.installCommand.trim(),
+        buildCommand: v.buildCommand.trim(),
+        outputDir: v.outputDir.trim(),
+        nodeVersion: v.nodeVersion,
+        cacheEnabled: v.cacheEnabled,
+        timeoutSeconds: v.timeoutSeconds,
+        lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
+        testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
+        ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
+      });
+    }
+
+    message.success('已保存');
+    showEdit.value = false;
+    editing.value = null;
+    editingDetail.value = null;
+    await load();
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(e?.response?.data?.message ?? '保存失败');
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function load() {
   loading.value = true;
   try {
-    projects.value = await listProjects(orgSlug);
+    projects.value = await listProjects(orgSlug.value);
   } finally {
     loading.value = false;
   }
-});
+}
+
+watch(orgSlug, () => {
+  void load();
+}, { immediate: true });
 </script>

@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { resolveDeployAccessHost } from '@shipyard/shared';
 
 @Injectable()
 export class EnvironmentsService {
@@ -9,10 +11,23 @@ export class EnvironmentsService {
     private readonly crypto: CryptoService,
   ) {}
 
+  private normalizeUrl(hostOrUrl: string): string {
+    const s = hostOrUrl.trim();
+    const base = s.includes('://') ? s : `http://${s}`;
+    return `${base.replace(/\/+$/, '')}/`;
+  }
+
+  private computeAccessUrl(domain: string | null | undefined, serverHost: string): string | null {
+    const d = domain?.trim() ?? '';
+    if (!d) return null;
+    const host = resolveDeployAccessHost(d, serverHost);
+    return host ? this.normalizeUrl(host) : null;
+  }
+
   async listEnvironments(projectId: string) {
     return this.prisma.environment.findMany({
       where: { projectId },
-      include: { server: { select: { id: true, name: true, host: true } } },
+      include: { server: { select: { id: true, name: true, host: true, os: true } } },
     });
   }
 
@@ -35,27 +50,72 @@ export class EnvironmentsService {
     });
     if (!server) throw new ForbiddenException('服务器不存在或不属于当前组织');
 
+    const accessUrl = this.computeAccessUrl(data.domain, server.host);
     return this.prisma.environment.create({
-      data: { projectId, ...data },
+      data: { projectId, ...data, accessUrl },
     });
   }
 
-  async updateEnvironment(envId: string, projectId: string, data: Partial<{
-    name: string;
-    triggerBranch: string;
-    serverId: string;
-    deployPath: string;
-    domain: string;
-    healthCheckUrl: string;
-    protected: boolean;
-  }>) {
-    await this.getEnv(envId, projectId);
-    return this.prisma.environment.update({ where: { id: envId }, data });
+  async updateEnvironment(
+    envId: string,
+    projectId: string,
+    orgId: string,
+    data: Partial<{
+      name: string;
+      triggerBranch: string;
+      serverId: string;
+      deployPath: string;
+      domain: string | null;
+      healthCheckUrl: string | null;
+      protected: boolean;
+    }>,
+  ) {
+    const current = await this.getEnv(envId, projectId);
+    if (data.serverId !== undefined) {
+      const server = await this.prisma.server.findFirst({
+        where: { id: data.serverId, organizationId: orgId },
+      });
+      if (!server) throw new ForbiddenException('服务器不存在或不属于当前组织');
+    }
+    const payload: Record<string, unknown> = { ...data };
+    if (payload['domain'] === '') payload['domain'] = null;
+    if (payload['healthCheckUrl'] === '') payload['healthCheckUrl'] = null;
+
+    // 如果 domain / server 发生变更，则重置 accessUrl 为“环境域名推导的初始值”
+    const nextServerId = (payload['serverId'] as string | undefined) ?? undefined;
+    const domainChanged = Object.prototype.hasOwnProperty.call(payload, 'domain');
+    const serverChanged = nextServerId !== undefined && nextServerId !== current.serverId;
+    if (domainChanged || serverChanged) {
+      const serverId = nextServerId ?? current.serverId;
+      const server = await this.prisma.server.findUnique({ where: { id: serverId }, select: { host: true } });
+      const nextDomain = (payload['domain'] as string | null | undefined) ?? current.domain ?? null;
+      payload['accessUrl'] = server ? this.computeAccessUrl(nextDomain, server.host) : null;
+    }
+
+    return this.prisma.environment.update({
+      where: { id: envId },
+      data: payload as Prisma.EnvironmentUpdateInput,
+    });
   }
 
   async deleteEnvironment(envId: string, projectId: string) {
     await this.getEnv(envId, projectId);
     await this.prisma.environment.delete({ where: { id: envId } });
+  }
+
+  /**
+   * 返回各环境最近一次成功部署的访问地址（优先部署成功后计算出来的地址，而不是环境填写的域名）
+   * - 若部署时写入了 shipyardAccess（macOS PM2 静态回退），优先返回该地址
+   * - 否则返回 resolveDeployAccessHost(domain, serverHost) 计算后的 http(s) URL
+   * - 若不存在成功部署或无法推导，返回 null
+   */
+  async getEnvironmentAccessUrls(projectId: string): Promise<Record<string, string | null>> {
+    const envs = await this.prisma.environment.findMany({
+      where: { projectId },
+      select: { id: true, accessUrl: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return Object.fromEntries(envs.map((e) => [e.id, e.accessUrl ?? null]));
   }
 
   // ─── 环境变量 ─────────────────────────────────────────────────────────────

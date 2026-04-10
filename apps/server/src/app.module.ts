@@ -14,6 +14,8 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { GatewayModule } from './common/gateway/gateway.module';
 import { UsersModule } from './modules/users/users.module';
+import { GitModule } from './modules/git/git.module';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { UsersModule } from './modules/users/users.module';
     DeployModule,
     WebhooksModule,
     ApprovalsModule,
+    GitModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

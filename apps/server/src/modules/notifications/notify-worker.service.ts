@@ -34,7 +34,7 @@ export class NotifyWorkerService implements OnModuleInit {
   private startWorkerForOrg(orgId: string) {
     if (this.workers.has(orgId)) return;
     const worker = new Worker<NotifyJobData>(
-      `notify:${orgId}`,
+      `notify-${orgId}`,
       async (job) => this.processNotify(job.data),
       { connection: this.redis.getClient(), concurrency: 5 },
     );

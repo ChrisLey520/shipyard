@@ -25,7 +25,12 @@
             </n-thing>
           </n-list-item>
         </n-list>
-        <n-empty v-else description="暂无待审批" />
+        <div
+          v-else
+          style="margin-top: 16px; min-height: 45vh; display: flex; align-items: center; justify-content: center"
+        >
+          <n-empty description="暂无待审批" />
+        </div>
       </n-tab-pane>
 
       <n-tab-pane name="history" tab="已处理">
@@ -36,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue';
+import { ref, h, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NList, NListItem, NThing,
@@ -47,7 +52,7 @@ import { listApprovals, reviewApproval, type ApprovalItem } from './api';
 
 const route = useRoute();
 const message = useMessage();
-const orgSlug = route.params['orgSlug'] as string;
+const orgSlug = computed(() => route.params['orgSlug'] as string);
 const tab = ref('pending');
 const pendingItems = ref<ApprovalItem[]>([]);
 const histItems = ref<ApprovalItem[]>([]);
@@ -66,16 +71,18 @@ const histColumns: DataTableColumns<ApprovalItem> = [
 ];
 
 async function review(id: string, decision: 'approved' | 'rejected') {
-  await reviewApproval(orgSlug, id, { decision });
+  await reviewApproval(orgSlug.value, id, { decision });
   message.success(decision === 'approved' ? '已批准' : '已拒绝');
   await load();
 }
 
 async function load() {
-  const all = await listApprovals(orgSlug);
+  const all = await listApprovals(orgSlug.value);
   pendingItems.value = all.filter((a) => a.status === 'pending');
   histItems.value = all.filter((a) => a.status !== 'pending');
 }
 
-onMounted(load);
+watch(orgSlug, () => {
+  void load();
+}, { immediate: true });
 </script>

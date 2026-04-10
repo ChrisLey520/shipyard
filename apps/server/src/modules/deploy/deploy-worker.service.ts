@@ -36,7 +36,7 @@ export class DeployWorkerService implements OnModuleInit {
     if (this.workers.has(orgId)) return;
 
     const worker = new Worker(
-      `deploy:${orgId}`,
+      `deploy-${orgId}`,
       async (job) => this.deployService.deploy(job.data as Parameters<typeof this.deployService.deploy>[0]),
       {
         connection: this.redis.getClient(),

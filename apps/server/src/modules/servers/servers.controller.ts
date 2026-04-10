@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ServersService } from './servers.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -24,9 +24,19 @@ export class ServersController {
   @Roles(OrgRole.ADMIN)
   create(
     @OrgId() orgId: string,
-    @Body() body: { name: string; host: string; port: number; user: string; privateKey: string },
+    @Body() body: { name: string; host: string; port: number; user: string; privateKey: string; os?: string },
   ) {
     return this.servers.createServer(orgId, body);
+  }
+
+  @Patch(':serverId')
+  @Roles(OrgRole.ADMIN)
+  update(
+    @OrgId() orgId: string,
+    @Param('serverId') serverId: string,
+    @Body() body: { name?: string; host?: string; port?: number; user?: string; privateKey?: string; os?: string },
+  ) {
+    return this.servers.updateServer(orgId, serverId, body);
   }
 
   @Post(':serverId/test')

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shipyard-config
+data:
+  # 应用对外地址（用于邮件链接等）
+  APP_URL: "http://shipyard.local"
+  # CORS 允许来源（建议与 APP_URL 保持一致）
+  CORS_ORIGIN: "http://shipyard.local"
+  # Server 监听端口
+  PORT: "3000"
+  # Worker 产物目录（容器内路径）
+  ARTIFACT_STORE_PATH: "/app/artifacts"
+  # SMTP（可选）
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USER: ""
+  MAIL_FROM: "noreply@shipyard.local"
+

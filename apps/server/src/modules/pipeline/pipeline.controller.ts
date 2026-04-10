@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Post, Body, Param, UseGuards, NotFoundException, BadRequestException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { PipelineService } from './pipeline.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -56,5 +58,42 @@ export class PipelineController {
   @Roles(OrgRole.VIEWER)
   getLogs(@Param('deploymentId') deploymentId: string) {
     return this.pipeline.getDeploymentLogs(deploymentId);
+  }
+
+  /** 基于失败记录重新入队构建（新 deployment） */
+  @Post('deployments/:deploymentId/retry')
+  @Roles(OrgRole.DEVELOPER)
+  async retryDeployment(
+    @OrgId() orgId: string,
+    @Param('projectSlug') projectSlug: string,
+    @Param('deploymentId') deploymentId: string,
+    @CurrentUser() user: User,
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { organizationId: orgId, slug: projectSlug },
+    });
+    if (!project) throw new NotFoundException('项目不存在');
+
+    const dep = await this.prisma.deployment.findFirst({
+      where: { id: deploymentId, projectId: project.id },
+    });
+    if (!dep) throw new NotFoundException('部署不存在');
+    if (dep.status !== 'failed') {
+      throw new BadRequestException('仅失败状态的部署可重试');
+    }
+    if (!dep.environmentId) {
+      throw new BadRequestException('预览类部署请从项目内重新触发构建');
+    }
+
+    return this.pipeline.enqueueBuild(
+      orgId,
+      project.id,
+      dep.environmentId,
+      dep.commitSha?.trim() || 'manual',
+      dep.branch?.trim() || 'main',
+      `[Retry] ${dep.commitMessage?.trim() || '部署'}`,
+      user.name,
+      user.id,
+    );
   }
 }

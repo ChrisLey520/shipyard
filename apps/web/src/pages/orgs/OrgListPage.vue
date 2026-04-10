@@ -15,7 +15,14 @@
       </n-grid-item>
     </n-grid>
 
-    <n-modal v-model:show="showCreate" title="创建组织" preset="card" style="width: 440px">
+    <n-modal
+      v-model:show="showCreate"
+      title="创建组织"
+      preset="card"
+      style="width: 440px"
+      :mask-closable="false"
+      :close-on-esc="false"
+    >
       <n-form :model="form" label-placement="left" label-width="80">
         <n-form-item label="组织名称">
           <n-input v-model:value="form.name" @input="autoSlug" />

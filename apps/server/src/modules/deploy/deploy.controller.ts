@@ -78,7 +78,7 @@ export class DeployController {
       });
     } else {
       // 直接入 DeployQueue（跳过构建）
-      const queue = new Queue(`deploy:${orgId}`, { connection: this.redis.getClient() });
+      const queue = new Queue(`deploy-${orgId}`, { connection: this.redis.getClient() });
       await queue.add('deploy', {
         deploymentId: rollbackDeployment.id,
         projectId: project.id,

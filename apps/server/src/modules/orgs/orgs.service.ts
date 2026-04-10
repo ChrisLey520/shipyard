@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../auth/mail.service';
@@ -44,8 +45,36 @@ export class OrgsService {
     return org;
   }
 
-  async updateOrg(orgId: string, data: { name?: string; buildConcurrency?: number; artifactRetention?: number }) {
-    return this.prisma.organization.update({ where: { id: orgId }, data });
+  async updateOrg(orgId: string, data: {
+    name?: string;
+    slug?: string;
+    buildConcurrency?: number;
+    artifactRetention?: number;
+  }) {
+    const patch: {
+      name?: string;
+      slug?: string;
+      buildConcurrency?: number;
+      artifactRetention?: number;
+    } = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.buildConcurrency !== undefined) patch.buildConcurrency = data.buildConcurrency;
+    if (data.artifactRetention !== undefined) patch.artifactRetention = data.artifactRetention;
+    if (data.slug !== undefined) {
+      const next = data.slug.trim();
+      if (next.length < 1 || next.length > 64 || !/^[a-z0-9-]+$/.test(next)) {
+        throw new BadRequestException('URL 标识仅允许小写字母、数字和连字符，长度 1–64');
+      }
+      const taken = await this.prisma.organization.findFirst({
+        where: { slug: next, id: { not: orgId } },
+      });
+      if (taken) throw new ConflictException('组织 slug 已被使用');
+      patch.slug = next;
+    }
+    if (Object.keys(patch).length === 0) {
+      return this.prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+    }
+    return this.prisma.organization.update({ where: { id: orgId }, data: patch });
   }
 
   async getMembers(orgId: string) {

@@ -9,6 +9,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "db:migrate": "pnpm --filter @shipyard/server db:migrate",
+    "db:migrate:deploy": "pnpm --filter @shipyard/server db:migrate:deploy",
+    "db:generate": "pnpm --filter @shipyard/server db:generate",
     "db:studio": "pnpm --filter @shipyard/server db:studio"
   },
   "pnpm": {

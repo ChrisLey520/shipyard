@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FrameworkType, GitProvider, OrgRole } from './enums';
+import { FrameworkType, GitProvider, OrgRole, ServerOs } from './enums';
 
 // 认证
 export const RegisterDto = z.object({
@@ -34,6 +34,12 @@ export const CreateOrgDto = z.object({
 
 export const UpdateOrgDto = z.object({
   name: z.string().min(1).max(64).optional(),
+  slug: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
   buildConcurrency: z.number().int().min(1).max(20).optional(),
   artifactRetention: z.number().int().min(1).max(100).optional(),
 });
@@ -66,6 +72,12 @@ export const CreateProjectDto = z.object({
 export const UpdateProjectDto = z.object({
   name: z.string().min(1).max(64).optional(),
   frameworkType: z.nativeEnum(FrameworkType).optional(),
+  slug: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
 });
 
 // Pipeline 配置
@@ -88,6 +100,11 @@ export const CreateServerDto = z.object({
   port: z.number().int().min(1).max(65535).default(22),
   user: z.string().min(1),
   privateKey: z.string().min(1),
+  os: z.nativeEnum(ServerOs).default(ServerOs.LINUX),
+});
+
+export const UpdateServerDto = CreateServerDto.partial().omit({ privateKey: true }).extend({
+  privateKey: z.string().min(1).optional(),
 });
 
 // 环境
@@ -141,8 +158,10 @@ export type CreateOrgDtoType = z.infer<typeof CreateOrgDto>;
 export type UpdateOrgDtoType = z.infer<typeof UpdateOrgDto>;
 export type InviteMemberDtoType = z.infer<typeof InviteMemberDto>;
 export type CreateProjectDtoType = z.infer<typeof CreateProjectDto>;
+export type UpdateProjectDtoType = z.infer<typeof UpdateProjectDto>;
 export type UpdatePipelineConfigDtoType = z.infer<typeof UpdatePipelineConfigDto>;
 export type CreateServerDtoType = z.infer<typeof CreateServerDto>;
+export type UpdateServerDtoType = z.infer<typeof UpdateServerDto>;
 export type CreateEnvironmentDtoType = z.infer<typeof CreateEnvironmentDto>;
 export type UpdateEnvironmentDtoType = z.infer<typeof UpdateEnvironmentDto>;
 export type UpsertEnvVariableDtoType = z.infer<typeof UpsertEnvVariableDto>;

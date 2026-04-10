@@ -2,6 +2,7 @@ import { http } from '../../api/client';
 
 export interface OrgSettings {
   name: string;
+  slug: string;
   buildConcurrency: number;
   artifactRetention: number;
 }

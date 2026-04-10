@@ -7,6 +7,9 @@
         <n-form-item label="组织名称">
           <n-input v-model:value="form.name" />
         </n-form-item>
+        <n-form-item label="URL 标识">
+          <n-input v-model:value="form.slug" placeholder="只能包含小写字母、数字和连字符" />
+        </n-form-item>
         <n-form-item label="并行构建数">
           <n-input-number v-model:value="form.buildConcurrency" :min="1" :max="10" />
         </n-form-item>
@@ -22,38 +25,60 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { ref, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { NPageHeader, NCard, NForm, NFormItem, NInput, NInputNumber, NButton, useMessage } from 'naive-ui';
 import { useOrgStore } from '../../stores/org';
 import { getOrg, updateOrg } from './api';
 
 const route = useRoute();
+const router = useRouter();
 const message = useMessage();
 const orgStore = useOrgStore();
-const orgSlug = route.params['orgSlug'] as string;
+const orgSlug = computed(() => route.params['orgSlug'] as string);
 const saving = ref(false);
-const form = ref({ name: '', buildConcurrency: 2, artifactRetention: 10 });
+const form = ref({ name: '', slug: '', buildConcurrency: 2, artifactRetention: 10 });
+
+const slugPattern = /^[a-z0-9-]+$/;
 
 async function save() {
+  if (!form.value.name || !form.value.slug) {
+    message.error('请填写组织名称与 URL 标识');
+    return;
+  }
+  if (!slugPattern.test(form.value.slug) || form.value.slug.length > 64) {
+    message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
+    return;
+  }
   saving.value = true;
+  const slugBefore = orgSlug.value;
   try {
-    await updateOrg(orgSlug, form.value);
+    await updateOrg(slugBefore, form.value);
     await orgStore.fetchOrgs();
+    if (form.value.slug !== slugBefore) {
+      orgStore.setCurrentOrg(form.value.slug);
+      await router.replace(`/orgs/${form.value.slug}/settings`);
+    }
     message.success('保存成功');
-  } catch {
-    message.error('保存失败');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(e?.response?.data?.message ?? '保存失败');
   } finally {
     saving.value = false;
   }
 }
 
-onMounted(async () => {
-  const org = await getOrg(orgSlug);
-  form.value = {
-    name: org.name,
-    buildConcurrency: org.buildConcurrency,
-    artifactRetention: org.artifactRetention,
-  };
-});
+watch(
+  orgSlug,
+  async (slug) => {
+    const org = await getOrg(slug);
+    form.value = {
+      name: org.name,
+      slug: org.slug,
+      buildConcurrency: org.buildConcurrency,
+      artifactRetention: org.artifactRetention,
+    };
+  },
+  { immediate: true },
+);
 </script>

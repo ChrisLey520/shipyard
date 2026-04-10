@@ -8,8 +8,10 @@ export class RedisService implements OnModuleDestroy {
 
   constructor() {
     const redisUrl = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
-    this.client = new Redis(redisUrl);
-    this.subscriber = new Redis(redisUrl);
+    // BullMQ Worker/Queue 要求阻塞连接使用 maxRetriesPerRequest: null
+    const opts = { maxRetriesPerRequest: null } as const;
+    this.client = new Redis(redisUrl, opts);
+    this.subscriber = new Redis(redisUrl, opts);
   }
 
   getClient(): Redis {

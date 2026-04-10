@@ -30,8 +30,8 @@
         <template #action>
           <div style="padding: 0 2px 2px">
             <n-button
+              type="default"
               size="small"
-              quaternary
               block
               style="height: 32px; width: 100%"
               @click="openCreateOrg"
@@ -90,14 +90,70 @@
             <div class="app-bg-blur-2" />
           </div>
           <div style="position: relative; padding: 24px">
-            <router-view />
+            <div
+              v-if="orgSlugParam && (orgGateLoading || orgGateError)"
+              class="org-gate-center"
+            >
+              <n-spin v-if="orgGateLoading" size="large" />
+              <n-result
+                v-else-if="orgGateError === 'not_found'"
+                status="warning"
+                title="找不到该组织"
+                description="地址中的组织链接无效：该标识不存在，或管理员已修改组织的 URL 标识。数据并未丢失，请从组织列表重新进入；若你保存的是旧书签，请更新收藏链接。"
+              >
+                <template #footer>
+                  <n-button type="primary" @click="goOrgList">返回组织列表</n-button>
+                </template>
+              </n-result>
+              <n-result
+                v-else-if="orgGateError === 'no_member'"
+                status="error"
+                title="无法访问该组织"
+                description="你不是该组织的成员，或已被移出组织。如有疑问请联系组织管理员。"
+              >
+                <template #footer>
+                  <n-button type="primary" @click="goOrgList">返回组织列表</n-button>
+                </template>
+              </n-result>
+              <n-result
+                v-else-if="orgGateError === 'no_permission'"
+                status="error"
+                title="权限不足"
+                description="你没有足够的权限查看该组织。请联系组织管理员调整角色。"
+              >
+                <template #footer>
+                  <n-button type="primary" @click="goOrgList">返回组织列表</n-button>
+                </template>
+              </n-result>
+              <n-result
+                v-else-if="orgGateError === 'network'"
+                status="error"
+                title="暂时无法验证组织"
+                description="网络异常或服务暂时不可用，请稍后重试。"
+              >
+                <template #footer>
+                  <n-space>
+                    <n-button @click="goOrgList">返回组织列表</n-button>
+                    <n-button type="primary" :loading="orgGateLoading" @click="retryOrgGate">重试</n-button>
+                  </n-space>
+                </template>
+              </n-result>
+            </div>
+            <router-view v-else />
           </div>
         </div>
       </n-layout-content>
     </n-layout>
   </n-layout>
 
-  <n-modal v-model:show="showCreateOrg" title="创建组织" preset="card" style="width: 440px">
+  <n-modal
+    v-model:show="showCreateOrg"
+    title="创建组织"
+    preset="card"
+    style="width: 440px"
+    :mask-closable="false"
+    :close-on-esc="false"
+  >
     <n-form :model="createOrgForm" label-placement="left" label-width="80">
       <n-form-item label="组织名称">
         <n-input v-model:value="createOrgForm.name" @input="autoSlugForCreateOrg" />
@@ -116,16 +172,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted } from 'vue';
+import { ref, computed, h, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutHeader, NLayoutContent,
   NMenu, NButton, NIcon, NAvatar, NDropdown, NSelect, NModal, NForm, NFormItem, NInput, NSpace,
+  NSpin, NResult,
   type MenuOption,
+  type DropdownOption,
 } from 'naive-ui';
 import { useAuthStore } from '../../stores/auth';
 import { useOrgStore } from '../../stores/org';
-import { createOrg } from '../../pages/orgs/api';
+import { createOrg, getOrgBySlug } from '../../pages/orgs/api';
 
 // 临时图标组件（实际项目中使用 @vicons）
 const MenuOutlined = { render: () => h('span', '☰') };
@@ -136,7 +194,64 @@ const auth = useAuthStore();
 const orgStore = useOrgStore();
 
 const collapsed = ref(false);
-const currentOrgSlug = ref((route.params['orgSlug'] as string | undefined) ?? orgStore.currentOrgSlug ?? '');
+const currentOrgSlug = ref(orgStore.currentOrgSlug ?? '');
+
+const orgSlugParam = computed(() => route.params['orgSlug'] as string | undefined);
+const orgGateLoading = ref(false);
+const orgGateError = ref<null | 'not_found' | 'no_member' | 'no_permission' | 'network'>(null);
+let orgGateSeq = 0;
+
+async function runOrgGate(slug: string) {
+  const seq = ++orgGateSeq;
+  orgGateLoading.value = true;
+  orgGateError.value = null;
+  try {
+    await getOrgBySlug(slug);
+    if (seq !== orgGateSeq) return;
+    currentOrgSlug.value = slug;
+    orgStore.setCurrentOrg(slug);
+  } catch (err) {
+    if (seq !== orgGateSeq) return;
+    const ax = err as { response?: { status?: number; data?: { message?: string } } };
+    const msg = String(ax.response?.data?.message ?? '');
+    const status = ax.response?.status;
+    currentOrgSlug.value = orgStore.currentOrgSlug ?? '';
+    if (status === 404 || (status === 403 && msg.includes('组织不存在'))) {
+      orgGateError.value = 'not_found';
+    } else if (status === 403 && msg.includes('你不是该组织成员')) {
+      orgGateError.value = 'no_member';
+    } else if (status === 403 && msg.includes('权限不足')) {
+      orgGateError.value = 'no_permission';
+    } else {
+      orgGateError.value = 'network';
+    }
+  } finally {
+    if (seq === orgGateSeq) orgGateLoading.value = false;
+  }
+}
+
+watch(
+  orgSlugParam,
+  (slug) => {
+    if (!slug) {
+      orgGateLoading.value = false;
+      orgGateError.value = null;
+      return;
+    }
+    void runOrgGate(slug);
+  },
+  { immediate: true },
+);
+
+function goOrgList() {
+  orgGateError.value = null;
+  void router.push('/orgs');
+}
+
+function retryOrgGate() {
+  const slug = orgSlugParam.value;
+  if (slug) void runOrgGate(slug);
+}
 
 const showCreateOrg = ref(false);
 const creatingOrg = ref(false);
@@ -192,11 +307,12 @@ const orgOptions = computed(() =>
 );
 
 const menuOptions = computed<MenuOption[]>(() => {
-  const slug = currentOrgSlug.value;
-  if (!slug) return [];
+  const slug = orgSlugParam.value;
+  if (!slug || orgGateLoading.value || orgGateError.value) return [];
   return [
     { label: 'Dashboard', key: `/orgs/${slug}`, icon: () => h('span', '📊') },
     { label: '项目', key: `/orgs/${slug}/projects`, icon: () => h('span', '📦') },
+    { label: 'Git 账户', key: `/orgs/${slug}/git-accounts`, icon: () => h('span', '🔑') },
     { label: '服务器', key: `/orgs/${slug}/servers`, icon: () => h('span', '🖥') },
     { label: '团队', key: `/orgs/${slug}/team`, icon: () => h('span', '👥') },
     { label: '审批中心', key: `/orgs/${slug}/approvals`, icon: () => h('span', '✅') },
@@ -206,8 +322,11 @@ const menuOptions = computed<MenuOption[]>(() => {
 
 const activeKey = computed(() => route.path);
 
-const userMenuOptions = [
+const userMenuOptions: DropdownOption[] = [
+  { label: '组织列表', key: 'orgs' },
+  { type: 'divider', key: 'd-orgs' },
   { label: '个人设置', key: 'settings' },
+  { type: 'divider', key: 'd-settings' },
   { label: '退出登录', key: 'logout' },
 ];
 
@@ -225,18 +344,14 @@ async function handleUserMenu(key: string) {
     void router.push('/login');
   } else if (key === 'settings') {
     void router.push('/settings');
+  } else if (key === 'orgs') {
+    goOrgList();
   }
 }
 
 onMounted(async () => {
   await orgStore.fetchOrgs();
   if (!auth.user) await auth.fetchMe();
-  const slugFromRoute = route.params['orgSlug'] as string | undefined;
-  if (slugFromRoute) {
-    currentOrgSlug.value = slugFromRoute;
-    orgStore.setCurrentOrg(slugFromRoute);
-    return;
-  }
 
   // 仅在组织选择页（/orgs）时，尽量自动进入一个组织，避免侧边栏为空
   // 其它不带 orgSlug 的页面（例如 /settings）刷新时不应被强制跳转到 dashboard
@@ -264,5 +379,19 @@ onMounted(async () => {
   align-items: center;
   padding: 0 16px;
   border-bottom: 1px solid var(--n-border-color);
+}
+
+/* 组织校验失败/加载时主区域垂直水平居中 */
+.org-gate-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 56px - 48px);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.org-gate-center :deep(.n-result) {
+  max-width: 560px;
 }
 </style>

@@ -34,6 +34,14 @@ export enum OrgRole {
   VIEWER = 'viewer',
 }
 
+/** 部署目标操作系统（用于理解部署路径等约定） */
+export enum ServerOs {
+  LINUX = 'linux',
+  WINDOWS = 'windows',
+  MACOS = 'macos',
+  OTHER = 'other',
+}
+
 export enum ApprovalStatus {
   PENDING = 'pending',
   APPROVED = 'approved',
