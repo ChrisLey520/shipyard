@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../auth/mail.service';
 import { v4 as uuidv4 } from 'uuid';
+import { ShipyardHttpException } from '../../common/http/shipyard-http.exception';
 
 @Injectable()
 export class OrgsService {
@@ -41,7 +42,7 @@ export class OrgsService {
 
   async getOrgBySlug(slug: string) {
     const org = await this.prisma.organization.findUnique({ where: { slug } });
-    if (!org) throw new NotFoundException('组织不存在');
+    if (!org) throw new ShipyardHttpException(404, { code: 'ORG_NOT_FOUND' });
     return org;
   }
 

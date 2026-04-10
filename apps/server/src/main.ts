@@ -14,6 +14,7 @@ import {
   PrismaKnownRequestExceptionFilter,
   PrismaValidationExceptionFilter,
 } from './common/filters/prisma-exception.filter';
+import { I18nHttpExceptionFilter } from './common/filters/i18n-exception.filter';
 import helmet from 'helmet';
 import express from 'express';
 import { join } from 'path';
@@ -30,6 +31,7 @@ async function bootstrap() {
   });
 
   app.useGlobalFilters(
+    new I18nHttpExceptionFilter(),
     new PrismaKnownRequestExceptionFilter(),
     new PrismaValidationExceptionFilter(),
   );

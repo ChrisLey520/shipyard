@@ -36,7 +36,7 @@
               style="height: 32px; width: 100%"
               @click="openCreateOrg"
             >
-              + 创建组织
+              {{ t('org.createOrgAction') }}
             </n-button>
           </div>
         </template>
@@ -106,43 +106,45 @@
               <n-result
                 v-else-if="orgGateError === 'not_found'"
                 status="warning"
-                title="找不到该组织"
-                description="地址中的组织链接无效：该标识不存在，或管理员已修改组织的 URL 标识。数据并未丢失，请从组织列表重新进入；若你保存的是旧书签，请更新收藏链接。"
+                :title="t('orgGate.notFound.title')"
+                :description="t('orgGate.notFound.description')"
               >
                 <template #footer>
-                  <n-button type="primary" @click="goOrgList">返回组织列表</n-button>
+                  <n-button type="primary" @click="goOrgList">{{ t('common.backToOrgList') }}</n-button>
                 </template>
               </n-result>
               <n-result
                 v-else-if="orgGateError === 'no_member'"
                 status="error"
-                title="无法访问该组织"
-                description="你不是该组织的成员，或已被移出组织。如有疑问请联系组织管理员。"
+                :title="t('orgGate.noMember.title')"
+                :description="t('orgGate.noMember.description')"
               >
                 <template #footer>
-                  <n-button type="primary" @click="goOrgList">返回组织列表</n-button>
+                  <n-button type="primary" @click="goOrgList">{{ t('common.backToOrgList') }}</n-button>
                 </template>
               </n-result>
               <n-result
                 v-else-if="orgGateError === 'no_permission'"
                 status="error"
-                title="权限不足"
-                description="你没有足够的权限查看该组织。请联系组织管理员调整角色。"
+                :title="t('orgGate.noPermission.title')"
+                :description="t('orgGate.noPermission.description')"
               >
                 <template #footer>
-                  <n-button type="primary" @click="goOrgList">返回组织列表</n-button>
+                  <n-button type="primary" @click="goOrgList">{{ t('common.backToOrgList') }}</n-button>
                 </template>
               </n-result>
               <n-result
                 v-else-if="orgGateError === 'network'"
                 status="error"
-                title="暂时无法验证组织"
-                description="网络异常或服务暂时不可用，请稍后重试。"
+                :title="t('orgGate.network.title')"
+                :description="t('orgGate.network.description')"
               >
                 <template #footer>
                   <n-space>
-                    <n-button @click="goOrgList">返回组织列表</n-button>
-                    <n-button type="primary" :loading="orgGateLoading" @click="retryOrgGate">重试</n-button>
+                    <n-button @click="goOrgList">{{ t('common.backToOrgList') }}</n-button>
+                    <n-button type="primary" :loading="orgGateLoading" @click="retryOrgGate">
+                      {{ t('common.retry') }}
+                    </n-button>
                   </n-space>
                 </template>
               </n-result>
@@ -156,24 +158,26 @@
 
   <n-modal
     v-model:show="showCreateOrg"
-    title="创建组织"
+    :title="t('org.createOrgTitle')"
     preset="card"
     style="width: 440px"
     :mask-closable="false"
     :close-on-esc="false"
   >
     <n-form :model="createOrgForm" label-placement="left" label-width="80">
-      <n-form-item label="组织名称">
+      <n-form-item :label="t('org.orgName')">
         <n-input v-model:value="createOrgForm.name" @input="autoSlugForCreateOrg" />
       </n-form-item>
-      <n-form-item label="URL 标识">
-        <n-input v-model:value="createOrgForm.slug" placeholder="只能包含小写字母、数字和连字符" />
+      <n-form-item :label="t('org.orgSlug')">
+        <n-input v-model:value="createOrgForm.slug" :placeholder="t('org.orgSlugPlaceholder')" />
       </n-form-item>
     </n-form>
     <template #footer>
       <n-space justify="end">
-        <n-button :disabled="creatingOrg" @click="showCreateOrg = false">取消</n-button>
-        <n-button type="primary" :loading="creatingOrg" @click="handleCreateOrg">创建</n-button>
+        <n-button :disabled="creatingOrg" @click="showCreateOrg = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="creatingOrg" @click="handleCreateOrg">
+          {{ t('org.create') }}
+        </n-button>
       </n-space>
     </template>
   </n-modal>
@@ -189,6 +193,7 @@ import {
   type MenuOption,
   type DropdownOption,
 } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
 import { useOrgStore } from '../../stores/org';
 import { useThemeStore } from '../../stores/theme';
@@ -203,6 +208,7 @@ const route = useRoute();
 const auth = useAuthStore();
 const orgStore = useOrgStore();
 const themeStore = useThemeStore();
+const { t } = useI18n();
 
 const collapsed = ref(false);
 const currentOrgSlug = ref(orgStore.currentOrgSlug ?? '');
@@ -223,15 +229,16 @@ async function runOrgGate(slug: string) {
     orgStore.setCurrentOrg(slug);
   } catch (err) {
     if (seq !== orgGateSeq) return;
-    const ax = err as { response?: { status?: number; data?: { message?: string } } };
+    const ax = err as { response?: { status?: number; data?: { message?: string; code?: string } } };
+    const code = String(ax.response?.data?.code ?? '');
     const msg = String(ax.response?.data?.message ?? '');
     const status = ax.response?.status;
     currentOrgSlug.value = orgStore.currentOrgSlug ?? '';
-    if (status === 404 || (status === 403 && msg.includes('组织不存在'))) {
+    if (code === 'ORG_NOT_FOUND' || status === 404 || (status === 403 && msg.includes('组织不存在'))) {
       orgGateError.value = 'not_found';
-    } else if (status === 403 && msg.includes('你不是该组织成员')) {
+    } else if (code === 'ORG_NOT_MEMBER' || (status === 403 && msg.includes('你不是该组织成员'))) {
       orgGateError.value = 'no_member';
-    } else if (status === 403 && msg.includes('权限不足')) {
+    } else if (code === 'ORG_PERMISSION_DENIED' || (status === 403 && msg.includes('权限不足'))) {
       orgGateError.value = 'no_permission';
     } else {
       orgGateError.value = 'network';
@@ -321,35 +328,35 @@ const menuOptions = computed<MenuOption[]>(() => {
   const slug = orgSlugParam.value;
   if (!slug || orgGateLoading.value || orgGateError.value) return [];
   return [
-    { label: 'Dashboard', key: `/orgs/${slug}`, icon: () => h('span', '📊') },
-    { label: '项目', key: `/orgs/${slug}/projects`, icon: () => h('span', '📦') },
-    { label: 'Git 账户', key: `/orgs/${slug}/git-accounts`, icon: () => h('span', '🔑') },
-    { label: '服务器', key: `/orgs/${slug}/servers`, icon: () => h('span', '🖥') },
-    { label: '团队', key: `/orgs/${slug}/team`, icon: () => h('span', '👥') },
-    { label: '审批中心', key: `/orgs/${slug}/approvals`, icon: () => h('span', '✅') },
-    { label: '组织设置', key: `/orgs/${slug}/settings`, icon: () => h('span', '⚙️') },
+    { label: t('nav.dashboard'), key: `/orgs/${slug}`, icon: () => h('span', '📊') },
+    { label: t('nav.projects'), key: `/orgs/${slug}/projects`, icon: () => h('span', '📦') },
+    { label: t('nav.gitAccounts'), key: `/orgs/${slug}/git-accounts`, icon: () => h('span', '🔑') },
+    { label: t('nav.servers'), key: `/orgs/${slug}/servers`, icon: () => h('span', '🖥') },
+    { label: t('nav.team'), key: `/orgs/${slug}/team`, icon: () => h('span', '👥') },
+    { label: t('nav.approvals'), key: `/orgs/${slug}/approvals`, icon: () => h('span', '✅') },
+    { label: t('nav.orgSettings'), key: `/orgs/${slug}/settings`, icon: () => h('span', '⚙️') },
   ];
 });
 
 const activeKey = computed(() => route.path);
 
 const userMenuOptions: DropdownOption[] = [
-  { label: '组织列表', key: 'orgs' },
+  { label: t('nav.orgs'), key: 'orgs' },
   { type: 'divider', key: 'd-orgs' },
-  { label: '个人设置', key: 'settings' },
+  { label: t('settings.personalTitle'), key: 'settings' },
   { type: 'divider', key: 'd-settings' },
-  { label: '退出登录', key: 'logout' },
+  { label: t('auth.logout'), key: 'logout' },
 ];
 
 const currentThemeLabel = computed(() => {
   const opt = THEME_OPTIONS.find((t) => t.id === themeStore.themeId);
-  return opt?.label ?? '主题';
+  return opt?.label ?? t('theme.theme');
 });
 
 const themeModeLabel = computed(() => {
   const mode = themeStore.colorMode;
-  if (mode === 'auto') return themeStore.isDark ? '跟随系统 · 深色' : '跟随系统 · 浅色';
-  return mode === 'dark' ? '深色' : '浅色';
+  if (mode === 'auto') return themeStore.isDark ? t('theme.followSystemDark') : t('theme.followSystemLight');
+  return mode === 'dark' ? t('theme.dark') : t('theme.light');
 });
 
 const themeMenuOptions = computed<DropdownOption[]>(() => {
@@ -360,9 +367,9 @@ const themeMenuOptions = computed<DropdownOption[]>(() => {
   return [
     ...themeItems,
     { type: 'divider', key: 'd-theme' },
-    { label: '模式：跟随系统', key: 'mode:auto' },
-    { label: '模式：浅色', key: 'mode:light' },
-    { label: '模式：深色', key: 'mode:dark' },
+    { label: t('theme.modeAuto'), key: 'mode:auto' },
+    { label: t('theme.modeLight'), key: 'mode:light' },
+    { label: t('theme.modeDark'), key: 'mode:dark' },
   ];
 });
 

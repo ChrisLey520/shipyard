@@ -3,8 +3,8 @@
     <n-config-provider
       :theme="themeStore.naiveTheme"
       :theme-overrides="themeStore.themeOverrides"
-      :locale="zhCN"
-      :date-locale="dateZhCN"
+      :locale="naiveLocale"
+      :date-locale="naiveDateLocale"
     >
       <n-global-style />
       <n-message-provider>
@@ -19,6 +19,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import {
   NConfigProvider,
   NGlobalStyle,
@@ -27,8 +28,48 @@ import {
   NNotificationProvider,
   zhCN,
   dateZhCN,
+  zhTW,
+  dateZhTW,
+  enUS,
+  dateEnUS,
+  jaJP,
+  dateJaJP,
 } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { useThemeStore } from './stores/theme';
+import type { SupportedLocale } from './i18n';
 
 const themeStore = useThemeStore();
+
+const { locale } = useI18n();
+
+const naiveLocale = computed(() => {
+  switch (locale.value as SupportedLocale) {
+    case 'zh-CN':
+      return zhCN;
+    case 'zh-TW':
+      return zhTW;
+    case 'en':
+      return enUS;
+    case 'ja':
+      return jaJP;
+    default:
+      return zhCN;
+  }
+});
+
+const naiveDateLocale = computed(() => {
+  switch (locale.value as SupportedLocale) {
+    case 'zh-CN':
+      return dateZhCN;
+    case 'zh-TW':
+      return dateZhTW;
+    case 'en':
+      return dateEnUS;
+    case 'ja':
+      return dateJaJP;
+    default:
+      return dateZhCN;
+  }
+});
 </script>

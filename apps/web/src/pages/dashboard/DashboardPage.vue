@@ -60,7 +60,8 @@ import { use } from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { formatDuration, deploymentStatusLabel } from '@shipyard/shared';
+import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
+import { useI18n } from 'vue-i18n';
 import { listProjectsForOrg, listDeploymentsForProject, type DashboardDeploymentLite } from './api';
 
 type DashboardDeploymentRow = DashboardDeploymentLite & { projectSlug: string };
@@ -71,6 +72,7 @@ const route = useRoute();
 const router = useRouter();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const loading = ref(false);
+const { t } = useI18n();
 
 const recentDeployments = ref<DashboardDeploymentRow[]>([]);
 const stats = ref({ totalDeploys: 0, successRate: 0, avgDuration: '—', activeProjects: 0 });
@@ -97,7 +99,7 @@ const deployColumns: DataTableColumns<DashboardDeploymentRow> = [
     title: '状态',
     key: 'status',
     render: (row) =>
-      h(NTag, { type: statusType(row.status), size: 'small' }, { default: () => deploymentStatusLabel(row.status) }),
+      h(NTag, { type: statusType(row.status), size: 'small' }, { default: () => t(deploymentStatusKey(row.status)) }),
   },
   {
     title: '耗时',

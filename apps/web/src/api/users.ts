@@ -1,4 +1,5 @@
 import { http } from './client';
+import type { SupportedLocale } from '../i18n';
 
 export const usersApi = {
   uploadMyAvatar: (file: File) => {
@@ -10,5 +11,8 @@ export const usersApi = {
       })
       .then((r) => r.data);
   },
+
+  updateMyLocale: (locale: SupportedLocale) =>
+    http.patch<{ locale: SupportedLocale }>('/users/me', { locale }).then((r) => r.data),
 };
 

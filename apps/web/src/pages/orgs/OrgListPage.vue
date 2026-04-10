@@ -1,8 +1,8 @@
 <template>
   <div>
-    <n-page-header title="我的组织">
+    <n-page-header :title="t('org.orgsTitle')">
       <template #extra>
-        <n-button type="primary" @click="showCreate = true">+ 创建组织</n-button>
+        <n-button type="primary" @click="showCreate = true">{{ t('org.createOrgAction') }}</n-button>
       </template>
     </n-page-header>
 
@@ -17,24 +17,24 @@
 
     <n-modal
       v-model:show="showCreate"
-      title="创建组织"
+      :title="t('org.createOrgTitle')"
       preset="card"
       style="width: 440px"
       :mask-closable="false"
       :close-on-esc="false"
     >
       <n-form :model="form" label-placement="left" label-width="80">
-        <n-form-item label="组织名称">
+        <n-form-item :label="t('org.orgName')">
           <n-input v-model:value="form.name" @input="autoSlug" />
         </n-form-item>
-        <n-form-item label="URL 标识">
-          <n-input v-model:value="form.slug" placeholder="只能包含小写字母、数字和连字符" />
+        <n-form-item :label="t('org.orgSlug')">
+          <n-input v-model:value="form.slug" :placeholder="t('org.orgSlugPlaceholder')" />
         </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="showCreate = false">取消</n-button>
-          <n-button type="primary" :loading="creating" @click="handleCreate">创建</n-button>
+          <n-button @click="showCreate = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" :loading="creating" @click="handleCreate">{{ t('org.create') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -48,12 +48,14 @@ import {
   NPageHeader, NGrid, NGridItem, NCard, NText, NButton,
   NModal, NForm, NFormItem, NInput, NSpace, useMessage,
 } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { useOrgStore } from '../../stores/org';
 import { createOrg } from './api';
 
 const router = useRouter();
 const orgStore = useOrgStore();
 const message = useMessage();
+const { t } = useI18n();
 const showCreate = ref(false);
 const creating = ref(false);
 const form = ref({ name: '', slug: '' });
@@ -67,7 +69,7 @@ function autoSlug() {
 
 async function handleCreate() {
   if (!form.value.name || !form.value.slug) {
-    message.warning('请填写所有字段');
+    message.warning(t('org.fillAllFields'));
     return;
   }
   creating.value = true;
@@ -75,11 +77,11 @@ async function handleCreate() {
     await createOrg(form.value);
     await orgStore.fetchOrgs();
     showCreate.value = false;
-    message.success('组织创建成功');
+    message.success(t('org.created'));
     void router.push(`/orgs/${form.value.slug}`);
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '创建失败');
+    message.error(e?.response?.data?.message ?? t('org.createFailed'));
   } finally {
     creating.value = false;
   }

@@ -45,41 +45,41 @@ export function buildNginxServerNameList(envDomain: string, sshHost: string): st
   return [...set].join(' ');
 }
 
-/** 部署状态展示文案（中文） */
-export function deploymentStatusLabel(status: string | null | undefined): string {
+/** 部署状态展示文案 key（用于 i18n） */
+export function deploymentStatusKey(status: string | null | undefined): string {
   switch (status) {
     case 'pending_approval':
-      return '待审批';
+      return 'pipeline.status.pendingApproval';
     case 'queued':
-      return '排队中';
+      return 'pipeline.status.queued';
     case 'building':
-      return '构建中';
+      return 'pipeline.status.building';
     case 'deploying':
-      return '部署中';
+      return 'pipeline.status.deploying';
     case 'success':
-      return '成功';
+      return 'pipeline.status.success';
     case 'failed':
-      return '失败';
+      return 'pipeline.status.failed';
     case 'cancelled':
-      return '已取消';
+      return 'pipeline.status.cancelled';
     case 'skipped':
-      return '已跳过';
+      return 'pipeline.status.skipped';
     default:
-      return status ?? '—';
+      return 'common.unknown';
   }
 }
 
-/** 触发方式展示文案（中文） */
-export function deploymentTriggerLabel(trigger: string | null | undefined): string {
+/** 触发方式展示文案 key（用于 i18n） */
+export function deploymentTriggerKey(trigger: string | null | undefined): string {
   switch (trigger) {
     case 'manual':
-      return '手动';
+      return 'pipeline.trigger.manual';
     case 'webhook':
-      return 'Webhook';
+      return 'pipeline.trigger.webhook';
     case 'rollback':
-      return '回滚';
+      return 'pipeline.trigger.rollback';
     default:
-      return trigger ?? '—';
+      return 'common.unknown';
   }
 }
 

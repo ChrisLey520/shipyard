@@ -10,6 +10,7 @@ interface User {
   name: string;
   email: string;
   avatarUrl?: string | null;
+  locale?: string | null;
 }
 
 export const authApi = {

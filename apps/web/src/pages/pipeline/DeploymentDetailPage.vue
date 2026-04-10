@@ -14,7 +14,7 @@
             重试
           </n-button>
           <n-tag :type="statusMap[deployment?.status ?? ''] ?? 'default'">
-            {{ deploymentStatusLabel(deployment?.status) }}
+            {{ t(deploymentStatusKey(deployment?.status)) }}
           </n-tag>
         </n-space>
       </template>
@@ -28,7 +28,7 @@
         <n-statistic label="环境">{{ deployment?.environment?.name ?? 'Preview' }}</n-statistic>
       </n-grid-item>
       <n-grid-item>
-        <n-statistic label="触发方式">{{ deploymentTriggerLabel(deployment?.trigger) }}</n-statistic>
+        <n-statistic label="触发方式">{{ t(deploymentTriggerKey(deployment?.trigger)) }}</n-statistic>
       </n-grid-item>
       <n-grid-item>
         <n-statistic label="耗时">
@@ -263,9 +263,10 @@ import {
   formatDuration,
   resolveDeployAccessHost,
   isLoopbackHostLabel,
-  deploymentStatusLabel,
-  deploymentTriggerLabel,
+  deploymentStatusKey,
+  deploymentTriggerKey,
 } from '@shipyard/shared';
+import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
 import {
   getDeploymentDetail,
@@ -279,6 +280,7 @@ const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const auth = useAuthStore();
+const { t } = useI18n();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
 const deploymentId = computed(() => route.params['deploymentId'] as string);
