@@ -4,6 +4,7 @@ import { ServerOs, resolveDeployAccessHost, buildNginxServerNameList, isLoopback
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { GitCommitStatusService } from '../git/git-commit-status.service';
 import { Client as SshClient } from 'ssh2';
 import * as path from 'path';
 import { mkdirSync, rmSync } from 'fs';
@@ -27,6 +28,7 @@ export class DeployService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly crypto: CryptoService,
+    private readonly commitStatus: GitCommitStatusService,
   ) {}
 
   private normalizeUrl(hostOrUrl: string): string {
@@ -130,6 +132,12 @@ export class DeployService {
         where: { id: deploymentId },
         data: { status: 'deploying' },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'pending',
+        'Shipyard deployment in progress',
+      );
       await this.appendLogLine(deploymentId, '[deploy] 开始部署（上传产物并执行远端命令）…');
 
       const [deployment, env, project, pipelineConfig] = await Promise.all([
@@ -238,6 +246,12 @@ export class DeployService {
           configSnapshot: snapBase as Prisma.InputJsonValue,
         },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'success',
+        'Shipyard deployment succeeded',
+      );
 
       // 将“最终可访问地址”落库到环境上，避免删除部署历史后访问地址消失
       const finalAccessUrl = this.computeFinalAccessUrl({
@@ -279,6 +293,12 @@ export class DeployService {
         where: { id: deploymentId },
         data: { status: 'failed', completedAt: new Date() },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'failure',
+        'Shipyard deployment failed',
+      );
     }
   }
 
@@ -693,6 +713,12 @@ server.listen(PORT, '0.0.0.0', () => {
         where: { id: deploymentId },
         data: { status: 'failed', completedAt: new Date() },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'failure',
+        'Health check failed; no rollback artifact',
+      );
       this.logger.error(`Auto-rollback failed: no valid artifact found for env ${environmentId}`);
       return;
     }
@@ -733,6 +759,12 @@ server.listen(PORT, '0.0.0.0', () => {
       where: { id: deploymentId },
       data: { status: 'failed', completedAt: new Date() },
     });
+    void this.commitStatus.reportForDeployment(
+      deploymentId,
+      'deploy',
+      'failure',
+      'Health check failed; rollback queued',
+    );
   }
 
   private async getDecryptedEnvVars(environmentId: string): Promise<Record<string, string>> {

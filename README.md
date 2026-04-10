@@ -31,7 +31,10 @@ cp .env.example .env
 - `REDIS_URL`：Redis 连接串
 - `JWT_SECRET`：JWT 签名密钥（生产必须更换）
 - `ENCRYPTION_KEY`：AES-256-GCM 主密钥（生产必须更换）
-- `APP_URL`：Web URL（用于邮件链接等）
+- `APP_URL`：Web 管理后台 URL（邮件链接、**Commit Status 的 target_url** 跳转部署详情）
+- `SERVER_PUBLIC_URL`：API 公网根地址（**Webhook 注册**与 **OAuth `redirect_uri`**，须可被 Git 平台访问）
+- `API_PUBLIC_URL`（可选）：与 `SERVER_PUBLIC_URL` 不一致时的 OAuth 回调基址
+- **Git OAuth**（可选）：`GIT_OAUTH_*` 系列，见根目录 `.env.example`
 - `ARTIFACT_STORE_PATH`：构建产物目录
 
 ## 本地开发（推荐）
@@ -89,7 +92,7 @@ pnpm -r build
 
 - **认证**：注册/登录、JWT access/refresh、忘记/重置密码
 - **多租户组织**：组织列表/创建、成员邀请/移除、RBAC
-- **项目**：项目 CRUD、Pipeline 配置、GitConnection（PAT 加密存储）
+- **项目**：项目 CRUD、Pipeline 配置、GitConnection（PAT/OAuth token 加密存储、`gitAccountId` 关联）
 - **构建流水线**：BullMQ 按组织队列、`child_process` 构建隔离、产物 `.tar.gz`、Redis Pub/Sub + Socket.io 日志推流
 - **部署**：SSH 部署（rsync + nginx/pm2 逻辑）、部署锁、健康检查 + 自动回滚
 - **审批**：受保护环境审批列表 + 通过/拒绝（通过后入 DeployQueue）
@@ -99,12 +102,17 @@ pnpm -r build
 
 以下为**下一阶段**优先落地的功能特性（按“能跑通 → 可用 → 可运营”排序），用于对齐计划书与代码现状。
 
-### 1）Git 集成增强（多平台 + 自动化）
+### 1）Git 集成增强（多平台 + 自动化）— 已落地要点
 
-- **Webhook 自动注册/注销**：项目创建时自动在 Git 平台注册 Webhook；删除项目时注销（使用 `GitConnection.remoteWebhookId`）
-- **多 Provider 支持**：补齐 GitLab / Gitee / Gitea 的 webhook 事件接收、签名验证、幂等去重
-- **Commit Status 回写**：构建开始/成功/失败回写到各平台（GitHub/GitLab/Gitee/Gitea）
-- **Phase 2 OAuth（可选）**：OAuth 授权流程（access/refresh/tokenExpiresAt 加密存储 + 自动刷新）
+- **Webhook 路由（H1）**：回调 URL 必须带查询参数 `p=<Project.id>`（UUID）；接收端按 `p` 加载项目与 `GitConnection`，验签后再校验仓库路径，避免同仓多项目串单。
+- **Webhook 去重（H2）**：`PipelineService.enqueueBuild` 在 **无 `triggeredByUserId`（Webhook）** 时，对 `(projectId, environmentId, commitSha)` 若已有 `queued` / `building` / `pending_approval` 则不再新建部署；手动触发始终新建。
+- **HTTP 语义**：缺/非法 `p` → **400**；无项目/连接 → **404**；验签失败 → **401**；仓库与项目不一致 → **422**；幂等命中、非 push 事件、无匹配分支 → **200** + 约定 JSON。
+- **Raw Body**：`main.ts` 启用 Nest `rawBody`，保证 HMAC 验签与平台一致。
+- **自动注册/注销**：GitHub / GitLab / Gitee / Gitea 在项目创建/删除时注册或注销 Webhook（依赖 `SERVER_PUBLIC_URL`）；注册前 **list hooks**，按 URL 含 `?p=` 去重。
+- **Commit Status**：`shipyard/build` 与 `shipyard/deploy` 上下文回写至各平台（构建/部署关键状态变更）。
+- **OAuth**：`GET /api/orgs/:orgSlug/git/oauth/:provider/start` 返回授权 URL；`GET /api/git/oauth/:provider/callback` 完成授权并写入 `GitAccount`（`authType=oauth`，token/refresh 加密）；GitHub/GitLab 支持 refresh；前端 Git 账户页提供 OAuth 入口。
+
+**升级提示**：旧环境若 Webhook URL **无 `p`**，需在 Git 平台删除旧 Hook 后，通过重新创建项目或等价流程触发带 `?p=` 的重新注册。
 
 ### 2）PR Preview（预览部署）
 

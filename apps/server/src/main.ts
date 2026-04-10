@@ -1,14 +1,13 @@
-import { config as loadDotenv } from 'dotenv';
-import { resolve } from 'path';
+import { loadRootEnvFiles } from './load-root-env';
 
-// monorepo：强制从仓库根目录加载环境变量（pnpm filter 运行时 cwd 可能在 apps/server）
-loadDotenv({ path: resolve(__dirname, '../../../.env') });
-loadDotenv({ path: resolve(__dirname, '../../../.env.local') });
+// monorepo：从仓库根目录加载 .env（向上查找，避免 __dirname/ cwd 不一致导致读不到变量）
+loadRootEnvFiles();
 
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import {
   PrismaKnownRequestExceptionFilter,
@@ -20,7 +19,9 @@ import express from 'express';
 import { join } from 'path';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
 
   app.use(helmet());
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));

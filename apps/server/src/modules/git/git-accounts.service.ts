@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { GitService } from './git.service';
@@ -14,19 +15,43 @@ export class GitAccountsService {
   ) {}
 
   async list(orgId: string) {
-    return this.prisma.gitAccount.findMany({
-      where: { organizationId: orgId },
-      select: {
-        id: true,
-        name: true,
-        gitProvider: true,
-        baseUrl: true,
-        gitUsername: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const baseSelect = {
+      id: true,
+      name: true,
+      gitProvider: true,
+      baseUrl: true,
+      gitUsername: true,
+      createdAt: true,
+      updatedAt: true,
+    } as const;
+
+    try {
+      return await this.prisma.gitAccount.findMany({
+        where: { organizationId: orgId },
+        select: { ...baseSelect, authType: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+    } catch (e) {
+      // 未执行含 authType 的迁移时，避免列表接口 500 被前端误判为「无账户」
+      const missingCol =
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        (e.code === 'P2022' ||
+          (typeof e.message === 'string' &&
+            e.message.includes('column') &&
+            e.message.includes('does not exist')));
+      if (missingCol) {
+        this.logger.warn(
+          'GitAccount 表缺少新列（如 authType），请执行 prisma migrate；列表已降级返回 authType=pat',
+        );
+        const rows = await this.prisma.gitAccount.findMany({
+          where: { organizationId: orgId },
+          select: baseSelect,
+          orderBy: { updatedAt: 'desc' },
+        });
+        return rows.map((r) => ({ ...r, authType: 'pat' }));
+      }
+      throw e;
+    }
   }
 
   async create(
@@ -48,6 +73,7 @@ export class GitAccountsService {
         baseUrl: data.baseUrl ?? null,
         accessToken: encryptedToken,
         gitUsername: data.gitUsername ?? null,
+        authType: 'pat',
       },
       select: {
         id: true,

@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { Queue } from 'bullmq';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Deployment } from '@prisma/client';
 
 export interface BuildJobData {
   deploymentId: string;
@@ -39,11 +39,27 @@ export class PipelineService {
     commitMessage: string,
     commitAuthor: string,
     triggeredByUserId?: string,
-  ) {
+  ): Promise<{ deployment: Deployment; deduped: boolean }> {
     const project = await this.prisma.project.findUniqueOrThrow({
       where: { id: projectId },
       include: { pipelineConfig: true },
     });
+
+    // Webhook 入队去重：同 (project, env, commit) 且仍处于进行中时不重复入队
+    if (!triggeredByUserId && environmentId) {
+      const existing = await this.prisma.deployment.findFirst({
+        where: {
+          projectId,
+          environmentId,
+          commitSha,
+          status: { in: ['queued', 'building', 'pending_approval'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) {
+        return { deployment: existing, deduped: true };
+      }
+    }
 
     // 快照当前 PipelineConfig（不含 EnvVariable 值）
     const configSnapshot = project.pipelineConfig
@@ -78,7 +94,7 @@ export class PipelineService {
       { jobId: `deploy-${deployment.id}` },
     );
 
-    return deployment;
+    return { deployment, deduped: false };
   }
 
   async getDeploymentLogs(deploymentId: string) {

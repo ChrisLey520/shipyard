@@ -36,7 +36,7 @@ export class PipelineController {
       where: { id: body.environmentId, projectId: project.id },
     });
 
-    return this.pipeline.enqueueBuild(
+    const r = await this.pipeline.enqueueBuild(
       orgId,
       project.id,
       env.id,
@@ -46,6 +46,7 @@ export class PipelineController {
       user.name,
       user.id,
     );
+    return r.deployment;
   }
 
   @Get('deployments/:deploymentId')
@@ -85,7 +86,7 @@ export class PipelineController {
       throw new BadRequestException('预览类部署请从项目内重新触发构建');
     }
 
-    return this.pipeline.enqueueBuild(
+    const r = await this.pipeline.enqueueBuild(
       orgId,
       project.id,
       dep.environmentId,
@@ -95,5 +96,6 @@ export class PipelineController {
       user.name,
       user.id,
     );
+    return r.deployment;
   }
 }

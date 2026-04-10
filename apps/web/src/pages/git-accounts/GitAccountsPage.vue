@@ -7,7 +7,14 @@
         <div style="font-weight: 600">已关联账户</div>
         <n-space>
           <n-button :loading="loading" @click="load">刷新</n-button>
-          <n-button type="primary" @click="openCreate">关联 Git 账户</n-button>
+          <n-dropdown
+            trigger="click"
+            :options="oauthDropdownOptions"
+            @select="(k: string) => oauthConnect(k)"
+          >
+            <n-button>OAuth 授权</n-button>
+          </n-dropdown>
+          <n-button type="primary" @click="openCreate">关联 Git 账户（PAT）</n-button>
         </n-space>
       </div>
 
@@ -26,6 +33,8 @@
               <template #description>
                 <n-space size="small" style="flex-wrap: wrap">
                   <n-tag size="small">{{ providerLabel(acc.gitProvider) }}</n-tag>
+                  <n-tag v-if="acc.authType === 'oauth'" size="small" type="success">OAuth</n-tag>
+                  <n-tag v-else size="small" type="default">PAT</n-tag>
                   <span>账号：{{ acc.gitUsername || '-' }}</span>
                   <span>地址：{{ providerBaseUrl(acc) }}</span>
                 </n-space>
@@ -101,6 +110,7 @@ import {
   NFormItem,
   NInput,
   NSelect,
+  NDropdown,
   useMessage,
   useDialog,
 } from 'naive-ui';
@@ -110,6 +120,7 @@ import {
   updateGitAccount,
   deleteGitAccount,
   listReposForGitAccount,
+  startGitOAuth,
   type GitAccountItem,
 } from './api';
 
@@ -131,6 +142,13 @@ const providerOptions = [
   { label: 'GitLab', value: 'gitlab' },
   { label: 'Gitee', value: 'gitee' },
   { label: 'Gitea', value: 'gitea' },
+];
+
+const oauthDropdownOptions = [
+  { label: 'GitHub OAuth', key: 'github' },
+  { label: 'GitLab OAuth', key: 'gitlab' },
+  { label: 'Gitee OAuth', key: 'gitee' },
+  { label: 'Gitea OAuth', key: 'gitea' },
 ];
 
 const form = ref({
@@ -158,8 +176,24 @@ async function load() {
   loading.value = true;
   try {
     accounts.value = await listGitAccounts(orgSlug.value);
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(
+      e?.response?.data?.message ??
+        '加载失败。若刚升级过代码，请在服务器执行：pnpm --filter @shipyard/server db:migrate',
+    );
   } finally {
     loading.value = false;
+  }
+}
+
+async function oauthConnect(provider: string) {
+  try {
+    const url = await startGitOAuth(orgSlug.value, provider);
+    window.location.href = url;
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(e?.response?.data?.message ?? '无法发起 OAuth（请检查服务端环境变量与回调地址）');
   }
 }
 
@@ -251,5 +285,16 @@ function confirmDelete(acc: GitAccountItem) {
 watch(orgSlug, () => {
   void load();
 }, { immediate: true });
+
+watch(
+  () => route.query['oauth'],
+  (q) => {
+    if (q === 'success') {
+      message.success('已通过 OAuth 关联 Git 账户');
+      void load();
+    }
+  },
+  { immediate: true },
+);
 </script>
 
