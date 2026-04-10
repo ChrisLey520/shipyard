@@ -1,10 +1,10 @@
 <template>
   <div style="max-width: 720px">
-    <n-page-header title="个人设置" />
+    <n-page-header :title="t('settings.personalTitle')" />
 
-    <n-card style="margin-top: 16px" title="基础信息">
+    <n-card style="margin-top: 16px" :title="t('settings.basicInfo')">
       <n-form label-placement="left" label-width="120">
-        <n-form-item label="头像" :label-style="{ lineHeight: '48px' }">
+        <n-form-item :label="t('settings.avatar')" :label-style="{ lineHeight: '48px' }">
           <div style="display: flex; align-items: center; gap: 12px; min-height: 48px">
             <div ref="avatarBoxRef" style="width: 48px; height: 48px; flex: 0 0 48px">
               <n-avatar
@@ -28,66 +28,70 @@
               :disabled="uploadingAvatar"
               @before-upload="handleBeforeUpload"
             >
-              <n-button size="small" :loading="uploadingAvatar">上传头像</n-button>
+              <n-button size="small" :loading="uploadingAvatar">{{ t('settings.uploadAvatar') }}</n-button>
             </n-upload>
           </div>
         </n-form-item>
-        <n-form-item label="姓名">
-          <n-input v-model:value="name" placeholder="请输入姓名" />
+        <n-form-item :label="t('settings.name')">
+          <n-input v-model:value="name" :placeholder="t('settings.namePlaceholder')" />
         </n-form-item>
-        <n-form-item label="邮箱">
-          <n-input v-model:value="email" placeholder="请输入邮箱" disabled />
+        <n-form-item :label="t('settings.email')">
+          <n-input v-model:value="email" :placeholder="t('settings.emailPlaceholder')" disabled />
+        </n-form-item>
+
+        <n-form-item :label="t('settings.language')">
+          <n-select v-model:value="selectedLocale" :options="localeOptions" />
         </n-form-item>
       </n-form>
 
       <template #footer>
         <n-space justify="end">
-          <n-button @click="reset">重置</n-button>
-          <n-button type="primary" :loading="saving" @click="save">保存</n-button>
+          <n-button @click="reset">{{ t('common.reset') }}</n-button>
+          <n-button type="primary" :loading="saving" @click="save">{{ t('common.save') }}</n-button>
         </n-space>
       </template>
     </n-card>
 
-    <n-card style="margin-top: 16px" title="安全">
+    <n-card style="margin-top: 16px" :title="t('settings.security')">
       <n-form label-placement="left" label-width="120">
-        <n-form-item label="修改密码">
-          <n-button @click="openChangePassword">修改密码</n-button>
+        <n-form-item :label="t('settings.changePassword')">
+          <n-button @click="openChangePassword">{{ t('settings.changePassword') }}</n-button>
         </n-form-item>
       </n-form>
     </n-card>
 
     <n-modal
       v-model:show="showChangePassword"
-      title="修改密码"
+      :title="t('settings.changePasswordTitle')"
       preset="card"
       style="width: 480px"
       :mask-closable="false"
       :close-on-esc="false"
     >
       <n-form label-placement="left" label-width="90">
-        <n-form-item label="原密码">
+        <n-form-item :label="t('settings.oldPassword')">
           <n-input
             v-model:value="changePasswordForm.oldPassword"
             type="password"
-            placeholder="请输入原密码"
+            :placeholder="t('settings.oldPasswordPlaceholder')"
             show-password-on="click"
             :disabled="changingPassword"
           />
         </n-form-item>
-        <n-form-item label="新密码">
+        <n-form-item :label="t('settings.newPassword')">
           <n-input
             v-model:value="changePasswordForm.newPassword"
             type="password"
-            placeholder="至少 8 位"
+            :placeholder="t('settings.newPasswordPlaceholder')"
             show-password-on="click"
             :disabled="changingPassword"
           />
         </n-form-item>
-        <n-form-item label="确认密码">
+        <n-form-item :label="t('settings.confirmPassword')">
           <n-input
             v-model:value="changePasswordForm.confirmPassword"
             type="password"
-            placeholder="请再次输入新密码"
+            :placeholder="t('settings.confirmPasswordPlaceholder')"
             show-password-on="click"
             :disabled="changingPassword"
             @keyup.enter="handleChangePassword"
@@ -97,9 +101,11 @@
 
       <template #footer>
         <n-space justify="end">
-          <n-button :disabled="changingPassword" @click="showChangePassword = false">取消</n-button>
+          <n-button :disabled="changingPassword" @click="showChangePassword = false">
+            {{ t('common.cancel') }}
+          </n-button>
           <n-button type="primary" :loading="changingPassword" @click="handleChangePassword">
-            确认修改
+            {{ t('settings.confirmChange') }}
           </n-button>
         </n-space>
       </template>
@@ -119,20 +125,29 @@ import {
   NInput,
   NModal,
   NPageHeader,
+  NSelect,
   NSpace,
   NUpload,
   useDialog,
   useMessage,
   type UploadFileInfo,
 } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
 import { authApi } from '../../api/auth';
 import { usersApi } from '../../api/users';
+import { useLocaleStore } from '../../stores/locale';
+import type { SupportedLocale } from '../../i18n';
 
 const message = useMessage();
 const auth = useAuthStore();
 const router = useRouter();
 const dialog = useDialog();
+const { t } = useI18n();
+const localeStore = useLocaleStore();
+
+const selectedLocale = ref<SupportedLocale>(localeStore.locale);
+const localeOptions = computed(() => localeStore.options);
 
 const avatarBoxRef = ref<HTMLElement | null>(null);
 
@@ -164,13 +179,14 @@ const changePasswordForm = ref({
 
 function reset() {
   name.value = auth.user?.name ?? '';
+  selectedLocale.value = localeStore.locale;
 }
 
 async function save() {
   saving.value = true;
   try {
-    // 这里只做前端占位：后续接入用户更新 API
-    message.success('已保存（占位）');
+    await localeStore.setLocale(selectedLocale.value);
+    message.success(t('common.saved'));
   } finally {
     saving.value = false;
   }
@@ -179,7 +195,7 @@ async function save() {
 async function handleBeforeUpload(options: { file: UploadFileInfo }) {
   const raw = options.file.file;
   if (!raw) {
-    message.error('读取文件失败');
+    message.error(t('settings.readFileFailed'));
     return false;
   }
   uploadingAvatar.value = true;
@@ -189,10 +205,10 @@ async function handleBeforeUpload(options: { file: UploadFileInfo }) {
     if (auth.user) auth.user = { ...auth.user, avatarUrl: newAvatarUrl };
     avatarBust.value = Date.now();
     await auth.fetchMe().catch(() => {});
-    message.success('头像已更新');
+    message.success(t('settings.avatarUpdated'));
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '上传失败');
+    message.error(e?.response?.data?.message ?? t('settings.uploadFailed'));
   } finally {
     uploadingAvatar.value = false;
   }
@@ -201,7 +217,7 @@ async function handleBeforeUpload(options: { file: UploadFileInfo }) {
 
 function handleAvatarError() {
   avatarImgFailed.value = true;
-  message.error('头像加载失败：请检查 /uploads 是否可访问');
+  message.error(t('settings.avatarLoadFailed'));
 }
 
 function openChangePassword() {
@@ -212,19 +228,19 @@ function openChangePassword() {
 async function handleChangePassword() {
   const { oldPassword, newPassword, confirmPassword } = changePasswordForm.value;
   if (!oldPassword || !newPassword || !confirmPassword) {
-    message.warning('请填写原密码、新密码与确认密码');
+    message.warning(t('settings.fillAllPasswordFields'));
     return;
   }
   if (newPassword.length < 8) {
-    message.warning('新密码至少需要 8 位');
+    message.warning(t('settings.passwordMinLength'));
     return;
   }
   if (newPassword !== confirmPassword) {
-    message.warning('两次输入的新密码不一致');
+    message.warning(t('settings.passwordNotMatch'));
     return;
   }
   if (oldPassword === newPassword) {
-    message.warning('新密码不能与原密码相同');
+    message.warning(t('settings.passwordSameAsOld'));
     return;
   }
 
@@ -236,9 +252,9 @@ async function handleChangePassword() {
     showChangePassword.value = false;
 
     dialog.success({
-      title: '修改成功',
-      content: '密码已修改，需要重新登录后继续使用。',
-      positiveText: '去登录',
+      title: t('settings.passwordChangeSuccessTitle'),
+      content: t('settings.passwordChangeSuccessContent'),
+      positiveText: t('settings.goLogin'),
       closable: false,
       maskClosable: false,
       onPositiveClick: () => {
@@ -250,7 +266,7 @@ async function handleChangePassword() {
     });
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '修改密码失败');
+    message.error(e?.response?.data?.message ?? t('settings.changePasswordFailed'));
   } finally {
     changingPassword.value = false;
   }

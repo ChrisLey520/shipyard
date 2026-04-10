@@ -31,8 +31,42 @@ cp .env.example .env
 - `REDIS_URL`：Redis 连接串
 - `JWT_SECRET`：JWT 签名密钥（生产必须更换）
 - `ENCRYPTION_KEY`：AES-256-GCM 主密钥（生产必须更换）
-- `APP_URL`：Web URL（用于邮件链接等）
+- `APP_URL`：Web 管理后台 URL（邮件链接、**Commit Status 的 target_url** 跳转部署详情）
+- `SERVER_PUBLIC_URL`：API 公网根地址（**Webhook 注册**与 **OAuth `redirect_uri`**，须可被 Git 平台访问）
+- `API_PUBLIC_URL`（可选）：与 `SERVER_PUBLIC_URL` 不一致时的 OAuth 回调基址
+- **Git OAuth**（可选）：`GIT_OAUTH_*` 系列，见根目录 `.env.example`
 - `ARTIFACT_STORE_PATH`：构建产物目录
+
+## Git 集成（Webhook、OAuth、Commit Status）
+
+支持 **GitHub / GitLab / Gitee / Gitea**。关联账户可用 **PAT** 或 **OAuth**（Git 账户页「OAuth 授权」；需配置 `.env` 中 `GIT_OAUTH_*`，见 `.env.example`）。
+
+### Webhook（推送自动构建）
+
+- 在 Shipyard **创建项目** 且已配置 **`SERVER_PUBLIC_URL`** 时，会尝试在远端仓库 **自动注册** Webhook；删除项目时 **自动注销**。
+- 回调地址形如：`{SERVER_PUBLIC_URL}/api/webhooks/{github|gitlab|gitee|gitea}?p=<Project.id>`，其中 **`p` 为项目 UUID**，用于同仓多项目路由，请勿手动改成无 `p` 的 URL。
+- **`SERVER_PUBLIC_URL` 必须是 Git 平台能访问到的 API 根地址**（含协议与端口），与前端 `APP_URL`（如 `http://localhost:5173`）通常不同。
+- **从旧版升级**：若远端仍保留 **无 `?p=`** 的 Webhook，请在各平台删除旧 Hook 后，通过重新创建项目或触发重新注册，使回调带 `p=<Project.id>`。
+
+### GitHub OAuth App 配置要点
+
+- **Authorization callback URL** 须与后端实际发出的 `redirect_uri` 完全一致，例如：
+  - 本地 API：`http://localhost:3000/api/git/oauth/github/callback`
+  - 或使用 ngrok 等：**`https://<你的域名>/api/git/oauth/github/callback`**（与 `SERVER_PUBLIC_URL` 一致）
+- **不要**只填 `http://localhost:5173`：OAuth 回调由 **Nest API** 处理，不是 Vite 开发服务器。
+- **Homepage URL** 可填产品首页（如 `http://localhost:5173`），仅作展示，不参与 redirect 校验。
+
+### 数据库
+
+引入 `GitAccount` OAuth 字段、`GitConnection.gitAccountId` 等需执行迁移：
+
+```bash
+pnpm --filter @shipyard/server db:migrate
+```
+
+### Commit Status
+
+构建与部署关键状态会回写到各平台（`shipyard/build`、`shipyard/deploy`），依赖 `APP_URL` 生成部署详情链接。
 
 ## 本地开发（推荐）
 
@@ -89,24 +123,18 @@ pnpm -r build
 
 - **认证**：注册/登录、JWT access/refresh、忘记/重置密码
 - **多租户组织**：组织列表/创建、成员邀请/移除、RBAC
-- **项目**：项目 CRUD、Pipeline 配置、GitConnection（PAT 加密存储）
+- **项目**：项目 CRUD、Pipeline 配置、GitConnection（PAT/OAuth token 加密存储、`gitAccountId` 关联）
 - **构建流水线**：BullMQ 按组织队列、`child_process` 构建隔离、产物 `.tar.gz`、Redis Pub/Sub + Socket.io 日志推流
 - **部署**：SSH 部署（rsync + nginx/pm2 逻辑）、部署锁、健康检查 + 自动回滚
 - **审批**：受保护环境审批列表 + 通过/拒绝（通过后入 DeployQueue）
 - **Web UI**：登录/注册、Dashboard、项目/环境/服务器/团队/审批、部署日志（xterm）
+- **Git 多平台**：Webhook 接收（`p` 路由、验签、幂等、Webhook 触发的入队去重）、项目创建/删除时自动注册或注销 Hook、Commit Status 回写、Git 账户 **PAT + OAuth**（详见上文「Git 集成」）
 
 ## 下一阶段规划（Roadmap / Next Phase）
 
-以下为**下一阶段**优先落地的功能特性（按“能跑通 → 可用 → 可运营”排序），用于对齐计划书与代码现状。
+以下为**尚未实现或持续增强**的方向（按“能跑通 → 可用 → 可运营”排序）。
 
-### 1）Git 集成增强（多平台 + 自动化）
-
-- **Webhook 自动注册/注销**：项目创建时自动在 Git 平台注册 Webhook；删除项目时注销（使用 `GitConnection.remoteWebhookId`）
-- **多 Provider 支持**：补齐 GitLab / Gitee / Gitea 的 webhook 事件接收、签名验证、幂等去重
-- **Commit Status 回写**：构建开始/成功/失败回写到各平台（GitHub/GitLab/Gitee/Gitea）
-- **Phase 2 OAuth（可选）**：OAuth 授权流程（access/refresh/tokenExpiresAt 加密存储 + 自动刷新）
-
-### 2）PR Preview（预览部署）
+### 1）PR Preview（预览部署）
 
 - PR opened/synchronize/closed 事件触发构建与清理
 - 预览 URL 生成：`pr-{prNumber}-{projectId前8位}.preview.<domain>`
@@ -115,13 +143,13 @@ pnpm -r build
 - PR 评论创建/更新（记录 `Preview.commentId`，避免重复评论）
 - 蓝绿切换（SSR：PM2 进程 + Nginx 切流；静态：目录切换）
 
-### 3）通知系统完善（配置 + 触发点）
+### 2）通知系统完善（配置 + 触发点）
 
 - **通知配置 CRUD**（按 Project）：Webhook / Email（Nodemailer）/ IM（飞书/钉钉/Slack）
 - **事件触发点完善**：构建/部署成功失败、审批待处理/通过/拒绝
 - SSRF 防护升级：IPv4/IPv6 全覆盖 + 多 A/AAAA 解析校验
 
-### 4）构建与部署可靠性加固
+### 3）构建与部署可靠性加固
 
 - BuildWorker：修复 clone/workdir 流程、日志 flush 策略、缓存策略（按 lockfile hash）
 - DeployWorker：完善 SSH/rsync 密钥处理、远端依赖检测（nginx/rsync/acme.sh/pm2/nvm）与失败提示

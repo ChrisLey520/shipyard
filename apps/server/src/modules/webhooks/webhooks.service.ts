@@ -1,9 +1,43 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { validate as isUuid } from 'uuid';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { PipelineService } from '../pipeline/pipeline.service';
-import { createHmac, createHash } from 'crypto';
+import type { WebhookHttpResponse, WebhooksGitProvider, ParsedPushPayload } from './webhook-types';
+import {
+  githubWebhookIdempotencyKey,
+  verifyGithubWebhookSignature,
+  parseGithubWebhookEvent,
+  parseGithubPushPayload,
+} from './adapters/github-webhook.adapter';
+import {
+  gitlabWebhookIdempotencyKey,
+  verifyGitlabWebhookToken,
+  parseGitlabWebhookEvent,
+  parseGitlabPushPayload,
+} from './adapters/gitlab-webhook.adapter';
+import { giteeWebhookIdempotencyKey, verifyGiteeWebhookToken, parseGiteePushPayload } from './adapters/gitee-webhook.adapter';
+import {
+  giteaWebhookIdempotencyKey,
+  verifyGiteaWebhookSignature,
+  parseGiteaWebhookEvent,
+  parseGiteaPushPayload,
+} from './adapters/gitea-webhook.adapter';
+
+function normalizeHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (v === undefined) continue;
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val !== undefined) out[k.toLowerCase()] = val;
+  }
+  return out;
+}
+
+function normalizeRepoKey(name: string): string {
+  return name.trim().toLowerCase();
+}
 
 @Injectable()
 export class WebhooksService {
@@ -16,91 +50,228 @@ export class WebhooksService {
     private readonly pipeline: PipelineService,
   ) {}
 
-  async handleGithubWebhook(headers: Record<string, string>, rawBody: string) {
-    const signature = headers['x-hub-signature-256'] ?? '';
-    const deliveryId = headers['x-github-delivery'] ?? '';
-    const event = headers['x-github-event'] ?? '';
+  private ok(status: number, body: Record<string, unknown>): WebhookHttpResponse {
+    return { status, body };
+  }
 
-    // 幂等去重
-    const idempotencyKey = `webhook:github:${deliveryId}`;
-    const isNew = await this.redis.checkAndSetIdempotency(idempotencyKey);
-    if (!isNew) {
-      this.logger.debug(`Duplicate webhook delivery: ${deliveryId}`);
-      return { skipped: true };
+  private err(status: number, error: string): WebhookHttpResponse {
+    return { status, body: { error } };
+  }
+
+  async handleWebhook(
+    provider: WebhooksGitProvider,
+    p: string | undefined,
+    headersIn: Record<string, string | string[] | undefined>,
+    rawBody: string,
+  ): Promise<WebhookHttpResponse> {
+    const headers = normalizeHeaders(headersIn);
+
+    if (!p?.trim() || !isUuid(p.trim())) {
+      return this.err(400, 'invalid_request');
+    }
+    const projectId = p.trim();
+
+    let gitConn;
+    try {
+      gitConn = await this.prisma.gitConnection.findUnique({
+        where: { projectId },
+        include: { project: { include: { organization: true, environments: true } } },
+      });
+    } catch {
+      return this.err(500, 'service_unavailable');
+    }
+
+    if (!gitConn?.project || gitConn.gitProvider !== provider) {
+      return this.err(404, 'not_found');
+    }
+
+    let secret: string;
+    try {
+      secret = this.crypto.decrypt(gitConn.webhookSecret);
+    } catch {
+      this.logger.error(`Webhook secret decrypt failed projectId=${projectId}`);
+      return this.err(500, 'service_unavailable');
+    }
+
+    const sigOk = this.verifyProviderSignature(provider, secret, headers, rawBody);
+    if (!sigOk) {
+      this.logger.warn(`Invalid webhook signature provider=${provider} projectId=${projectId}`);
+      return this.err(401, 'invalid_signature');
     }
 
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(rawBody) as Record<string, unknown>;
     } catch {
-      return { error: 'Invalid JSON' };
+      return this.err(400, 'invalid_request');
     }
 
-    const repoFullName = (payload['repository'] as { full_name?: string })?.full_name;
-    if (!repoFullName) return { error: 'No repository info' };
-
-    // 找到对应的 GitConnection
-    const gitConn = await this.prisma.gitConnection.findFirst({
-      where: {
-        gitProvider: 'github',
-        project: { repoFullName },
-      },
-      include: { project: { include: { organization: true, environments: true } } },
-    });
-
-    if (!gitConn || !gitConn.project) {
-      this.logger.debug(`No project found for repo: ${repoFullName}`);
-      return { skipped: true };
+    const idemKey = this.idempotencyKey(provider, headers, rawBody, payload);
+    try {
+      const isNew = await this.redis.checkAndSetIdempotency(idemKey);
+      if (!isNew) {
+        return this.ok(200, { skipped: true, reason: 'duplicate_delivery' });
+      }
+    } catch (e) {
+      this.logger.error(`Redis idempotency failed: ${e}`);
+      return this.err(503, 'service_unavailable');
     }
 
-    // 验证签名
-    const secret = this.crypto.decrypt(gitConn.webhookSecret);
-    const expectedSig = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
-    if (signature !== expectedSig) {
-      this.logger.warn(`Invalid webhook signature for ${repoFullName}`);
-      return { error: 'Invalid signature' };
+    if (this.isNonPushPing(provider, headers, payload)) {
+      return this.ok(200, { handled: false });
+    }
+
+    if (provider === 'gitee') {
+      const hn = String(payload['hook_name'] ?? '');
+      if (hn && hn !== 'push_hooks') {
+        return this.ok(200, { handled: false });
+      }
+    }
+
+    const parsed = this.parsePush(provider, payload);
+    if (!parsed) {
+      return this.ok(200, { queued: 0, skipped: true });
+    }
+
+    const expectedRepo = normalizeRepoKey(gitConn.project.repoFullName);
+    if (normalizeRepoKey(parsed.repoFullName) !== expectedRepo) {
+      return this.err(422, 'repository_mismatch');
     }
 
     const project = gitConn.project;
     const orgId = project.organization.id;
+    const matchingEnvs = project.environments.filter((e) => e.triggerBranch === parsed.branch);
 
-    if (event === 'push') {
-      const ref = payload['ref'] as string;
-      const branch = ref?.replace('refs/heads/', '');
-      const commits = payload['commits'] as Array<{ id: string; message: string; author: { name: string } }>;
-      const headCommit = (payload['head_commit'] as { id: string; message: string; author: { name: string } }) ?? commits?.[0];
-
-      if (!branch || !headCommit) return { skipped: true };
-
-      // 找到所有匹配此 branch 的 Environment
-      const matchingEnvs = project.environments.filter((e) => e.triggerBranch === branch);
-
-      for (const env of matchingEnvs) {
-        await this.pipeline.enqueueBuild(
-          orgId,
-          project.id,
-          env.id,
-          headCommit.id,
-          branch,
-          headCommit.message,
-          headCommit.author.name,
-        );
-        this.logger.log(`Queued build for ${project.slug} env:${env.name} branch:${branch}`);
-      }
-
-      return { queued: matchingEnvs.length };
+    if (matchingEnvs.length === 0) {
+      return this.ok(200, { queued: 0 });
     }
 
-    return { event, handled: false };
+    let queued = 0;
+    const deduped: string[] = [];
+    for (const env of matchingEnvs) {
+      const { deployment, deduped: wasDeduped } = await this.pipeline.enqueueBuild(
+        orgId,
+        project.id,
+        env.id,
+        parsed.commitSha,
+        parsed.branch,
+        parsed.commitMessage,
+        parsed.commitAuthor,
+        undefined,
+      );
+      if (wasDeduped) {
+        deduped.push(deployment.id);
+      } else {
+        queued += 1;
+        this.logger.log(`Queued build for ${project.slug} env:${env.name} branch:${parsed.branch}`);
+      }
+    }
+
+    if (deduped.length > 0 && queued === 0) {
+      return this.ok(200, {
+        deduped: true,
+        existingDeploymentId: deduped[0],
+      });
+    }
+
+    return this.ok(200, {
+      queued,
+      ...(deduped.length ? { dedupedIds: deduped } : {}),
+    });
   }
 
-  /**
-   * Gitee 无 Delivery UUID，用内容 hash 去重
-   */
+  private verifyProviderSignature(
+    provider: WebhooksGitProvider,
+    secret: string,
+    headers: Record<string, string>,
+    rawBody: string,
+  ): boolean {
+    switch (provider) {
+      case 'github':
+        return verifyGithubWebhookSignature(secret, rawBody, headers['x-hub-signature-256'] ?? '');
+      case 'gitlab':
+        return verifyGitlabWebhookToken(secret, headers);
+      case 'gitee':
+        return verifyGiteeWebhookToken(secret, headers);
+      case 'gitea': {
+        const sig = headers['x-gitea-signature'] ?? '';
+        return verifyGiteaWebhookSignature(secret, rawBody, sig);
+      }
+      default: {
+        const _exhaustive: never = provider;
+        return _exhaustive;
+      }
+    }
+  }
+
+  private idempotencyKey(
+    provider: WebhooksGitProvider,
+    headers: Record<string, string>,
+    rawBody: string,
+    payload: Record<string, unknown>,
+  ): string {
+    switch (provider) {
+      case 'github':
+        return githubWebhookIdempotencyKey(headers, rawBody);
+      case 'gitlab':
+        return gitlabWebhookIdempotencyKey(headers, payload);
+      case 'gitee':
+        return giteeWebhookIdempotencyKey(payload);
+      case 'gitea':
+        return giteaWebhookIdempotencyKey(headers, rawBody);
+      default: {
+        const _exhaustive: never = provider;
+        return _exhaustive;
+      }
+    }
+  }
+
+  private isNonPushPing(
+    provider: WebhooksGitProvider,
+    headers: Record<string, string>,
+    _payload: Record<string, unknown>,
+  ): boolean {
+    switch (provider) {
+      case 'github': {
+        const ev = parseGithubWebhookEvent(headers);
+        return ev === 'ping' || (ev !== '' && ev !== 'push');
+      }
+      case 'gitlab': {
+        const ev = parseGitlabWebhookEvent(headers);
+        return ev !== '' && ev !== 'Push Hook';
+      }
+      case 'gitee':
+        return false; // 非 push 由 hook_name 在 handleWebhook 中单独判断
+      case 'gitea': {
+        const ev = parseGiteaWebhookEvent(headers);
+        return ev !== '' && ev.toLowerCase() !== 'push';
+      }
+      default: {
+        const _exhaustive: never = provider;
+        return _exhaustive;
+      }
+    }
+  }
+
+  private parsePush(provider: WebhooksGitProvider, payload: Record<string, unknown>): ParsedPushPayload | null {
+    switch (provider) {
+      case 'github':
+        return parseGithubPushPayload(payload);
+      case 'gitlab':
+        return parseGitlabPushPayload(payload);
+      case 'gitee':
+        return parseGiteePushPayload(payload);
+      case 'gitea':
+        return parseGiteaPushPayload(payload);
+      default: {
+        const _exhaustive: never = provider;
+        return _exhaustive;
+      }
+    }
+  }
+
+  /** @deprecated 保留兼容；新逻辑见各 adapter */
   buildGiteeIdempotencyKey(payload: Record<string, unknown>): string {
-    const repoId = String((payload['repository'] as { id?: number })?.id ?? '');
-    const sha = String((payload['head_commit'] as { id?: string })?.id ?? '');
-    const event = String(payload['event'] ?? '');
-    return `webhook:gitee:${createHash('sha256').update(`${event}:${repoId}:${sha}`).digest('hex')}`;
+    return giteeWebhookIdempotencyKey(payload);
   }
 }

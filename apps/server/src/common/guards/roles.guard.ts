@@ -2,12 +2,13 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
+  HttpStatus,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgRole } from '@shipyard/shared';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { ShipyardHttpException } from '../http/shipyard-http.exception';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -34,13 +35,13 @@ export class RolesGuard implements CanActivate {
     if (!orgSlug) return true;
 
     const org = await this.prisma.organization.findUnique({ where: { slug: orgSlug } });
-    if (!org) throw new ForbiddenException('组织不存在');
+    if (!org) throw new ShipyardHttpException(HttpStatus.FORBIDDEN, { code: 'ORG_NOT_FOUND' });
 
     const member = await this.prisma.orgMember.findUnique({
       where: { organizationId_userId: { organizationId: org.id, userId: user.id } },
     });
 
-    if (!member) throw new ForbiddenException('你不是该组织成员');
+    if (!member) throw new ShipyardHttpException(HttpStatus.FORBIDDEN, { code: 'ORG_NOT_MEMBER' });
 
     // 角色层级：owner > admin > developer > viewer
     const hierarchy: Record<string, number> = {
@@ -54,7 +55,7 @@ export class RolesGuard implements CanActivate {
     const minRequired = Math.min(...requiredRoles.map((r) => hierarchy[r] ?? 99));
 
     if (userLevel < minRequired) {
-      throw new ForbiddenException('权限不足');
+      throw new ShipyardHttpException(HttpStatus.FORBIDDEN, { code: 'ORG_PERMISSION_DENIED' });
     }
 
     // 将 orgId 和 role 挂载到 request，供后续 handler 使用

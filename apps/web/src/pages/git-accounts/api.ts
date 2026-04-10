@@ -6,6 +6,7 @@ export interface GitAccountItem {
   gitProvider: string;
   baseUrl: string | null;
   gitUsername: string | null;
+  authType?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,5 +38,10 @@ export async function listReposForGitAccount(orgSlug: string, gitAccountId: stri
   return http
     .get<Array<{ fullName: string; private: boolean }>>(`/orgs/${orgSlug}/git-accounts/${gitAccountId}/repos`)
     .then((r) => r.data);
+}
+
+export async function startGitOAuth(orgSlug: string, provider: string): Promise<string> {
+  const r = await http.get<{ url: string }>(`/orgs/${orgSlug}/git/oauth/${provider}/start`);
+  return r.data.url;
 }
 

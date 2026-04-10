@@ -3,6 +3,8 @@ import { Worker, Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { GitAccessTokenService } from '../git/git-access-token.service';
+import { GitCommitStatusService } from '../git/git-commit-status.service';
 import { spawn } from 'child_process';
 import { createWriteStream, mkdirSync, rmSync, existsSync } from 'fs';
 import { unlink, writeFile, readdir } from 'fs/promises';
@@ -24,6 +26,8 @@ export class BuildWorkerService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly crypto: CryptoService,
+    private readonly gitTokens: GitAccessTokenService,
+    private readonly commitStatus: GitCommitStatusService,
   ) {}
 
   async onModuleInit() {
@@ -85,6 +89,12 @@ export class BuildWorkerService implements OnModuleInit {
         where: { id: deploymentId },
         data: { status: 'building', startedAt: new Date() },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'build',
+        'pending',
+        'Shipyard build in progress',
+      );
 
       const [project, gitConn, pipelineConfig] = await Promise.all([
         this.prisma.project.findUniqueOrThrow({ where: { id: projectId } }),
@@ -92,8 +102,7 @@ export class BuildWorkerService implements OnModuleInit {
         this.prisma.pipelineConfig.findUniqueOrThrow({ where: { projectId } }),
       ]);
 
-      // 解密 token，构造 clone URL
-      const token = this.crypto.decrypt(gitConn.accessToken);
+      const token = await this.gitTokens.getAccessTokenForProject(projectId);
       const cloneUrl = buildCloneUrl(
         gitConn.gitProvider,
         project.repoFullName,
@@ -254,6 +263,12 @@ export class BuildWorkerService implements OnModuleInit {
           durationMs: Date.now() - (await this.getStartedAt(deploymentId)),
         },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'build',
+        'success',
+        'Shipyard build succeeded',
+      );
 
       // 自动入 DeployQueue（如果有 environmentId）
       if (environmentId) {
@@ -268,6 +283,12 @@ export class BuildWorkerService implements OnModuleInit {
         where: { id: deploymentId },
         data: { status: 'failed', completedAt: new Date() },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'build',
+        'failure',
+        'Shipyard build failed',
+      );
     } finally {
       // 清理临时目录（含 .env）
       if (existsSync(tmpDir)) {
@@ -335,6 +356,12 @@ export class BuildWorkerService implements OnModuleInit {
           status: 'pending',
         },
       });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'build',
+        'pending',
+        'Waiting for deployment approval',
+      );
       return;
     }
 

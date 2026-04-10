@@ -306,8 +306,12 @@ async function loadAccounts() {
   loadingAccounts.value = true;
   try {
     gitAccounts.value = await listGitAccounts(orgSlug.value);
-  } catch {
-    gitAccounts.value = [];
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(
+      e?.response?.data?.message ??
+        'Git 账户列表加载失败（若刚升级代码，请在服务端执行数据库迁移：pnpm --filter @shipyard/server db:migrate）',
+    );
   } finally {
     loadingAccounts.value = false;
   }

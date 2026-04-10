@@ -15,6 +15,7 @@ model User {
   email        String   @unique
   passwordHash String?
   avatarUrl    String?
+  locale       String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -175,24 +176,33 @@ model GitConnection {
   gitUsername      String?
   webhookSecret    String
   remoteWebhookId  String?
+  gitAccountId     String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  project Project? @relation("ProjectGitConnection", fields: [projectId], references: [id], onDelete: Cascade)
+  project    Project?    @relation("ProjectGitConnection", fields: [projectId], references: [id], onDelete: Cascade)
+  gitAccount GitAccount? @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
+
+  @@index([gitAccountId])
 }
 
 model GitAccount {
-  id             String   @id @default(uuid())
-  organizationId String
-  name           String
-  gitProvider    String
-  baseUrl        String?
-  accessToken    String
-  gitUsername    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                  String    @id @default(uuid())
+  organizationId    String
+  name                String
+  gitProvider         String
+  baseUrl             String?
+  accessToken         String
+  gitUsername         String?
+  authType            String    @default("pat")
+  refreshToken        String?
+  tokenExpiresAt      DateTime?
+  providerAccountId   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  gitConnections GitConnection[]
 
   @@index([organizationId])
   @@index([gitProvider])

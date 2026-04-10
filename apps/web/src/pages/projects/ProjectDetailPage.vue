@@ -201,7 +201,8 @@ import {
   NModal, NInput, useDialog,
 } from 'naive-ui';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
-import { formatDuration, deploymentStatusLabel } from '@shipyard/shared';
+import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
+import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
 import { getEnvironmentAccessUrls } from '../environments/api';
 import {
@@ -271,6 +272,8 @@ const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'defa
   deploying: 'info', queued: 'default', pending_approval: 'warning',
 };
 
+const { t } = useI18n();
+
 const deployColumns: DataTableColumns<DeploymentListItem> = [
   { type: 'selection' },
   { title: '环境', key: 'env', render: (r) => r.environment?.name ?? 'Preview', width: 100 },
@@ -282,7 +285,7 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
       h(
         NTag,
         { type: statusMap[r.status] ?? 'default', size: 'small' },
-        { default: () => deploymentStatusLabel(r.status) },
+        { default: () => t(deploymentStatusKey(r.status)) },
       ),
   },
   {

@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   Controller,
+  Patch,
   Post,
+  Body,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -13,6 +15,7 @@ import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
 import { mkdirSync } from 'fs';
 import type { Request } from 'express';
+import { IsIn, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
@@ -24,10 +27,29 @@ function ensureAvatarDir() {
   mkdirSync(AVATAR_DIR, { recursive: true });
 }
 
+class UpdateMeBody {
+  @IsString()
+  @IsIn(['zh-CN', 'zh-TW', 'en', 'ja'])
+  locale!: string;
+}
+
 @ApiTags('用户')
 @Controller('users')
 export class UsersController {
   constructor(private readonly prisma: PrismaService) {}
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '更新当前用户信息（语言）' })
+  async updateMe(@CurrentUser() user: User, @Body() body: UpdateMeBody) {
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { locale: body.locale },
+      select: { locale: true },
+    });
+    return updated;
+  }
 
   @Post('me/avatar')
   @UseGuards(JwtAuthGuard)
