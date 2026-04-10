@@ -6,3 +6,4 @@ dist/
 .DS_Store
 .prisma/
 apps/server/uploads/
+apps/server/artifacts/
