@@ -37,6 +37,37 @@ cp .env.example .env
 - **Git OAuth**（可选）：`GIT_OAUTH_*` 系列，见根目录 `.env.example`
 - `ARTIFACT_STORE_PATH`：构建产物目录
 
+## Git 集成（Webhook、OAuth、Commit Status）
+
+支持 **GitHub / GitLab / Gitee / Gitea**。关联账户可用 **PAT** 或 **OAuth**（Git 账户页「OAuth 授权」；需配置 `.env` 中 `GIT_OAUTH_*`，见 `.env.example`）。
+
+### Webhook（推送自动构建）
+
+- 在 Shipyard **创建项目** 且已配置 **`SERVER_PUBLIC_URL`** 时，会尝试在远端仓库 **自动注册** Webhook；删除项目时 **自动注销**。
+- 回调地址形如：`{SERVER_PUBLIC_URL}/api/webhooks/{github|gitlab|gitee|gitea}?p=<Project.id>`，其中 **`p` 为项目 UUID**，用于同仓多项目路由，请勿手动改成无 `p` 的 URL。
+- **`SERVER_PUBLIC_URL` 必须是 Git 平台能访问到的 API 根地址**（含协议与端口），与前端 `APP_URL`（如 `http://localhost:5173`）通常不同。
+- **从旧版升级**：若远端仍保留 **无 `?p=`** 的 Webhook，请在各平台删除旧 Hook 后，通过重新创建项目或触发重新注册，使回调带 `p=<Project.id>`。
+
+### GitHub OAuth App 配置要点
+
+- **Authorization callback URL** 须与后端实际发出的 `redirect_uri` 完全一致，例如：
+  - 本地 API：`http://localhost:3000/api/git/oauth/github/callback`
+  - 或使用 ngrok 等：**`https://<你的域名>/api/git/oauth/github/callback`**（与 `SERVER_PUBLIC_URL` 一致）
+- **不要**只填 `http://localhost:5173`：OAuth 回调由 **Nest API** 处理，不是 Vite 开发服务器。
+- **Homepage URL** 可填产品首页（如 `http://localhost:5173`），仅作展示，不参与 redirect 校验。
+
+### 数据库
+
+引入 `GitAccount` OAuth 字段、`GitConnection.gitAccountId` 等需执行迁移：
+
+```bash
+pnpm --filter @shipyard/server db:migrate
+```
+
+### Commit Status
+
+构建与部署关键状态会回写到各平台（`shipyard/build`、`shipyard/deploy`），依赖 `APP_URL` 生成部署详情链接。
+
 ## 本地开发（推荐）
 
 ### 1）启动 postgres/redis
@@ -97,24 +128,13 @@ pnpm -r build
 - **部署**：SSH 部署（rsync + nginx/pm2 逻辑）、部署锁、健康检查 + 自动回滚
 - **审批**：受保护环境审批列表 + 通过/拒绝（通过后入 DeployQueue）
 - **Web UI**：登录/注册、Dashboard、项目/环境/服务器/团队/审批、部署日志（xterm）
+- **Git 多平台**：Webhook 接收（`p` 路由、验签、幂等、Webhook 触发的入队去重）、项目创建/删除时自动注册或注销 Hook、Commit Status 回写、Git 账户 **PAT + OAuth**（详见上文「Git 集成」）
 
 ## 下一阶段规划（Roadmap / Next Phase）
 
-以下为**下一阶段**优先落地的功能特性（按“能跑通 → 可用 → 可运营”排序），用于对齐计划书与代码现状。
+以下为**尚未实现或持续增强**的方向（按“能跑通 → 可用 → 可运营”排序）。
 
-### 1）Git 集成增强（多平台 + 自动化）— 已落地要点
-
-- **Webhook 路由（H1）**：回调 URL 必须带查询参数 `p=<Project.id>`（UUID）；接收端按 `p` 加载项目与 `GitConnection`，验签后再校验仓库路径，避免同仓多项目串单。
-- **Webhook 去重（H2）**：`PipelineService.enqueueBuild` 在 **无 `triggeredByUserId`（Webhook）** 时，对 `(projectId, environmentId, commitSha)` 若已有 `queued` / `building` / `pending_approval` 则不再新建部署；手动触发始终新建。
-- **HTTP 语义**：缺/非法 `p` → **400**；无项目/连接 → **404**；验签失败 → **401**；仓库与项目不一致 → **422**；幂等命中、非 push 事件、无匹配分支 → **200** + 约定 JSON。
-- **Raw Body**：`main.ts` 启用 Nest `rawBody`，保证 HMAC 验签与平台一致。
-- **自动注册/注销**：GitHub / GitLab / Gitee / Gitea 在项目创建/删除时注册或注销 Webhook（依赖 `SERVER_PUBLIC_URL`）；注册前 **list hooks**，按 URL 含 `?p=` 去重。
-- **Commit Status**：`shipyard/build` 与 `shipyard/deploy` 上下文回写至各平台（构建/部署关键状态变更）。
-- **OAuth**：`GET /api/orgs/:orgSlug/git/oauth/:provider/start` 返回授权 URL；`GET /api/git/oauth/:provider/callback` 完成授权并写入 `GitAccount`（`authType=oauth`，token/refresh 加密）；GitHub/GitLab 支持 refresh；前端 Git 账户页提供 OAuth 入口。
-
-**升级提示**：旧环境若 Webhook URL **无 `p`**，需在 Git 平台删除旧 Hook 后，通过重新创建项目或等价流程触发带 `?p=` 的重新注册。
-
-### 2）PR Preview（预览部署）
+### 1）PR Preview（预览部署）
 
 - PR opened/synchronize/closed 事件触发构建与清理
 - 预览 URL 生成：`pr-{prNumber}-{projectId前8位}.preview.<domain>`
@@ -123,13 +143,13 @@ pnpm -r build
 - PR 评论创建/更新（记录 `Preview.commentId`，避免重复评论）
 - 蓝绿切换（SSR：PM2 进程 + Nginx 切流；静态：目录切换）
 
-### 3）通知系统完善（配置 + 触发点）
+### 2）通知系统完善（配置 + 触发点）
 
 - **通知配置 CRUD**（按 Project）：Webhook / Email（Nodemailer）/ IM（飞书/钉钉/Slack）
 - **事件触发点完善**：构建/部署成功失败、审批待处理/通过/拒绝
 - SSRF 防护升级：IPv4/IPv6 全覆盖 + 多 A/AAAA 解析校验
 
-### 4）构建与部署可靠性加固
+### 3）构建与部署可靠性加固
 
 - BuildWorker：修复 clone/workdir 流程、日志 flush 策略、缓存策略（按 lockfile hash）
 - DeployWorker：完善 SSH/rsync 密钥处理、远端依赖检测（nginx/rsync/acme.sh/pm2/nvm）与失败提示
