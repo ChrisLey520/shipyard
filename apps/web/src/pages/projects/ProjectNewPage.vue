@@ -193,12 +193,6 @@ const loadingRepos = ref(false);
 const repoOptions = ref<Array<{ label: string; value: string }>>([]);
 const loadingAccounts = ref(false);
 const gitAccounts = ref<GitAccountListItem[]>([]);
-const gitAccountOptions = computed(() =>
-  gitAccounts.value.map((a) => ({
-    label: `${a.name} · ${a.gitProvider}${a.baseUrl ? ` · ${a.baseUrl}` : ''}`,
-    value: a.id,
-  })),
-);
 
 const selectedAccount = computed(() =>
   gitAccounts.value.find((a) => a.id === form.value.gitAccountId) ?? null,

@@ -432,8 +432,6 @@ const flowInfo = computed(() => {
   return { currentIdx, status, desc, stepStatuses };
 });
 
-const flowCurrent = computed(() => flowInfo.value.currentIdx + 1);
-const flowStatus = computed<FlowStatus>(() => flowInfo.value.status);
 const flowDesc = computed(() => flowInfo.value.desc);
 const flowStepStatuses = computed<StepStatus[]>(() => flowInfo.value.stepStatuses);
 

@@ -39,9 +39,9 @@ export default defineConfig({
     // 主应用壳（整体背景氛围，参考登录页但更克制）
     'app-shell': 'relative min-h-[100dvh] bg-[var(--n-body-color)]',
     'app-bg': 'pointer-events-none absolute inset-0 overflow-hidden',
-    'app-bg-grid': 'absolute inset-0 opacity-18 [background-image:linear-gradient(to_right,rgba(0,0,0,0.045)_1px,transparent_1px),linear-gradient(to_bottom,rgba(0,0,0,0.045)_1px,transparent_1px)] [background-size:34px_34px] dark:opacity-12 dark:[background-image:linear-gradient(to_right,rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.06)_1px,transparent_1px)]',
-    'app-bg-blur-1': 'absolute -top-50 -left-60 w-[560px] h-[560px] rounded-full bg-brand-400/8 blur-3xl dark:bg-brand-400/5',
-    'app-bg-blur-2': 'absolute -bottom-65 -right-65 w-[760px] h-[760px] rounded-full bg-sky-400/7 blur-3xl dark:bg-sky-400/5',
+    'app-bg-grid': 'absolute inset-0 opacity-18 [background-image:linear-gradient(to_right,var(--app-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--app-grid-line)_1px,transparent_1px)] [background-size:34px_34px] dark:opacity-12',
+    'app-bg-blur-1': 'absolute -top-50 -left-60 w-[560px] h-[560px] rounded-full bg-[rgb(var(--app-accent-1)/0.08)] blur-3xl dark:bg-[rgb(var(--app-accent-1)/0.05)]',
+    'app-bg-blur-2': 'absolute -bottom-65 -right-65 w-[760px] h-[760px] rounded-full bg-[rgb(var(--app-accent-2)/0.07)] blur-3xl dark:bg-[rgb(var(--app-accent-2)/0.05)]',
 
     // 认证页（登录/注册/找回密码）
     'auth-shell': 'relative min-h-[100dvh] overflow-hidden flex items-center justify-center px-4 py-0 bg-[var(--n-body-color)]',

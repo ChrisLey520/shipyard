@@ -1,5 +1,5 @@
 <template>
-  <n-layout style="height: 100vh" has-sider>
+  <n-layout class="h-screen" has-sider>
     <n-layout-sider
       bordered
       collapse-mode="width"
@@ -11,7 +11,7 @@
     >
       <!-- Logo -->
       <div class="logo" :class="{ collapsed }">
-        <span v-if="!collapsed" style="font-size: 18px; font-weight: 700; color: #18a058">
+        <span v-if="!collapsed" class="text-[18px] font-700 text-[var(--n-primary-color)]">
           ⚓ Shipyard
         </span>
         <span v-else style="font-size: 18px">⚓</span>
@@ -54,13 +54,21 @@
 
     <n-layout>
       <!-- 顶栏 -->
-      <n-layout-header bordered style="height: 56px; display: flex; align-items: center; padding: 0 20px; gap: 12px">
+      <n-layout-header bordered class="h-14 flex items-center px-5 gap-3">
         <n-button quaternary circle @click="collapsed = !collapsed">
           <template #icon>
             <n-icon><MenuOutlined /></n-icon>
           </template>
         </n-button>
-        <div style="flex: 1" />
+        <div class="flex-1" />
+        <n-dropdown :options="themeMenuOptions" @select="handleThemeMenu">
+          <n-button quaternary>
+            {{ currentThemeLabel }}
+            <span class="ml-2 muted">
+              {{ themeModeLabel }}
+            </span>
+          </n-button>
+        </n-dropdown>
         <n-dropdown :options="userMenuOptions" @select="handleUserMenu">
           <n-button quaternary>
             <n-avatar
@@ -183,6 +191,8 @@ import {
 } from 'naive-ui';
 import { useAuthStore } from '../../stores/auth';
 import { useOrgStore } from '../../stores/org';
+import { useThemeStore } from '../../stores/theme';
+import { THEME_OPTIONS, type ColorMode, type ThemeId } from '../../theme/themes';
 import { createOrg, getOrgBySlug } from '../../pages/orgs/api';
 
 // 临时图标组件（实际项目中使用 @vicons）
@@ -192,6 +202,7 @@ const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
 const orgStore = useOrgStore();
+const themeStore = useThemeStore();
 
 const collapsed = ref(false);
 const currentOrgSlug = ref(orgStore.currentOrgSlug ?? '');
@@ -330,12 +341,49 @@ const userMenuOptions: DropdownOption[] = [
   { label: '退出登录', key: 'logout' },
 ];
 
+const currentThemeLabel = computed(() => {
+  const opt = THEME_OPTIONS.find((t) => t.id === themeStore.themeId);
+  return opt?.label ?? '主题';
+});
+
+const themeModeLabel = computed(() => {
+  const mode = themeStore.colorMode;
+  if (mode === 'auto') return themeStore.isDark ? '跟随系统 · 深色' : '跟随系统 · 浅色';
+  return mode === 'dark' ? '深色' : '浅色';
+});
+
+const themeMenuOptions = computed<DropdownOption[]>(() => {
+  const themeItems: DropdownOption[] = THEME_OPTIONS.map((t) => ({
+    label: t.label,
+    key: `theme:${t.id}`,
+  }));
+  return [
+    ...themeItems,
+    { type: 'divider', key: 'd-theme' },
+    { label: '模式：跟随系统', key: 'mode:auto' },
+    { label: '模式：浅色', key: 'mode:light' },
+    { label: '模式：深色', key: 'mode:dark' },
+  ];
+});
+
 function handleMenuSelect(key: string) {
   void router.push(key);
 }
 
 function switchOrg(slug: string) {
   void router.push(`/orgs/${slug}`);
+}
+
+function handleThemeMenu(key: string) {
+  if (key.startsWith('theme:')) {
+    const id = key.slice('theme:'.length) as ThemeId;
+    themeStore.setThemeId(id);
+    return;
+  }
+  if (key.startsWith('mode:')) {
+    const mode = key.slice('mode:'.length) as ColorMode;
+    themeStore.setColorMode(mode);
+  }
 }
 
 async function handleUserMenu(key: string) {
