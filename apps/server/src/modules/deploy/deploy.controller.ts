@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';

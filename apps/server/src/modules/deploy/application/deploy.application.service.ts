@@ -7,6 +7,7 @@ import { CryptoService } from '../../../common/crypto/crypto.service';
 import { GitCommitStatusService } from '../../git/git-commit-status.service';
 import { Client as SshClient } from 'ssh2';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import { mkdirSync, rmSync } from 'fs';
 import { writeFile, unlink } from 'fs/promises';
 import * as tar from 'tar';
@@ -643,7 +644,6 @@ server.listen(PORT, '0.0.0.0', () => {
 
   private execLocal(cmd: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      const { spawn } = require('child_process') as typeof import('child_process');
       let combined = '';
       const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       child.stdout?.on('data', (c: Buffer) => {

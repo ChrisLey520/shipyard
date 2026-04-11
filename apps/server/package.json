@@ -7,6 +7,7 @@
     "worker": "prisma generate && ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/worker.ts",
     "build": "prisma generate && tsc",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
     "start": "prisma generate && node dist/main.js",
     "start:worker": "prisma generate && node dist/worker.js",
     "db:migrate": "node scripts/run-prisma.cjs migrate dev",
