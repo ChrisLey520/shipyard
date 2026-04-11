@@ -22,6 +22,17 @@ export class NotifyWorkerService extends NotifyWorkerApplicationService implemen
     for (const org of orgs) {
       this.startWorkerForOrg(org.id);
     }
+
+    const sub = this.redis.getSubscriber();
+    await sub.subscribe('worker:new-org');
+    sub.on('message', (_ch: string, orgId: string) => {
+      void this.prisma.organization
+        .findUnique({ where: { id: orgId }, select: { id: true } })
+        .then((row) => {
+          if (row) this.startWorkerForOrg(orgId);
+        });
+    });
+
     this.logger.log(`NotifyWorker initialized for ${orgs.length} organizations`);
   }
 

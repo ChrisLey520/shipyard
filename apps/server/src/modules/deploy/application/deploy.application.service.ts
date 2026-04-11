@@ -119,6 +119,21 @@ export class DeployApplicationService {
     return normalizeHttpRootUrlWithSlash(accessHost) || null;
   }
 
+  /** 部署失败日志与通知：附带 errno/code（如 SSH）便于排障 */
+  private formatDeployFailureMessage(err: unknown): string {
+    if (err instanceof Error) {
+      const ext = err as Error & { code?: string; errno?: number };
+      const hint =
+        ext.code != null
+          ? String(ext.code)
+          : ext.errno != null
+            ? `errno=${String(ext.errno)}`
+            : '';
+      return hint ? `${err.message} [${hint}]` : err.message;
+    }
+    return String(err);
+  }
+
   /** 与构建日志同一套存储与 Pub/Sub，便于详情页连续展示 */
   private async appendLogLine(deploymentId: string, content: string): Promise<void> {
     const agg = await this.prisma.deploymentLog.aggregate({
@@ -126,10 +141,16 @@ export class DeployApplicationService {
       _max: { seq: true },
     });
     const seq = (agg._max.seq ?? -1) + 1;
-    await Promise.all([
-      this.prisma.deploymentLog.create({ data: { deploymentId, seq, content } }),
-      this.redis.publishLog(deploymentId, { deploymentId, line: content, seq }),
-    ]);
+    try {
+      await this.prisma.deploymentLog.create({ data: { deploymentId, seq, content } });
+    } catch (e) {
+      this.logger.warn(`写入 deploymentLog 失败 deploymentId=${deploymentId}: ${e}`);
+    }
+    try {
+      await this.redis.publishLog(deploymentId, { deploymentId, line: content, seq });
+    } catch (e) {
+      this.logger.warn(`发布部署日志到 Redis 失败 deploymentId=${deploymentId}: ${e}`);
+    }
   }
 
   async deploy(data: DeployJobData) {
@@ -309,7 +330,7 @@ export class DeployApplicationService {
         { deploymentId },
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = this.formatDeployFailureMessage(err);
       this.logger.error(`Deploy failed for ${deploymentId}: ${err}`);
       try {
         await this.appendLogLine(deploymentId, `[deploy] [error] ${message}`);
@@ -344,7 +365,7 @@ export class DeployApplicationService {
   }
 
   private shellSingleQuote(s: string): string {
-    return `'${s.replace(/'/g, `'\"'\"'`)}'`;
+    return `'${s.replace(/'/g, `'"'"'`)}'`;
   }
 
   /** 移除 build/deploy 队列中尚未执行的同名 job（与 Pipeline/BuildWorker 的 jobId 约定一致） */
@@ -426,7 +447,7 @@ export class DeployApplicationService {
   }
 
   async deployPreview(opts: { deploymentId: string; projectId: string; previewId: string; orgId: string }) {
-    const { deploymentId, projectId, previewId, orgId: _orgId } = opts;
+    const { deploymentId, projectId, previewId } = opts;
     let gitConn: { gitProvider: string; accessToken: string; baseUrl: string | null } | null = null;
     /** SSR：已 tryAllocate 但未写入 Preview.allocatedPort 时，失败路径须释放 Redis 避免端口泄漏 */
     let ssrPortRollback: { serverId: string; port: number; previewRowId: string } | null = null;
@@ -667,7 +688,7 @@ export class DeployApplicationService {
         { deploymentId },
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = this.formatDeployFailureMessage(err);
       this.logger.error(`Preview deploy failed for ${deploymentId}: ${err}`);
       if (ssrPortRollback) {
         await this.previewPorts

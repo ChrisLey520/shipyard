@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHmac } from 'crypto';
 import * as http from 'http';
 import * as https from 'https';
 import * as nodemailer from 'nodemailer';
@@ -45,7 +46,7 @@ export class NotifyWorkerApplicationService {
             await this.sendFeishu(plain as { url: string }, text);
             break;
           case NotificationChannel.DINGTALK:
-            await this.sendDingtalk(plain as { url: string }, text);
+            await this.sendDingtalk(plain as { url: string; secret?: string }, text);
             break;
           case NotificationChannel.SLACK:
             await this.sendSlack(plain as { url: string }, text);
@@ -125,8 +126,21 @@ export class NotifyWorkerApplicationService {
     });
   }
 
-  private async sendDingtalk(config: { url: string }, text: string) {
-    await this.postJson(config.url, {
+  /** 钉钉自定义机器人加签：https://open.dingtalk.com/document/orgapp/customize-robot-security-settings */
+  private buildDingtalkSignedWebhookUrl(webhookUrl: string, secretPlain: string): string {
+    const timestamp = Date.now();
+    const stringToSign = `${timestamp}\n${secretPlain}`;
+    const sign = createHmac('sha256', secretPlain).update(stringToSign).digest('base64');
+    const u = new URL(webhookUrl);
+    u.searchParams.set('timestamp', String(timestamp));
+    u.searchParams.set('sign', sign);
+    return u.href;
+  }
+
+  private async sendDingtalk(config: { url: string; secret?: string }, text: string) {
+    const secret = typeof config.secret === 'string' && config.secret.trim() ? config.secret.trim() : '';
+    const url = secret ? this.buildDingtalkSignedWebhookUrl(config.url, secret) : config.url;
+    await this.postJson(url, {
       msgtype: 'markdown',
       markdown: { title: 'Shipyard', text: `### Shipyard\n\n${text.replace(/\n/g, '\n\n')}` },
     });

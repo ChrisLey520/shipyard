@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
 import { MailService } from '../../auth/mail.service';
 import { v4 as uuidv4 } from 'uuid';
 import { ShipyardHttpException } from '../../../common/http/shipyard-http.exception';
@@ -15,6 +16,7 @@ import { InvitationRuleError, normalizeInviteEmail } from '../domain/invitation.
 export class OrgsApplicationService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly mail: MailService,
   ) {}
 
@@ -31,6 +33,7 @@ export class OrgsApplicationService {
         },
       },
     });
+    await this.redis.getClient().publish('worker:new-org', org.id).catch(() => undefined);
     return org;
   }
 

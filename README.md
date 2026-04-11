@@ -194,17 +194,18 @@ pnpm -r build
 - **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack（机器人 Webhook JSON）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。
 - **敏感字段**：`config` 内 `secret`、`smtpPass` 等使用 `CryptoService` 加密落库；API 响应脱敏（如 `secretConfigured` / `smtpPassConfigured`）。
 - **SSRF 与 URL 主机**：允许配置**字面 IP** 的 `http(s)` URL，对该地址直接做阻断列表校验；若为**域名**，则对该主机名解析得到的**全部**结果逐一校验，任一对私网/保留段即拒绝。
-- **IM `secret`**：控制台可填写并加密存储；当前 Worker **未**对飞书/钉钉/Slack 请求做加签（按无密钥 Webhook URL 使用）。若需「密钥 + 签名 URL」需在发送路径另行实现。
-- **测试**：根目录 `pnpm test` 会先执行 `pnpm --filter @shipyard/shared build` 再跑各包测试，避免 `@shipyard/server` Vitest 引用过期 `dist` 报错。若 CI 将 job 拆分，运行 server 测试的 job 也须先构建 `@shipyard/shared`。
+- **IM `secret`**：`secret` 加密存储；**钉钉**渠道在配置密钥时使用官方加签（`timestamp` + `sign`）；飞书 / Slack 仍为无签 Webhook URL。
+- **新建组织与 Worker**：创建组织后向 Redis 发布 `worker:new-org`；Build / Deploy / Notify Worker 均已订阅并为新组织注册对应 BullMQ 队列，**一般无需重启** Worker 进程。
+- **产物保留**：构建成功后按 `Organization.artifactRetention` 对该组织下全部 `BuildArtifact` 与 `ARTIFACT_STORE_PATH` 内 `*.tar.gz` 做 **count-based** 清理，保留最近 N 条。
+- **测试**：根目录 `pnpm test` 会先执行 `pnpm --filter @shipyard/shared build` 再跑各包测试，避免 `@shipyard/server` Vitest 引用过期 `dist` 报错。若 CI 将 job 拆分，运行 server 测试的 job 也须先构建 `@shipyard/shared`。GitHub Actions 见 `.github/workflows/ci.yml`（含可选 E2E）。
 
 **仍待增强**
 
-- **运行时新建组织**：Notify Worker 仅在进程启动时为已有组织注册消费者；新建组织后需**重启 worker**，或后续实现动态 `startWorkerForOrg`。
-- **IM 加签**：钉钉/飞书等平台的签名 URL / HMAC 与已存储 `secret` 联动。
+- **IM 加签（非钉钉）**：飞书 / Slack 等与已存储 `secret` 的签名协议待实现。
 
 ### 3）构建与部署可靠性加固
 
-- BuildWorker：修复 clone/workdir 流程、日志 flush 策略、缓存策略（按 lockfile hash）
-- DeployWorker：完善 SSH/rsync 密钥处理、远端依赖检测（nginx/rsync/acme.sh/pm2/nvm）与失败提示
-- 产物清理：按 `Organization.artifactRetention` 自动清理（count-based）
+- BuildWorker：clone/workdir、按 lockfile hash 的缓存等仍可增强；日志已改为 **DB 与 Redis Pub/Sub 分别容错**，单路失败不阻断另一路。
+- DeployWorker：SSH/rsync 失败时日志与通知附带 `code`/`errno`（若有）；远端依赖预检（nginx/rsync/acme.sh/pm2/nvm）等仍可增强。
+- **产物清理**：已在构建成功后按 `artifactRetention` 自动执行（见 §2）。
 - Docker 构建隔离（Phase 2）：rootless + 资源限制 + seccomp

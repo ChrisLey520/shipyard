@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as tar from 'tar';
 import { buildCloneUrl, GitProvider, NotificationEvent } from '@shipyard/shared';
 import { NotificationEnqueueApplicationService } from '../notifications/application/notification-enqueue.application.service';
+import { ArtifactRetentionApplicationService } from '../artifacts/application/artifact-retention.application.service';
 import { GitPrCommentApplicationService } from '../git/application/git-pr-comment.application.service';
 import type { BuildJobData } from './pipeline.service';
 
@@ -32,6 +33,7 @@ export class BuildWorkerService implements OnModuleInit {
     private readonly commitStatus: GitCommitStatusService,
     private readonly gitPrComment: GitPrCommentApplicationService,
     private readonly notifications: NotificationEnqueueApplicationService,
+    private readonly artifactRetention: ArtifactRetentionApplicationService,
   ) {}
 
   async onModuleInit() {
@@ -295,6 +297,10 @@ export class BuildWorkerService implements OnModuleInit {
         { deploymentId },
       );
 
+      void this.artifactRetention.enforceForOrganization(orgId).catch((e) => {
+        this.logger.warn(`产物保留策略执行失败 org=${orgId}: ${e}`);
+      });
+
       // 自动入 DeployQueue（如果有 environmentId）
       if (environmentId) {
         await this.enqueueDeployment(orgId, deploymentId, projectId, environmentId);
@@ -382,10 +388,16 @@ export class BuildWorkerService implements OnModuleInit {
   }
 
   private async appendLog(deploymentId: string, seq: number, content: string) {
-    await Promise.all([
-      this.prisma.deploymentLog.create({ data: { deploymentId, seq, content } }),
-      this.redis.publishLog(deploymentId, { deploymentId, line: content, seq }),
-    ]);
+    try {
+      await this.prisma.deploymentLog.create({ data: { deploymentId, seq, content } });
+    } catch (e) {
+      this.logger.warn(`写入 deploymentLog 失败 deploymentId=${deploymentId}: ${e}`);
+    }
+    try {
+      await this.redis.publishLog(deploymentId, { deploymentId, line: content, seq });
+    } catch (e) {
+      this.logger.warn(`发布构建日志到 Redis 失败 deploymentId=${deploymentId}: ${e}`);
+    }
   }
 
   private async getDecryptedEnvVars(environmentId: string): Promise<Record<string, string>> {
