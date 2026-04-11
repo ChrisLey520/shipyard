@@ -243,11 +243,11 @@ pnpm -r build
 |------|----------|------|
 | `direct` / `rolling`、多机 | SSH；`EnvironmentServer` 多行 | 按 `sortOrder` 串行 rsync；`primaryServerId` 或第一台写 Nginx/域名 |
 | `blue_green`（静态） | Linux + 域名 | 槽位目录 `.shipyard-bg0` / `.shipyard-bg1`，切换站点 Nginx root；健康失败回指旧槽 |
-| `blue_green`（SSR 等） | — | 当前记录日志后按与 `direct` 相同的多机语义部署（与预览双槽对齐可后续增强） |
+| `blue_green`（SSR） | Linux + 域名 | 双槽目录 `.shipyard-bg0`/`1`、稳定本地端口、PM2 名 `sh-env-<slug>-<env>-bg*`，Nginx 反代切换；外网健康与 Prometheus 通过后再摘除旧槽；多机时仅入口机执行（与静态蓝绿一致） |
 | `canary` | 提供 `nginxCanaryPath` + `nginxCanaryBody` | 原子写片段并重载；未配置时仅记录降级说明 |
 | Prometheus 门禁 | `gates.prometheus.queryUrl` | GET 后解析 JSON 向量样本；与通知出站相同的 SSRF 校验 |
 | pre/post hooks | SSH | 在入口机 `deployPath` 下 `timeout 120 bash -lc …` |
-| Kubernetes | 组织「Kubernetes 集群」+ 流水线开启镜像推送 | `kubectl set image` + `rollout status`；Worker 需本机 `kubectl` 与可访问集群 |
+| Kubernetes | 组织「Kubernetes 集群」+ 流水线开启镜像推送 | `kubectl set image` + `rollout status`；Worker 需本机 `kubectl` 与可访问集群；凭据面见 [docs/adr/0001-kubernetes-secrets-and-deploy-worker.md](docs/adr/0001-kubernetes-secrets-and-deploy-worker.md) |
 | 特性开关 | — | 组织级或项目级 `FeatureFlag` CRUD，与部署路径解耦 |
 
 **验收**：未配置 `releaseConfig` 时行为与旧版单服务器直连一致。迁移会为每个已有环境插入一条 `EnvironmentServer` 指向原 `serverId`。

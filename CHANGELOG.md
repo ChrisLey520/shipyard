@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-11
+
+### Added
+
+- **Deploy（SSR + blue_green）**：Linux 且配置域名时，常规环境与预览对齐：**双槽 PM2**（`sh-env-<slug>-<env>-bg0/bg1`）、**按环境稳定本地端口**、rsync 至 `.shipyard-bg*`，**Nginx 原子切换**；**外网健康检查与 Prometheus 门禁通过后再摘除旧槽/direct 进程**，失败时回滚 Nginx 并删除候选 PM2。
+- **Docs**：ADR [docs/adr/0001-kubernetes-secrets-and-deploy-worker.md](docs/adr/0001-kubernetes-secrets-and-deploy-worker.md)（kubeconfig 临时文件、Worker 权限边界、RBAC 建议）。
+
+### Changed
+
+- **FeatureFlag**：数据库 **部分唯一索引**（组织级 `organizationId + key` 且 `projectId IS NULL`；项目级 `projectId + key` 且 `projectId IS NOT NULL`）。
+- **releaseConfig / 门禁**：Prometheus `gates.prometheus.queryUrl` **仅允许 `https://`**（Zod + 运行时校验）。
+- **Deploy hooks**：pre/post 远端输出经 **单行与总量上限** 截断后再写入部署日志，缓解日志与存储膨胀。
+
+### Documentation
+
+- README：静态/SSR 蓝绿与 Kubernetes 行补充 SSR 行为说明与 ADR 链接。
+
+[0.7.0]: https://github.com/ChrisLey520/shipyard/releases
+
 ## [0.6.0] - 2026-04-11
 
 ### Added

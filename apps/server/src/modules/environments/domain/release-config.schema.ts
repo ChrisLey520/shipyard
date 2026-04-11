@@ -32,7 +32,11 @@ export const releaseConfigSchema = z
       .object({
         prometheus: z
           .object({
-            queryUrl: z.string().url().max(2048),
+            queryUrl: z
+              .string()
+              .url()
+              .max(2048)
+              .refine((u) => u.startsWith('https://'), 'Prometheus queryUrl 仅允许 https'),
             maxSampleValue: z.number().optional(),
             /** 指标须 <= 该值才通过（如错误率上限） */
             passIfBelowOrEqual: z.boolean().optional(),

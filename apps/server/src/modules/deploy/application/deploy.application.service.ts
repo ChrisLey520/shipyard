@@ -215,17 +215,28 @@ export class DeployApplicationService {
 
       const sshKeyPath = path.join('/tmp', `shipyard-deploy-${deploymentId}.pem`);
       let tmpExtractDir: string | null = null;
-      /** 蓝绿静态：健康失败时需把 Nginx root 指回旧槽 */
+      /** 蓝绿：健康/Prometheus 失败时回滚入口流量 */
       let blueGreenRollback:
         | {
+            kind: 'static';
             connParams: { host: string; port: number; username: string; privateKey: string };
             slug: string;
             serverNames: string;
             deployPath: string;
             oldSlot: 0 | 1;
           }
+        | {
+            kind: 'ssr';
+            connParams: { host: string; port: number; username: string; privateKey: string };
+            slug: string;
+            serverNames: string;
+            oldPort: number;
+            candidatePm2Name: string;
+          }
         | null = null;
       let blueGreenSuccessSlot: 0 | 1 | null = null;
+      /** SSR 蓝绿：仅在外网健康与 Prometheus 通过后再摘除旧 PM2，以便失败时仍能回滚入口 */
+      let blueGreenSsrCutover: (() => Promise<void>) | null = null;
 
       try {
         if (rc.executor === 'kubernetes') {
@@ -281,6 +292,12 @@ export class DeployApplicationService {
             primaryServer.os === ServerOs.LINUX &&
             !!env.domain?.trim();
 
+          const useBgSsr =
+            rc.strategy === 'blue_green' &&
+            project.frameworkType === 'ssr' &&
+            primaryServer.os === ServerOs.LINUX &&
+            !!env.domain?.trim();
+
           if (useBgStatic) {
             const bg = await this.sshDeployBlueGreenStatic({
               deploymentId,
@@ -294,11 +311,40 @@ export class DeployApplicationService {
             macStaticPort = undefined;
             blueGreenRollback = bg.rollback;
             blueGreenSuccessSlot = bg.candidateSlot;
+          } else if (useBgSsr) {
+            if (targets.length > 1) {
+              await this.appendLogLine(
+                deploymentId,
+                '[deploy] blue_green SSR：多机环境下仅对入口机执行双槽与 Nginx 切换（与静态蓝绿一致），其余目标机本次未同步',
+              );
+            }
+            const bg = await this.sshDeployBlueGreenSsr({
+              deploymentId,
+              environmentId,
+              env: {
+                deployPath: env.deployPath,
+                domain: env.domain,
+                blueGreenActiveSlot: env.blueGreenActiveSlot,
+                name: env.name,
+                healthCheckUrl: env.healthCheckUrl,
+              },
+              primaryServer,
+              privateKey: primaryKey,
+              sshKeyPath,
+              localDir: tmpExtractDir,
+              projectSlug: project.slug,
+              ssrEntryPoint: pipelineConfig.ssrEntryPoint ?? 'dist/index.js',
+              envVars,
+            });
+            macStaticPort = undefined;
+            blueGreenRollback = bg.rollback;
+            blueGreenSuccessSlot = bg.candidateSlot;
+            blueGreenSsrCutover = bg.cutover;
           } else {
             if (rc.strategy === 'blue_green') {
               await this.appendLogLine(
                 deploymentId,
-                '[deploy] blue_green：当前为 SSR 或非 Linux/无域名，回退为与 direct 相同的多机同步语义',
+                '[deploy] blue_green：当前不满足静态/SSR 蓝绿条件（须 Linux 且配置域名），回退为与 direct 相同的多机同步语义',
               );
             }
             for (let i = 0; i < targets.length; i++) {
@@ -376,7 +422,7 @@ export class DeployApplicationService {
         if (!healthy) {
           await this.appendLogLine(deploymentId, '[deploy] 健康检查未通过');
           if (blueGreenRollback) {
-            await this.revertBlueGreenNginxRoot(deploymentId, blueGreenRollback);
+            await this.revertBlueGreenTraffic(deploymentId, blueGreenRollback);
           }
           await this.triggerAutoRollback(data);
           return;
@@ -392,9 +438,14 @@ export class DeployApplicationService {
         const msg = this.formatDeployFailureMessage(pe);
         await this.appendLogLine(deploymentId, `[deploy] gate prometheus 未通过: ${msg}`);
         if (blueGreenRollback) {
-          await this.revertBlueGreenNginxRoot(deploymentId, blueGreenRollback);
+          await this.revertBlueGreenTraffic(deploymentId, blueGreenRollback);
         }
         throw pe;
+      }
+
+      if (blueGreenSsrCutover) {
+        await blueGreenSsrCutover();
+        blueGreenSsrCutover = null;
       }
 
       if (blueGreenSuccessSlot != null) {
@@ -503,6 +554,36 @@ export class DeployApplicationService {
   /** SSR 蓝绿：双槽位 PM2 进程名（与 Preview.ssrBgSlot 对应） */
   private previewPm2BgName(baseName: string, slot: 0 | 1): string {
     return `${baseName}-bg${slot}`;
+  }
+
+  /** 常规环境 SSR 蓝绿：按环境 id 稳定分配一对本地端口，避免与预览池冲突 */
+  private envSsrBlueGreenPorts(environmentId: string): { port0: number; port1: number } {
+    let h = 0;
+    for (let i = 0; i < environmentId.length; i++) {
+      h = (h * 31 + environmentId.charCodeAt(i)) >>> 0;
+    }
+    const base = 32200 + (h % 900) * 2;
+    return { port0: base, port1: base + 1 };
+  }
+
+  private envRegularPm2BgBase(projectSlug: string, envName: string): string {
+    return `sh-env-${this.sanitizePm2Segment(projectSlug)}-${this.sanitizePm2Segment(envName)}`;
+  }
+
+  /** 从环境健康检查 URL 推导本地探活 path（与预览路径规则一致，非法则退化为 /） */
+  private envSsrLocalHealthPath(healthCheckUrl: string | null | undefined): string {
+    const s = healthCheckUrl?.trim();
+    if (!s) return '/';
+    try {
+      const u = new URL(s);
+      const p = (u.pathname || '/').trim() || '/';
+      if (!/^[/a-zA-Z0-9._~-]*$/.test(p)) return '/';
+      return p;
+    } catch {
+      const p = s.startsWith('/') ? s : `/${s}`;
+      if (!/^[/a-zA-Z0-9._~-]+$/.test(p)) return '/';
+      return p;
+    }
   }
 
   /** SSH 连通后检测远端必备命令，失败时抛出带 [precheck] 前缀的说明 */
@@ -767,6 +848,7 @@ export class DeployApplicationService {
   }): Promise<{
     candidateSlot: 0 | 1;
     rollback: {
+      kind: 'static';
       connParams: { host: string; port: number; username: string; privateKey: string };
       slug: string;
       serverNames: string;
@@ -817,6 +899,7 @@ export class DeployApplicationService {
       const rollback =
         oldSlot === 0 || oldSlot === 1
           ? {
+              kind: 'static' as const,
               connParams: {
                 host: server.host,
                 port: server.port,
@@ -833,6 +916,222 @@ export class DeployApplicationService {
     } finally {
       conn.end();
     }
+  }
+
+  private async sshDeployBlueGreenSsr(opts: {
+    deploymentId: string;
+    environmentId: string;
+    env: {
+      deployPath: string;
+      domain: string | null;
+      blueGreenActiveSlot: number | null;
+      name: string;
+      healthCheckUrl: string | null;
+    };
+    primaryServer: { host: string; port: number; user: string; privateKey: string; os: string };
+    privateKey: string;
+    sshKeyPath: string;
+    localDir: string;
+    projectSlug: string;
+    ssrEntryPoint: string;
+    envVars: Record<string, string>;
+  }): Promise<{
+    candidateSlot: 0 | 1;
+    rollback: {
+      kind: 'ssr';
+      connParams: { host: string; port: number; username: string; privateKey: string };
+      slug: string;
+      serverNames: string;
+      oldPort: number;
+      candidatePm2Name: string;
+    };
+    cutover: () => Promise<void>;
+  }> {
+    const active = opts.env.blueGreenActiveSlot;
+    const candidate: 0 | 1 = active === null || active === 1 ? 0 : 1;
+    const oldSlot: 0 | 1 | null = active === 0 || active === 1 ? active : null;
+    const { deployPath } = opts.env;
+    const ports = this.envSsrBlueGreenPorts(opts.environmentId);
+    const candidatePort = candidate === 0 ? ports.port0 : ports.port1;
+    const oldPortForNginx = oldSlot === 0 ? ports.port0 : oldSlot === 1 ? ports.port1 : 3000;
+    const slotPath = `${deployPath}/.shipyard-bg${candidate}`;
+    const server = opts.primaryServer;
+
+    const connMk = await this.createSshClient({
+      host: server.host,
+      port: server.port,
+      username: server.user,
+      privateKey: opts.privateKey,
+    });
+    try {
+      await this.sshRemotePrecheck(connMk, opts.deploymentId, { needNginx: true, needPm2: true });
+      await this.sshExec(connMk, `bash -lc ${this.shellSingleQuote(`mkdir -p ${slotPath}`)}`);
+    } finally {
+      connMk.end();
+    }
+
+    await this.appendLogLine(
+      opts.deploymentId,
+      `[deploy] blue_green SSR：槽位=${candidate} 本地端口=${candidatePort}（另一槽 ${oldSlot === 0 || oldSlot === 1 ? (oldSlot === 0 ? ports.port1 : ports.port0) : 'n/a'}，回滚 Nginx 目标端口=${oldPortForNginx}）`,
+    );
+
+    await this.execLocal('rsync', [
+      '-avz',
+      '--delete',
+      `${opts.localDir}/`,
+      `${server.user}@${server.host}:${slotPath}/`,
+      '-e',
+      `ssh -p ${server.port} -i ${opts.sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
+    ]);
+
+    const pm2Base = this.envRegularPm2BgBase(opts.projectSlug, opts.env.name);
+    const candPm2Name = this.previewPm2BgName(pm2Base, candidate);
+    const oldSlotPm2Name =
+      oldSlot === 0 || oldSlot === 1 ? this.previewPm2BgName(pm2Base, oldSlot) : null;
+
+    const mergedEnv = { ...opts.envVars, PORT: String(candidatePort) };
+    const envStr = Object.entries(mergedEnv)
+      .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+      .join(',\n');
+    const ecosystemJs = `module.exports = {
+  apps: [{
+    name: ${JSON.stringify(candPm2Name)},
+    script: ${JSON.stringify(opts.ssrEntryPoint)},
+    cwd: ${JSON.stringify(slotPath)},
+    env: {\n${envStr}\n    }
+  }]
+};`;
+
+    const conn = await this.createSshClient({
+      host: server.host,
+      port: server.port,
+      username: server.user,
+      privateKey: opts.privateKey,
+    });
+    try {
+      const serverNames = buildNginxServerNameList(opts.env.domain!.trim(), server.host);
+      const nginxBodyNew = this.generateSsrNginxConf(serverNames, '127.0.0.1', candidatePort);
+      const nginxBodyOld = this.generateSsrNginxConf(serverNames, '127.0.0.1', oldPortForNginx);
+
+      const ecoPath = `${slotPath}/ecosystem.bg${candidate}.config.js`;
+      await this.appendLogLine(
+        opts.deploymentId,
+        `[deploy] candidate_up SSR pm2=${candPm2Name} cwd=${slotPath}`,
+      );
+      await this.sshExec(
+        conn,
+        `cat > ${this.shellSingleQuote(ecoPath)} << 'EOFCONFIG'\n${ecosystemJs}\nEOFCONFIG`,
+      );
+      const qCand = this.shellSingleQuote(candPm2Name);
+      const qEco = this.shellSingleQuote(ecoPath);
+      const pm2Cand = `(pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true); pm2 start ${qEco}`;
+      await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(pm2Cand)}`);
+
+      const healthPath = this.envSsrLocalHealthPath(opts.env.healthCheckUrl);
+      if (healthPath !== '/') {
+        await this.appendLogLine(opts.deploymentId, `[deploy] SSR 本地健康路径: ${healthPath}（自 healthCheckUrl 推导）`);
+      }
+      try {
+        await this.sshPreviewSsrHealthCheck(conn, candidatePort, opts.deploymentId, healthPath);
+      } catch (hcErr) {
+        await this.sshExec(
+          conn,
+          `bash -lc ${this.shellSingleQuote(`pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true`)}`,
+        ).catch(() => undefined);
+        throw hcErr;
+      }
+
+      await this.appendLogLine(opts.deploymentId, '[deploy] traffic_switch Nginx → 候选 SSR 端口');
+      try {
+        await this.sshWriteLinuxSiteNginxAtomic(conn, opts.projectSlug, nginxBodyNew, opts.deploymentId);
+      } catch (nginxErr) {
+        await this.sshWriteLinuxSiteNginxAtomic(conn, opts.projectSlug, nginxBodyOld, opts.deploymentId).catch((e) =>
+          this.logger.warn(`蓝绿 SSR Nginx 回滚失败: ${e}`),
+        );
+        await this.sshExec(
+          conn,
+          `bash -lc ${this.shellSingleQuote(`pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true`)}`,
+        ).catch(() => undefined);
+        throw nginxErr;
+      }
+
+      const qLegacy = this.shellSingleQuote(opts.projectSlug);
+      const oldSlotPm2NameCaptured = oldSlotPm2Name;
+      const oldNameQ = oldSlotPm2NameCaptured ? this.shellSingleQuote(oldSlotPm2NameCaptured) : null;
+      const cutoverHost = server.host;
+      const cutoverPort = server.port;
+      const cutoverUser = server.user;
+      const cutoverPk = opts.privateKey;
+      const cutoverDeploymentId = opts.deploymentId;
+
+      const cutover = async (): Promise<void> => {
+        const c = await this.createSshClient({
+          host: cutoverHost,
+          port: cutoverPort,
+          username: cutoverUser,
+          privateKey: cutoverPk,
+        });
+        try {
+          const cutoverPm2 = [
+            `pm2 describe ${qLegacy} >/dev/null 2>&1 && pm2 delete ${qLegacy} || true`,
+            oldNameQ
+              ? `pm2 describe ${oldNameQ} >/dev/null 2>&1 && pm2 delete ${oldNameQ} || true`
+              : 'true',
+          ].join('; ');
+          await this.sshExec(c, `bash -lc ${this.shellSingleQuote(cutoverPm2)}`);
+          await this.appendLogLine(
+            cutoverDeploymentId,
+            '[deploy] rollback_old_instance 已摘除旧 SSR 槽位/direct PM2',
+          );
+        } finally {
+          c.end();
+        }
+      };
+
+      const rollback = {
+        kind: 'ssr' as const,
+        connParams: {
+          host: server.host,
+          port: server.port,
+          username: server.user,
+          privateKey: opts.privateKey,
+        },
+        slug: opts.projectSlug,
+        serverNames,
+        oldPort: oldPortForNginx,
+        candidatePm2Name: candPm2Name,
+      };
+      return { candidateSlot: candidate, rollback, cutover };
+    } finally {
+      conn.end();
+    }
+  }
+
+  private async revertBlueGreenTraffic(
+    deploymentId: string,
+    rb:
+      | {
+          kind: 'static';
+          connParams: { host: string; port: number; username: string; privateKey: string };
+          slug: string;
+          serverNames: string;
+          deployPath: string;
+          oldSlot: 0 | 1;
+        }
+      | {
+          kind: 'ssr';
+          connParams: { host: string; port: number; username: string; privateKey: string };
+          slug: string;
+          serverNames: string;
+          oldPort: number;
+          candidatePm2Name: string;
+        },
+  ): Promise<void> {
+    if (rb.kind === 'static') {
+      await this.revertBlueGreenNginxRoot(deploymentId, rb);
+      return;
+    }
+    await this.revertBlueGreenSsr(deploymentId, rb);
   }
 
   private async revertBlueGreenNginxRoot(
@@ -857,6 +1156,37 @@ export class DeployApplicationService {
       const nginxConf = this.generateStaticNginxConf(rb.serverNames, root);
       await this.sshWriteLinuxSiteNginxAtomic(conn, rb.slug, nginxConf, deploymentId);
       await this.appendLogLine(deploymentId, '[deploy] rollback 蓝绿：Nginx 已指回旧槽');
+    } finally {
+      conn.end();
+    }
+  }
+
+  private async revertBlueGreenSsr(
+    deploymentId: string,
+    rb: {
+      connParams: { host: string; port: number; username: string; privateKey: string };
+      slug: string;
+      serverNames: string;
+      oldPort: number;
+      candidatePm2Name: string;
+    },
+  ): Promise<void> {
+    const c = rb.connParams;
+    const conn = await this.createSshClient({
+      host: c.host,
+      port: c.port,
+      username: c.username,
+      privateKey: c.privateKey,
+    });
+    try {
+      const nginxConf = this.generateSsrNginxConf(rb.serverNames, '127.0.0.1', rb.oldPort);
+      await this.sshWriteLinuxSiteNginxAtomic(conn, rb.slug, nginxConf, deploymentId);
+      const q = this.shellSingleQuote(rb.candidatePm2Name);
+      await this.sshExec(
+        conn,
+        `bash -lc ${this.shellSingleQuote(`pm2 describe ${q} >/dev/null 2>&1 && pm2 delete ${q} || true`)}`,
+      );
+      await this.appendLogLine(deploymentId, '[deploy] rollback 蓝绿 SSR：Nginx 已指回旧端口并已摘除候选 PM2');
     } finally {
       conn.end();
     }
@@ -967,6 +1297,30 @@ export class DeployApplicationService {
     }
   }
 
+  private static readonly HOOK_LOG_MAX_LINE_CHARS = 4096;
+  private static readonly HOOK_LOG_MAX_TOTAL_CHARS = 65536;
+
+  /** 限制 hook 输出写入 deploymentLog 的体积 */
+  private truncateHookLogOutput(raw: string): string {
+    let total = 0;
+    const lines = raw.split('\n');
+    const parts: string[] = [];
+    for (const line of lines) {
+      const truncatedLine =
+        line.length > DeployApplicationService.HOOK_LOG_MAX_LINE_CHARS
+          ? `${line.slice(0, DeployApplicationService.HOOK_LOG_MAX_LINE_CHARS)}…[truncated-line]`
+          : line;
+      const addLen = truncatedLine.length + (parts.length > 0 ? 1 : 0);
+      if (total + addLen > DeployApplicationService.HOOK_LOG_MAX_TOTAL_CHARS) {
+        parts.push('…[truncated-total]');
+        break;
+      }
+      parts.push(truncatedLine);
+      total += addLen;
+    }
+    return parts.join('\n');
+  }
+
   private async maybeRunSshHooks(opts: {
     deploymentId: string;
     commands: string[] | undefined;
@@ -992,7 +1346,10 @@ export class DeployApplicationService {
         await this.appendLogLine(opts.deploymentId, `[deploy] hook ${opts.label}: ${cmd.slice(0, 200)}`);
         const inner = `set -euo pipefail; cd ${cwd}; timeout 120 bash -lc ${this.shellSingleQuote(cmd)}`;
         const out = await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
-        await this.appendRemoteStdoutToDeployLog(opts.deploymentId, out);
+        await this.appendRemoteStdoutToDeployLog(
+          opts.deploymentId,
+          this.truncateHookLogOutput(out),
+        );
       }
     } finally {
       conn.end();
@@ -1002,6 +1359,9 @@ export class DeployApplicationService {
   private async maybePrometheusGate(deploymentId: string, rc: ReleaseConfig): Promise<void> {
     const prom = rc.gates?.prometheus;
     if (!prom?.queryUrl) return;
+    if (!prom.queryUrl.trim().toLowerCase().startsWith('https://')) {
+      throw new Error('Prometheus queryUrl 仅允许 https');
+    }
     const u = await assertSafeOutboundHttpUrl(prom.queryUrl);
     await this.appendLogLine(deploymentId, `[deploy] gate prometheus GET ${u.toString().slice(0, 120)}…`);
     const { default: https } = await import('https');
