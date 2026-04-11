@@ -22,7 +22,7 @@ description: Shipyard 管理后台（Vue 3 + Vite + Pinia + TanStack Vue Query +
 
 ## 硬性规则（必须遵守）
 
-- **单一入口调用远程**：同上下文的 HTTP 调用集中在 `src/api/<context>/`（或同目录 `api.ts` 模式），页面不直接依赖 `client` 细节。
+- **单一入口调用远程**：同上下文的 HTTP 调用集中在 `src/api/<context>/`，页面不直接依赖 `client` 细节。
 - **防腐层**：DTO → UI model 的映射函数放在 API 模块或紧邻的 `mappers.ts`；跨上下文复用 DTO 形状前要先确认是否属于同一泛化语言（Ubiquitous Language）。
 - **无循环依赖**：`pages` 不互相 import 业务逻辑；共享 UI 只放 `components/`；跨上下文仅通过显式“集成层”composable（薄适配）协作。
 - **边界测试友好**：应用层 composable 可单测时应对 **已映射的 UI 模型** 或 mock 的 repository 接口，而不是裸 axios 响应。
