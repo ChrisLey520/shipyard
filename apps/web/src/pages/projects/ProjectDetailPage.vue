@@ -204,27 +204,15 @@ import ProjectEditModal, { type ProjectEditFormValues } from './components/Proje
 import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
-import { getEnvironmentAccessUrls } from '@/api/environments';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
 import {
-  deleteDeployment as apiDeleteDeployment,
-  bulkDeleteDeployments as apiBulkDeleteDeployments,
-  clearDeployments as apiClearDeployments,
-  triggerDeploy as apiTriggerDeploy,
-  rollbackDeployment,
-  retryDeployment,
-  updateProject,
-  updatePipelineConfig,
-  deleteProject,
-  listProjectBuildEnv,
-  upsertProjectBuildEnv,
-  deleteProjectBuildEnv,
+  useProjectDetailActions,
   type ProjectBuildEnvVar,
   type DeploymentListItem,
   type ProjectDetail,
-} from './api';
+} from '@/composables/projects/useProjectDetailActions';
 
 const route = useRoute();
 const router = useRouter();
@@ -234,6 +222,7 @@ const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
 const slugPattern = /^[a-z0-9-]+$/;
 
+const projectApi = useProjectDetailActions(orgSlug, projectSlug);
 const projectDetailQuery = useProjectDetailQuery(orgSlug, projectSlug);
 const deploymentsQuery = useProjectDeploymentsQuery(orgSlug, projectSlug);
 const project = computed<ProjectDetail | null>(() => projectDetailQuery.data.value ?? null);
@@ -335,7 +324,7 @@ function confirmDeleteDeployment(deploymentId: string) {
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await apiDeleteDeployment(orgSlug.value, projectSlug.value, deploymentId);
+      await projectApi.deleteDeployment(deploymentId);
       message.success('已删除');
       clearSelection();
       await refetchDeployments();
@@ -353,7 +342,7 @@ function confirmBulkDeleteDeployments() {
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      const res = await apiBulkDeleteDeployments(orgSlug.value, projectSlug.value, ids);
+      const res = await projectApi.bulkDeleteDeployments(ids);
       message.success(`已删除 ${res.deleted} 条`);
       clearSelection();
       await refetchDeployments();
@@ -369,7 +358,7 @@ function confirmClearDeployments() {
     positiveText: '清空',
     negativeText: '取消',
     onPositiveClick: async () => {
-      const res = await apiClearDeployments(orgSlug.value, projectSlug.value);
+      const res = await projectApi.clearDeployments();
       message.success(`已清空 ${res.deleted} 条`);
       clearSelection();
       await refetchDeployments();
@@ -380,7 +369,7 @@ function confirmClearDeployments() {
 
 async function triggerDeploy(environmentId: string) {
   try {
-    await apiTriggerDeploy(orgSlug.value, projectSlug.value, { environmentId });
+    await projectApi.triggerDeploy({ environmentId });
     message.success('部署已入队');
     await refetchDeployments();
     void loadEnvAccessUrls();
@@ -418,9 +407,7 @@ async function onEnvSaved() {
 
 async function loadEnvAccessUrls() {
   if (!project.value) return;
-  envAccessUrls.value = await getEnvironmentAccessUrls(orgSlug.value, projectSlug.value).catch(
-    () => ({}),
-  );
+  envAccessUrls.value = await projectApi.fetchEnvironmentAccessUrls().catch(() => ({}));
 }
 
 let envAccessPollTimer: number | null = null;
@@ -442,7 +429,7 @@ watch(
 
 async function rollback(deploymentId: string) {
   try {
-    await rollbackDeployment(orgSlug.value, projectSlug.value, deploymentId);
+    await projectApi.rollbackDeployment(deploymentId);
     message.success('回滚已入队');
     await refetchDeployments();
   } catch {
@@ -452,7 +439,7 @@ async function rollback(deploymentId: string) {
 
 async function retryFailed(deploymentId: string) {
   try {
-    const next = await retryDeployment(orgSlug.value, projectSlug.value, deploymentId);
+    const next = await projectApi.retryDeployment(deploymentId);
     message.success('已重新入队');
     await refetchDeployments();
     if (next?.id) {
@@ -470,19 +457,19 @@ function openBuildEnvModal() {
 }
 
 async function loadBuildEnv() {
-  buildEnvVars.value = await listProjectBuildEnv(orgSlug.value, projectSlug.value);
+  buildEnvVars.value = await projectApi.listProjectBuildEnv();
 }
 
 async function addBuildEnv() {
   if (!newBuildEnv.value.key || !newBuildEnv.value.value) return;
-  await upsertProjectBuildEnv(orgSlug.value, projectSlug.value, newBuildEnv.value);
+  await projectApi.upsertProjectBuildEnv(newBuildEnv.value);
   newBuildEnv.value = { key: '', value: '' };
   await loadBuildEnv();
   message.success('已添加');
 }
 
 async function deleteBuildEnv(varId: string) {
-  await deleteProjectBuildEnv(orgSlug.value, projectSlug.value, varId);
+  await projectApi.deleteProjectBuildEnv(varId);
   await loadBuildEnv();
   message.success('已删除');
 }
@@ -542,7 +529,7 @@ async function saveProject(v: ProjectEditFormValues) {
   savingProject.value = true;
   const slugBefore = projectSlug.value;
   try {
-    await updateProject(orgSlug.value, slugBefore, {
+    await projectApi.updateProject(slugBefore, {
       name: v.name,
       slug: v.slug,
       frameworkType: v.frameworkType,
@@ -550,7 +537,7 @@ async function saveProject(v: ProjectEditFormValues) {
     const slugAfter = v.slug;
 
     if (project.value?.pipelineConfig) {
-      await updatePipelineConfig(orgSlug.value, slugAfter, {
+      await projectApi.updatePipelineConfig(slugAfter, {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
         outputDir: v.outputDir.trim(),
@@ -590,7 +577,7 @@ function confirmDeleteProject() {
     positiveText: '移除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await deleteProject(orgSlug.value, projectSlug.value);
+      await projectApi.deleteProject();
       message.success('项目已移除');
       void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
       void router.push(`/orgs/${orgSlug.value}/projects`);

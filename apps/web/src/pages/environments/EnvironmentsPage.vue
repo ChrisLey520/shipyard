@@ -123,20 +123,17 @@ import {
 import { serverOsLabel } from '@shipyard/shared';
 import EnvironmentModal from './components/EnvironmentModal.vue';
 import {
-  listEnvironments,
-  deleteEnvironment,
-  listEnvVars,
-  upsertEnvVar,
-  deleteEnvVar,
+  useEnvironmentsProjectActions,
   type Env,
   type EnvVar,
-} from './api';
+} from '@/composables/environments/useEnvironmentsProjectActions';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
+const envApi = useEnvironmentsProjectActions(orgSlug, projectSlug);
 const envIdFromQuery = computed(() => {
   const v = route.query['envId'];
   return typeof v === 'string' && v.trim() ? v : null;
@@ -208,24 +205,24 @@ function openVarModal(env: Env) {
 }
 
 async function loadVars(envId: string) {
-  envVars.value = await listEnvVars(orgSlug.value, projectSlug.value, envId);
+  envVars.value = await envApi.listEnvVars(envId);
 }
 
 async function addVar() {
   if (!newVar.value.key || !newVar.value.value || !selectedEnv.value) return;
-  await upsertEnvVar(orgSlug.value, projectSlug.value, selectedEnv.value.id, newVar.value);
+  await envApi.upsertEnvVar(selectedEnv.value.id, newVar.value);
   newVar.value = { key: '', value: '' };
   await loadVars(selectedEnv.value.id);
   message.success('已添加');
 }
 
 async function deleteVar(varId: string) {
-  await deleteEnvVar(orgSlug.value, projectSlug.value, selectedEnv.value!.id, varId);
+  await envApi.deleteEnvVar(selectedEnv.value!.id, varId);
   await loadVars(selectedEnv.value!.id);
 }
 
 async function deleteEnv(envId: string) {
-  await deleteEnvironment(orgSlug.value, projectSlug.value, envId);
+  await envApi.deleteEnvironment(envId);
   message.success('已删除');
   await load();
 }
@@ -237,7 +234,7 @@ async function onEnvSaved() {
 }
 
 async function load() {
-  envs.value = await listEnvironments(orgSlug.value, projectSlug.value);
+  envs.value = await envApi.listEnvironments();
 }
 
 watch([orgSlug, projectSlug], () => {

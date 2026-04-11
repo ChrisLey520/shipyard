@@ -56,18 +56,12 @@ import {
   NInput, NInputNumber, NSelect, NSpace, NText, useMessage, type DataTableColumns,
 } from 'naive-ui';
 import { ServerOs, SERVER_OS_LABELS, isServerOs, serverOsLabel } from '@shipyard/shared';
-import {
-  createServer,
-  updateServer,
-  deleteServer as apiDeleteServer,
-  listServers,
-  testServer,
-  type ServerItem,
-} from './api';
+import { useOrgServersActions, type ServerItem } from '@/composables/servers/useOrgServersActions';
 
 const route = useRoute();
 const message = useMessage();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
+const serversApi = useOrgServersActions(orgSlug);
 const servers = ref<ServerItem[]>([]);
 const loading = ref(false);
 const showAdd = ref(false);
@@ -100,19 +94,19 @@ const columns: DataTableColumns<ServerItem> = [
     render: (row) => h('div', { style: 'display:flex;gap:8px' }, [
       h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => '编辑' }),
       h(NButton, { size: 'small', onClick: () => testConn(row.id) }, { default: () => '连通测试' }),
-      h(NButton, { size: 'small', type: 'error', onClick: () => deleteServer(row.id) }, { default: () => '删除' }),
+      h(NButton, { size: 'small', type: 'error', onClick: () => removeServer(row.id) }, { default: () => '删除' }),
     ]),
   },
 ];
 
 async function testConn(serverId: string) {
-  const result = await testServer(orgSlug.value, serverId);
+  const result = await serversApi.testServer(serverId);
   if (result.success) message.success(result.message);
   else message.error(result.message);
 }
 
-async function deleteServer(serverId: string) {
-  await apiDeleteServer(orgSlug.value, serverId);
+async function removeServer(serverId: string) {
+  await serversApi.deleteServer(serverId);
   message.success('已删除');
   await load();
 }
@@ -134,7 +128,7 @@ async function handleSave() {
   adding.value = true;
   try {
     if (editingServerId.value) {
-      await updateServer(orgSlug.value, editingServerId.value, {
+      await serversApi.updateServer(editingServerId.value, {
         name: form.value.name,
         os: form.value.os,
         host: form.value.host,
@@ -144,7 +138,7 @@ async function handleSave() {
       });
       message.success('服务器已更新');
     } else {
-      await createServer(orgSlug.value, form.value);
+      await serversApi.createServer(form.value);
       message.success('服务器已添加');
     }
     showAdd.value = false;
@@ -160,7 +154,7 @@ async function handleSave() {
 async function load() {
   loading.value = true;
   try {
-    servers.value = await listServers(orgSlug.value);
+    servers.value = await serversApi.listServers();
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(e?.response?.data?.message ?? '加载服务器列表失败');

@@ -170,34 +170,21 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { useMutation, useQueryClient } from '@tanstack/vue-query';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
   NInput, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, useMessage,
 } from 'naive-ui';
-import {
-  createProject,
-  listGitAccounts,
-  createGitAccount,
-  listReposForGitAccount,
-  type GitAccountListItem,
-} from './api';
+import { useProjectCreationFlow, type GitAccountListItem } from '@/composables/projects/useProjectCreationFlow';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
-const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const step = ref(1);
 
-const createProjectMutation = useMutation({
-  mutationFn: (payload: Record<string, unknown>) => createProject(orgSlug.value, payload),
-  onSuccess: () => {
-    void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
-  },
-});
-const creating = computed(() => createProjectMutation.isPending.value);
+const creation = useProjectCreationFlow(orgSlug);
+const creating = creation.creatingProject;
 const loadingRepos = ref(false);
 const repoOptions = ref<Array<{ label: string; value: string }>>([]);
 const loadingAccounts = ref(false);
@@ -275,7 +262,7 @@ function autoSlug() {
 
 async function handleCreate() {
   try {
-    await createProjectMutation.mutateAsync({
+    await creation.createProject({
       ...form.value,
       repoFullName: form.value.repoFullName ?? '',
     });
@@ -294,7 +281,7 @@ async function loadRepos() {
   repoOptions.value = [];
   loadingRepos.value = true;
   try {
-    const repos = await listReposForGitAccount(orgSlug.value, form.value.gitAccountId);
+    const repos = await creation.loadReposForAccount(form.value.gitAccountId);
     repoOptions.value = repos.map((r) => ({
       label: `${r.fullName}${r.private ? ' (private)' : ''}`,
       value: r.fullName,
@@ -311,7 +298,7 @@ async function loadRepos() {
 async function loadAccounts() {
   loadingAccounts.value = true;
   try {
-    gitAccounts.value = await listGitAccounts(orgSlug.value);
+    gitAccounts.value = await creation.loadGitAccounts();
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(
@@ -327,7 +314,7 @@ async function handleCreateAccount() {
   if (!accountForm.value.name || !accountForm.value.accessToken) return;
   creatingAccount.value = true;
   try {
-    const created = await createGitAccount(orgSlug.value, {
+    const created = await creation.addGitAccount({
       name: accountForm.value.name,
       gitProvider: accountForm.value.gitProvider,
       baseUrl:

@@ -115,19 +115,15 @@ import {
   useDialog,
 } from 'naive-ui';
 import {
-  listGitAccounts,
-  createGitAccount,
-  updateGitAccount,
-  deleteGitAccount,
-  listReposForGitAccount,
-  startGitOAuth,
+  useOrgGitAccountsActions,
   type GitAccountItem,
-} from './api';
+} from '@/composables/git-accounts/useOrgGitAccountsActions';
 
 const route = useRoute();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const message = useMessage();
 const dialog = useDialog();
+const gitApi = useOrgGitAccountsActions(orgSlug);
 
 const loading = ref(false);
 const accounts = ref<GitAccountItem[]>([]);
@@ -175,7 +171,7 @@ function providerBaseUrl(a: GitAccountItem) {
 async function load() {
   loading.value = true;
   try {
-    accounts.value = await listGitAccounts(orgSlug.value);
+    accounts.value = await gitApi.listGitAccounts();
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(
@@ -189,7 +185,7 @@ async function load() {
 
 async function oauthConnect(provider: string) {
   try {
-    const url = await startGitOAuth(orgSlug.value, provider);
+    const url = await gitApi.startGitOAuth(provider);
     window.location.href = url;
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
@@ -222,7 +218,7 @@ async function save() {
   saving.value = true;
   try {
     if (!editing.value) {
-      await createGitAccount(orgSlug.value, {
+      await gitApi.createGitAccount({
         name: form.value.name,
         gitProvider: form.value.gitProvider,
         baseUrl:
@@ -234,7 +230,7 @@ async function save() {
       });
       message.success('已关联 Git 账户');
     } else {
-      await updateGitAccount(orgSlug.value, editing.value.id, {
+      await gitApi.updateGitAccount(editing.value.id, {
         name: form.value.name,
         baseUrl:
           form.value.gitProvider === 'gitlab' || form.value.gitProvider === 'gitea'
@@ -258,7 +254,7 @@ async function save() {
 async function testRepos(acc: GitAccountItem) {
   testingId.value = acc.id;
   try {
-    const repos = await listReposForGitAccount(orgSlug.value, acc.id);
+    const repos = await gitApi.listReposForGitAccount(acc.id);
     message.success(`连通成功（可访问 ${repos.length} 个仓库）`);
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
@@ -275,7 +271,7 @@ function confirmDelete(acc: GitAccountItem) {
     positiveText: '移除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await deleteGitAccount(orgSlug.value, acc.id);
+      await gitApi.deleteGitAccount(acc.id);
       message.success('已移除');
       await load();
     },

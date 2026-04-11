@@ -50,10 +50,11 @@ import {
 } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
 import { useOrgStore } from '../../stores/org';
-import { createOrg } from './api';
+import { useOrgCreateAction } from '@/composables/orgs/useOrgCreateAction';
 
 const router = useRouter();
 const orgStore = useOrgStore();
+const { createOrg } = useOrgCreateAction();
 const message = useMessage();
 const { t } = useI18n();
 const showCreate = ref(false);

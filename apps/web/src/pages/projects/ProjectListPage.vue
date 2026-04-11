@@ -64,13 +64,10 @@ import {
   useMessage,
 } from 'naive-ui';
 import {
-  getProject,
-  updateProject,
-  updatePipelineConfig,
-  deleteProject,
+  useProjectListPageActions,
   type ProjectListItem,
   type ProjectDetail,
-} from './api';
+} from '@/composables/projects/useProjectListPageActions';
 import { useProjectListQuery } from '@/composables/projects/useProjectListQuery';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
 
@@ -78,6 +75,7 @@ const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
+const listActions = useProjectListPageActions(orgSlug);
 const { data: projectsData, isPending: loading } = useProjectListQuery(orgSlug);
 const projects = computed(() => projectsData.value ?? []);
 const message = useMessage();
@@ -105,7 +103,7 @@ const editInitial = ref<ProjectEditFormValues>({
 async function openEdit(p: ProjectListItem) {
   editing.value = p;
   try {
-    editingDetail.value = await getProject(orgSlug.value, p.slug);
+    editingDetail.value = await listActions.fetchProjectDetail(p.slug);
     const pc = editingDetail.value.pipelineConfig;
     editInitial.value = {
       name: editingDetail.value.name,
@@ -136,7 +134,7 @@ function confirmDelete(p: ProjectListItem) {
     positiveText: '移除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await deleteProject(orgSlug.value, p.slug);
+      await listActions.deleteProject(p.slug);
       message.success('项目已移除');
       await queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });
     },
@@ -163,7 +161,7 @@ async function saveEdit(v: ProjectEditFormValues) {
   saving.value = true;
   const slugBefore = editing.value.slug;
   try {
-    await updateProject(orgSlug.value, slugBefore, {
+    await listActions.updateProject(slugBefore, {
       name: v.name,
       slug: v.slug,
       frameworkType: v.frameworkType,
@@ -171,7 +169,7 @@ async function saveEdit(v: ProjectEditFormValues) {
     const slugAfter = v.slug;
 
     if (editingDetail.value?.pipelineConfig) {
-      await updatePipelineConfig(orgSlug.value, slugAfter, {
+      await listActions.updatePipelineConfig(slugAfter, {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
         outputDir: v.outputDir.trim(),

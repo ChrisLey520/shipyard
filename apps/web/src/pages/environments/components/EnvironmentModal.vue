@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, toRef, watch } from 'vue';
 import {
   NModal,
   NForm,
@@ -122,12 +122,9 @@ import {
 } from 'naive-ui';
 import { serverOsLabel } from '@shipyard/shared';
 import {
-  createEnvironment,
-  updateEnvironment,
-  listServersForOrg,
-  listProjectBranches,
+  useEnvironmentsProjectActions,
   type Env,
-} from '../api';
+} from '@/composables/environments/useEnvironmentsProjectActions';
 
 const props = defineProps<{
   show: boolean;
@@ -143,6 +140,8 @@ const emit = defineEmits<{
 }>();
 
 const message = useMessage();
+
+const envApi = useEnvironmentsProjectActions(toRef(props, 'orgSlug'), toRef(props, 'projectSlug'));
 
 const showProxy = computed({
   get: () => props.show,
@@ -194,8 +193,8 @@ function resetFromInitial() {
 
 async function ensureOptionsLoaded() {
   const [servers, branches] = await Promise.all([
-    listServersForOrg(props.orgSlug),
-    listProjectBranches(props.orgSlug, props.projectSlug).catch(() => [] as string[]),
+    envApi.listServersForOrg(),
+    envApi.listProjectBranches().catch(() => [] as string[]),
   ]);
   serverOptions.value = servers.map((s) => ({
     label: `${s.name}（${serverOsLabel(s.os)}）`,
@@ -235,7 +234,7 @@ async function handleSubmit() {
   try {
     if (props.mode === 'edit') {
       if (!props.initialEnv?.id) throw new Error('missing env id');
-      await updateEnvironment(props.orgSlug, props.projectSlug, props.initialEnv.id, {
+      await envApi.updateEnvironment(props.initialEnv.id, {
         name,
         triggerBranch,
         serverId: envForm.value.serverId,
@@ -248,7 +247,7 @@ async function handleSubmit() {
       });
       message.success('已保存');
     } else {
-      await createEnvironment(props.orgSlug, props.projectSlug, {
+      await envApi.createEnvironment({
         name,
         triggerBranch,
         serverId: envForm.value.serverId,

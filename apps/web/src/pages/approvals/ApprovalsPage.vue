@@ -48,11 +48,15 @@ import {
   NButton, NSpace, NEmpty, NDataTable, NTag, useMessage,
   type DataTableColumns,
 } from 'naive-ui';
-import { listApprovals, reviewApproval, type ApprovalItem } from './api';
+import {
+  useOrgApprovalsActions,
+  type ApprovalItem,
+} from '@/composables/approvals/useOrgApprovalsActions';
 
 const route = useRoute();
 const message = useMessage();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
+const approvalsApi = useOrgApprovalsActions(orgSlug);
 const tab = ref('pending');
 const pendingItems = ref<ApprovalItem[]>([]);
 const histItems = ref<ApprovalItem[]>([]);
@@ -71,13 +75,13 @@ const histColumns: DataTableColumns<ApprovalItem> = [
 ];
 
 async function review(id: string, decision: 'approved' | 'rejected') {
-  await reviewApproval(orgSlug.value, id, { decision });
+  await approvalsApi.reviewApproval(id, { decision });
   message.success(decision === 'approved' ? '已批准' : '已拒绝');
   await load();
 }
 
 async function load() {
-  const all = await listApprovals(orgSlug.value);
+  const all = await approvalsApi.listApprovals();
   pendingItems.value = all.filter((a) => a.status === 'pending');
   histItems.value = all.filter((a) => a.status !== 'pending');
 }

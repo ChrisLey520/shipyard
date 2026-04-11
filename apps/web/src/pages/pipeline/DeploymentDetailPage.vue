@@ -269,12 +269,10 @@ import {
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
 import {
-  getDeploymentDetail,
-  getDeploymentLogs,
+  useDeploymentDetailActions,
   type DeploymentDetail,
   type ShipyardDeployAccessMeta,
-} from './api';
-import { retryDeployment } from '@/api/projects';
+} from '@/composables/pipeline/useDeploymentDetailActions';
 
 const route = useRoute();
 const router = useRouter();
@@ -284,6 +282,7 @@ const { t } = useI18n();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
 const deploymentId = computed(() => route.params['deploymentId'] as string);
+const deploymentDetailApi = useDeploymentDetailActions(orgSlug, projectSlug, deploymentId);
 const terminalEl = ref<HTMLElement | null>(null);
 const deployment = ref<DeploymentDetail | null>(null);
 const retrying = ref(false);
@@ -554,14 +553,12 @@ const pollLogSeq = ref(-1);
 
 const { pause: pauseLogPoll, resume: resumeLogPoll } = useIntervalFn(
   async () => {
-    const slug = orgSlug.value;
-    const proj = projectSlug.value;
     const id = deploymentId.value;
     if (!id || !terminal) return;
     try {
-      const detail = await getDeploymentDetail(slug, proj, id);
+      const detail = await deploymentDetailApi.getDeploymentDetail();
       if (detail) deployment.value = detail;
-      const logs = await getDeploymentLogs(slug, proj, id);
+      const logs = await deploymentDetailApi.getDeploymentLogs();
       const sorted = [...logs].sort((a, b) => a.seq - b.seq);
       for (const log of sorted) {
         if (log.seq > pollLogSeq.value) {
@@ -599,8 +596,6 @@ function connectLiveLogStream(id: string) {
 }
 
 async function loadDeploymentView() {
-  const slug = orgSlug.value;
-  const proj = projectSlug.value;
   const id = deploymentId.value;
 
   pauseLogPoll();
@@ -610,7 +605,7 @@ async function loadDeploymentView() {
   terminal = null;
   logLines.value = [];
 
-  deployment.value = await getDeploymentDetail(slug, proj, id).catch(() => null);
+  deployment.value = await deploymentDetailApi.getDeploymentDetail().catch(() => null);
 
   await nextTick();
   if (!terminalEl.value) return;
@@ -621,7 +616,7 @@ async function loadDeploymentView() {
   terminal.open(terminalEl.value);
   fitAddon.fit();
 
-  const logs = await getDeploymentLogs(slug, proj, id).catch(() => []);
+  const logs = await deploymentDetailApi.getDeploymentLogs().catch(() => []);
   const sorted = [...logs].sort((a, b) => a.seq - b.seq);
   pollLogSeq.value = sorted.length ? Math.max(...sorted.map((l) => l.seq)) : -1;
   for (const log of sorted) {
@@ -669,7 +664,7 @@ onUnmounted(() => {
 async function handleRetry() {
   retrying.value = true;
   try {
-    const next = await retryDeployment(orgSlug.value, projectSlug.value, deploymentId.value);
+    const next = await deploymentDetailApi.retryDeployment();
     message.success('已重新入队');
     if (next?.id) {
       await router.replace(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${next.id}`);
