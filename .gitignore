@@ -11,3 +11,6 @@ dist/
 apps/server/uploads/
 apps/server/uploads/**
 apps/server/artifacts/
+test-results/
+playwright-report/
+blob-report/

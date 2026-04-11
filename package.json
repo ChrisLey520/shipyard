@@ -12,6 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "typecheck:build": "tsc -b",
     "test": "pnpm --filter @shipyard/shared test && pnpm --filter @shipyard/server test && pnpm --filter @shipyard/web test",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --ui --config e2e/playwright.config.ts",
     "db:migrate": "pnpm --filter @shipyard/server db:migrate",
     "db:migrate:deploy": "pnpm --filter @shipyard/server db:migrate:deploy",
     "db:generate": "pnpm --filter @shipyard/server db:generate",
@@ -32,6 +34,7 @@
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@eslint/js": "^9.39.4",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
