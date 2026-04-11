@@ -120,4 +120,8 @@ flowchart TB
 | `v04-notify-wework`         | 企业微信 + shared + API/UI + 单测                 | P1    |
 | `v04-readme-changelog`      | CHANGELOG、双语 README、可选 CI smoke             | P0    |
 
+---
+
+**下一版本**：见 [shipyard-v0.5-路线图.plan.md](./shipyard-v0.5-路线图.plan.md)（[需求规格](./shipyard-v0.5-需求规格.md)）。
+
 
