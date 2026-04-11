@@ -15,6 +15,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { GatewayModule } from './common/gateway/gateway.module';
 import { UsersModule } from './modules/users/users.module';
 import { GitModule } from './modules/git/git.module';
+import { NotificationsApiModule } from './modules/notifications/notifications-api.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -41,6 +42,7 @@ import { HealthController } from './health.controller';
     WebhooksModule,
     ApprovalsModule,
     GitModule,
+    NotificationsApiModule,
   ],
   controllers: [HealthController],
 })

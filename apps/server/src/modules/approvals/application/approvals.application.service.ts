@@ -1,13 +1,16 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotificationEvent } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedisService } from '../../../common/redis/redis.service';
 import { Queue } from 'bullmq';
+import { NotificationEnqueueApplicationService } from '../../notifications/application/notification-enqueue.application.service';
 
 @Injectable()
 export class ApprovalsApplicationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly notifications: NotificationEnqueueApplicationService,
   ) {}
 
   async listApprovals(orgId: string) {
@@ -45,7 +48,7 @@ export class ApprovalsApplicationService {
       include: {
         deployment: {
           include: {
-            project: { select: { id: true, organizationId: true } },
+            project: { select: { id: true, organizationId: true, slug: true } },
           },
         },
       },
@@ -89,6 +92,12 @@ export class ApprovalsApplicationService {
           data: { status: 'cancelled' },
         }),
       ]);
+      void this.notifications.enqueue(
+        approval.deployment.project.id,
+        NotificationEvent.APPROVAL_REJECTED,
+        `部署审批已拒绝：${approval.deploymentId.slice(0, 8)}…`,
+        { deploymentId: approval.deploymentId, approvalId: approval.id },
+      );
       return { status: 'rejected' as const };
     }
 
@@ -124,6 +133,13 @@ export class ApprovalsApplicationService {
         orgId: opts.orgId,
       },
       { jobId: `deploy-${deployment.id}` },
+    );
+
+    void this.notifications.enqueue(
+      approval.deployment.project.id,
+      NotificationEvent.APPROVAL_APPROVED,
+      `部署审批已通过：${deployment.id.slice(0, 8)}…`,
+      { deploymentId: deployment.id, approvalId: approval.id },
     );
 
     return { status: 'approved' as const };

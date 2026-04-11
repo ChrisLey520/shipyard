@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Worker } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { NotifyWorkerApplicationService, type NotifyJobData } from './application/notify-worker.application.service';
 
 @Injectable()
@@ -10,9 +11,10 @@ export class NotifyWorkerService extends NotifyWorkerApplicationService implemen
 
   constructor(
     prisma: PrismaService,
+    crypto: CryptoService,
     private readonly redis: RedisService,
   ) {
-    super(prisma);
+    super(prisma, crypto);
   }
 
   async onModuleInit() {

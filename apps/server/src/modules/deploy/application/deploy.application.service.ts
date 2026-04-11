@@ -16,6 +16,8 @@ import { Queue } from 'bullmq';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { GitCommitStatusService } from '../../git/git-commit-status.service';
 import { GitPrCommentApplicationService } from '../../git/application/git-pr-comment.application.service';
+import { NotificationEnqueueApplicationService } from '../../notifications/application/notification-enqueue.application.service';
+import { NotificationEvent } from '@shipyard/shared';
 import { PreviewPortPoolService } from './preview-port-pool.service';
 import { Client as SshClient } from 'ssh2';
 import * as path from 'path';
@@ -47,6 +49,7 @@ export class DeployApplicationService {
     private readonly commitStatus: GitCommitStatusService,
     private readonly previewPorts: PreviewPortPoolService,
     private readonly gitPrComment: GitPrCommentApplicationService,
+    private readonly notifications: NotificationEnqueueApplicationService,
   ) {}
 
   /** 成功收尾时在日志中提示如何访问（与前端详情卡片字段对齐） */
@@ -298,6 +301,13 @@ export class DeployApplicationService {
         await this.appendLogLine(deploymentId, line);
       }
       await this.appendLogLine(deploymentId, '[deploy] 部署成功 ✓');
+
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.DEPLOY_SUCCESS,
+        `部署成功：${deploymentId.slice(0, 8)}…`,
+        { deploymentId },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Deploy failed for ${deploymentId}: ${err}`);
@@ -315,6 +325,13 @@ export class DeployApplicationService {
         'deploy',
         'failure',
         'Shipyard deployment failed',
+      );
+
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.DEPLOY_FAILED,
+        `部署失败：${message}`,
+        { deploymentId },
       );
     }
   }
@@ -642,6 +659,13 @@ export class DeployApplicationService {
           });
         }
       }
+
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.DEPLOY_SUCCESS,
+        `PR 预览部署成功：${deploymentId.slice(0, 8)}…`,
+        { deploymentId },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Preview deploy failed for ${deploymentId}: ${err}`);
@@ -695,6 +719,13 @@ export class DeployApplicationService {
           await this.prisma.preview.update({ where: { id: pv.id }, data: { commentId } });
         }
       }
+
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.DEPLOY_FAILED,
+        `PR 预览部署失败：${message}`,
+        { deploymentId },
+      );
     }
   }
 
@@ -1126,6 +1157,12 @@ server.listen(PORT, '0.0.0.0', () => {
         'Health check failed; no rollback artifact',
       );
       this.logger.error(`Auto-rollback failed: no valid artifact found for env ${environmentId}`);
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.DEPLOY_FAILED,
+        '部署失败：健康检查未通过且无可用回滚产物',
+        { deploymentId },
+      );
       return;
     }
 
@@ -1170,6 +1207,13 @@ server.listen(PORT, '0.0.0.0', () => {
       'deploy',
       'failure',
       'Health check failed; rollback queued',
+    );
+
+    void this.notifications.enqueue(
+      projectId,
+      NotificationEvent.DEPLOY_FAILED,
+      `部署失败：健康检查未通过，已排队自动回滚`,
+      { deploymentId },
     );
   }
 

@@ -143,6 +143,10 @@
         </n-card>
       </n-tab-pane>
 
+      <n-tab-pane name="notifications" tab="通知">
+        <project-notifications-panel :org-slug="orgSlug" :project-slug="projectSlug" />
+      </n-tab-pane>
+
       <n-tab-pane name="deployments" tab="部署历史">
         <n-space justify="space-between" align="center" style="margin-top: 8px">
           <n-space>
@@ -226,6 +230,7 @@ import {
 } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
+import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
@@ -257,10 +262,13 @@ const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
 
 /** 与路由 ?tab= 同步，避免刷新后总是回到「概览」 */
-const activeProjectTab = ref<'overview' | 'deployments'>('overview');
+const activeProjectTab = ref<'overview' | 'deployments' | 'notifications'>('overview');
 
 function syncProjectTabFromRoute() {
-  activeProjectTab.value = route.query['tab'] === 'deployments' ? 'deployments' : 'overview';
+  const tab = route.query['tab'];
+  if (tab === 'deployments') activeProjectTab.value = 'deployments';
+  else if (tab === 'notifications') activeProjectTab.value = 'notifications';
+  else activeProjectTab.value = 'overview';
 }
 
 function onProjectTabChange(name: string) {

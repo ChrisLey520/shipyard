@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildPm2StaticSiteRootUrl, normalizeHttpRootUrlWithSlash, stripTrailingSlashes } from './utils';
+import {
+  buildPm2StaticSiteRootUrl,
+  isBlockedOutboundIp,
+  normalizeHttpRootUrlWithSlash,
+  stripTrailingSlashes,
+} from './utils';
 
 describe('stripTrailingSlashes', () => {
   it('去掉末尾斜杠', () => {
@@ -22,6 +27,26 @@ describe('normalizeHttpRootUrlWithSlash', () => {
   it('含 path 时保留 path 并规范末尾斜杠', () => {
     expect(normalizeHttpRootUrlWithSlash('https://api.example.com/v1')).toBe('https://api.example.com/v1/');
     expect(normalizeHttpRootUrlWithSlash('https://api.example.com/v1/')).toBe('https://api.example.com/v1/');
+  });
+});
+
+describe('isBlockedOutboundIp', () => {
+  it('拦截常见私网与环回', () => {
+    expect(isBlockedOutboundIp('127.0.0.1')).toBe(true);
+    expect(isBlockedOutboundIp('10.0.0.1')).toBe(true);
+    expect(isBlockedOutboundIp('192.168.1.1')).toBe(true);
+    expect(isBlockedOutboundIp('100.64.0.1')).toBe(true);
+    expect(isBlockedOutboundIp('8.8.8.8')).toBe(false);
+  });
+
+  it('拦截 IPv6 链路本地、ULA、文档与映射私网', () => {
+    expect(isBlockedOutboundIp('::1')).toBe(true);
+    expect(isBlockedOutboundIp('fe80::1')).toBe(true);
+    expect(isBlockedOutboundIp('feb0::1')).toBe(true);
+    expect(isBlockedOutboundIp('fd00::1')).toBe(true);
+    expect(isBlockedOutboundIp('2001:db8::1')).toBe(true);
+    expect(isBlockedOutboundIp('::ffff:10.0.0.1')).toBe(true);
+    expect(isBlockedOutboundIp('2606:4700:4700::1111')).toBe(false);
   });
 });
 

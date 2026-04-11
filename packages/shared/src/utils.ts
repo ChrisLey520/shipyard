@@ -174,7 +174,6 @@ export function buildCloneUrl(
 
 /**
  * 检查 IP 是否为私有地址（用于 SSRF 过滤）
- * 注意：完整的 IPv6 校验在 server 端用 net 模块实现
  */
 export function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split('.').map(Number);
@@ -184,10 +183,43 @@ export function isPrivateIpv4(ip: string): boolean {
   return (
     a === 10 ||
     a === 127 ||
+    a === 0 ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    (a === 169 && b === 254)
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127)
   );
+}
+
+/**
+ * 出站 Webhook 等请求禁止解析到的地址（IPv4/IPv6 私网、环回、链路本地、文档地址等）
+ */
+export function isBlockedOutboundIp(ip: string): boolean {
+  const t = ip.trim().replace(/^\[|\]$/g, '');
+  if (t.includes(':')) {
+    const lower = t.toLowerCase().split('%')[0] ?? '';
+    if (lower === '::1') return true;
+    // 2001:db8::/32 documentation
+    if (lower.startsWith('2001:db8:')) return true;
+    // IPv4-mapped ::ffff:x.x.x.x
+    if (lower.startsWith('::ffff:')) {
+      const rest = lower.slice(7);
+      const v4 = rest.includes(':') ? (rest.split(':').pop() ?? '') : rest;
+      if (v4 && isPrivateIpv4(v4)) return true;
+    }
+    const firstSeg = lower.split(':').find((s) => s.length > 0) ?? '';
+    if (firstSeg) {
+      const n = parseInt(firstSeg, 16);
+      if (!Number.isNaN(n)) {
+        // fe80::/10
+        if (n >= 0xfe80 && n <= 0xfebf) return true;
+        // fc00::/7 unique local
+        if (n >= 0xfc00 && n <= 0xfdff) return true;
+      }
+    }
+    return false;
+  }
+  return isPrivateIpv4(t);
 }
 
 /**

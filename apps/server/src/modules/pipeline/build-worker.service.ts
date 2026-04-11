@@ -10,7 +10,8 @@ import { mkdirSync, rmSync, existsSync } from 'fs';
 import { writeFile, readdir } from 'fs/promises';
 import * as path from 'path';
 import * as tar from 'tar';
-import { buildCloneUrl, GitProvider } from '@shipyard/shared';
+import { buildCloneUrl, GitProvider, NotificationEvent } from '@shipyard/shared';
+import { NotificationEnqueueApplicationService } from '../notifications/application/notification-enqueue.application.service';
 import { GitPrCommentApplicationService } from '../git/application/git-pr-comment.application.service';
 import type { BuildJobData } from './pipeline.service';
 
@@ -30,6 +31,7 @@ export class BuildWorkerService implements OnModuleInit {
     private readonly gitTokens: GitAccessTokenService,
     private readonly commitStatus: GitCommitStatusService,
     private readonly gitPrComment: GitPrCommentApplicationService,
+    private readonly notifications: NotificationEnqueueApplicationService,
   ) {}
 
   async onModuleInit() {
@@ -286,6 +288,13 @@ export class BuildWorkerService implements OnModuleInit {
         'Shipyard build succeeded',
       );
 
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.BUILD_SUCCESS,
+        `构建成功：部署 ${deploymentId.slice(0, 8)}…`,
+        { deploymentId },
+      );
+
       // 自动入 DeployQueue（如果有 environmentId）
       if (environmentId) {
         await this.enqueueDeployment(orgId, deploymentId, projectId, environmentId);
@@ -312,6 +321,13 @@ export class BuildWorkerService implements OnModuleInit {
         'build',
         'failure',
         'Shipyard build failed',
+      );
+
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.BUILD_FAILED,
+        `构建失败：${message}`,
+        { deploymentId },
       );
 
       const pv = await this.prisma.preview.findUnique({ where: { deploymentId } });
@@ -423,7 +439,7 @@ export class BuildWorkerService implements OnModuleInit {
     if (env.protected) {
       const deployment = await this.prisma.deployment.findUniqueOrThrow({ where: { id: deploymentId } });
       await this.prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'pending_approval' } });
-      await this.prisma.approvalRequest.create({
+      const ar = await this.prisma.approvalRequest.create({
         data: {
           deploymentId,
           requestedByUserId: deployment.triggeredByUserId ?? undefined,
@@ -436,6 +452,12 @@ export class BuildWorkerService implements OnModuleInit {
         'build',
         'pending',
         'Waiting for deployment approval',
+      );
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.APPROVAL_PENDING,
+        `部署待审批：${deploymentId.slice(0, 8)}…`,
+        { deploymentId, approvalId: ar.id },
       );
       return;
     }

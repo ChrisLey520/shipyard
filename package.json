@@ -11,7 +11,7 @@
     "lint:recursive": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "typecheck:build": "tsc -b",
-    "test": "pnpm --filter @shipyard/shared test && pnpm --filter @shipyard/server test && pnpm --filter @shipyard/web test",
+    "test": "pnpm --filter @shipyard/shared build && pnpm --filter @shipyard/shared test && pnpm --filter @shipyard/server test && pnpm --filter @shipyard/web test",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --ui --config e2e/playwright.config.ts",
     "db:migrate": "pnpm --filter @shipyard/server db:migrate",

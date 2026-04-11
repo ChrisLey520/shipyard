@@ -188,16 +188,19 @@ pnpm -r build
 
 **已有基础（代码中）**
 
-- 数据表 `Notification`（按 `projectId` 存 `channel`、`config`、`events[]`、`enabled`）；BullMQ 队列 `notify-{orgId}` + Worker 消费任务。
-- 出站渠道当前**仅实现 `webhook`**（POST JSON）；`email` / `feishu` / `dingtalk` / `slack` 等在 Worker 中仍为占位。
-- Webhook 出站带**基础 SSRF 防护**：`dns.lookup` 后对 IPv4 私网、`::1` 与 `fe80` 链路本地等做拦截（与 README 下文「全覆盖」目标仍有差距）。
-- **尚无** 管理端/REST 的通知配置 CRUD；**尚无** 构建、部署、审批等业务路径向 `notify` 队列**自动入队**，因此默认环境下即使表中有数据也不会被业务自动触发。
+- 数据表 `Notification`（按 `projectId` 存 `channel`、`config`、`events[]`、`enabled`）；BullMQ 队列 `notify-{orgId}`，由 Worker 进程消费。
+- **REST**：`GET/POST/PATCH/DELETE …/orgs/:orgSlug/projects/:projectSlug/notifications`（JWT + 角色：`VIEWER` 可读，`DEVELOPER` 可写）；**管理端**：项目详情 Tab「通知」。
+- **事件入队**：构建/部署/审批等路径调用 `NotificationEnqueueApplicationService` 写入队列（如 `attempts: 3`、指数退避）；负载含 `message`、`detailUrl`、`deploymentId`、`projectSlug`、`orgSlug`、`event` 等。
+- **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack（机器人 Webhook JSON）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。
+- **敏感字段**：`config` 内 `secret`、`smtpPass` 等使用 `CryptoService` 加密落库；API 响应脱敏（如 `secretConfigured` / `smtpPassConfigured`）。
+- **SSRF 与 URL 主机**：允许配置**字面 IP** 的 `http(s)` URL，对该地址直接做阻断列表校验；若为**域名**，则对该主机名解析得到的**全部**结果逐一校验，任一对私网/保留段即拒绝。
+- **IM `secret`**：控制台可填写并加密存储；当前 Worker **未**对飞书/钉钉/Slack 请求做加签（按无密钥 Webhook URL 使用）。若需「密钥 + 签名 URL」需在发送路径另行实现。
+- **测试**：根目录 `pnpm test` 会先执行 `pnpm --filter @shipyard/shared build` 再跑各包测试，避免 `@shipyard/server` Vitest 引用过期 `dist` 报错。若 CI 将 job 拆分，运行 server 测试的 job 也须先构建 `@shipyard/shared`。
 
 **仍待增强**
 
-- **通知配置 CRUD**（API + 控制台，按 Project）：Webhook / Email（Nodemailer）/ IM（飞书/钉钉/Slack）等，与 `NotificationChannel` 枚举对齐的发送实现。
-- **事件触发**：构建/部署成功失败、审批待处理/通过/拒绝等统一入队（如 `enqueueNotify` 或等价应用服务）。
-- **SSRF 防护升级**：IPv4/IPv6 全覆盖、对同一主机名解析得到的全部 A/AAAA 记录逐一校验等。
+- **运行时新建组织**：Notify Worker 仅在进程启动时为已有组织注册消费者；新建组织后需**重启 worker**，或后续实现动态 `startWorkerForOrg`。
+- **IM 加签**：钉钉/飞书等平台的签名 URL / HMAC 与已存储 `secret` 联动。
 
 ### 3）构建与部署可靠性加固
 

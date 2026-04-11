@@ -10,6 +10,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
 import type { User } from '@prisma/client';
 import { Queue } from 'bullmq';
+import { NotificationEvent } from '@shipyard/shared';
+import { NotificationEnqueueApplicationService } from '../notifications/application/notification-enqueue.application.service';
 
 @ApiTags('部署')
 @ApiBearerAuth()
@@ -19,6 +21,7 @@ export class DeployController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly notifications: NotificationEnqueueApplicationService,
   ) {}
 
   /** 一键回滚到指定历史部署的产物 */
@@ -69,13 +72,19 @@ export class DeployController {
     });
 
     if (env.protected) {
-      await this.prisma.approvalRequest.create({
+      const ar = await this.prisma.approvalRequest.create({
         data: {
           deploymentId: rollbackDeployment.id,
           requestedByUserId: user.id,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
+      void this.notifications.enqueue(
+        project.id,
+        NotificationEvent.APPROVAL_PENDING,
+        `回滚部署待审批：${rollbackDeployment.id.slice(0, 8)}…`,
+        { deploymentId: rollbackDeployment.id, approvalId: ar.id },
+      );
     } else {
       // 直接入 DeployQueue（跳过构建）
       const queue = new Queue(`deploy-${orgId}`, { connection: this.redis.getClient() });
