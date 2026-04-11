@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { GitProvider } from '@shipyard/shared';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
@@ -100,13 +101,13 @@ export class GitAccountsApplicationService {
     const pat = this.crypto.decrypt(account.accessToken);
 
     switch (account.gitProvider) {
-      case 'github':
+      case GitProvider.GITHUB:
         return this.git.listGithubReposByPat(pat);
-      case 'gitlab':
+      case GitProvider.GITLAB:
         return this.git.listGitlabReposByPat(pat, account.baseUrl ?? undefined);
-      case 'gitee':
+      case GitProvider.GITEE:
         return this.git.listGiteeReposByPat(pat);
-      case 'gitea':
+      case GitProvider.GITEA:
         if (!account.baseUrl) throw new Error('Gitea Base URL 未配置');
         return this.git.listGiteaReposByPat(pat, account.baseUrl);
       default:

@@ -20,6 +20,11 @@ const WELL_KNOWN_BASE: Partial<Record<GitProvider, string>> = {
 /** 新建 GitLab 连接时常用的占位默认 */
 export const DEFAULT_GITLAB_BASE_URL = 'https://gitlab.com';
 
+/** 公有云默认实例根 URL（Gitea 无统一值则 undefined） */
+export function wellKnownGitProviderBaseUrl(provider: GitProvider): string | undefined {
+  return WELL_KNOWN_BASE[provider];
+}
+
 /** Naive UI n-select（可变数组以兼容 Naive 选项类型） */
 export const GIT_PROVIDER_SELECT_OPTIONS: Array<{ label: string; value: GitProvider }> = [
   { label: LABEL_BY_PROVIDER[GitProvider.GITHUB], value: GitProvider.GITHUB },

@@ -1,3 +1,5 @@
+import { GitProvider } from './enums';
+
 /** 是否为本地回环类主机名（用于部署域名 / SSH host 判断） */
 export function isLoopbackHostLabel(s: string | null | undefined): boolean {
   const t = (s ?? '').trim();
@@ -119,13 +121,13 @@ export function buildCloneUrl(
   username?: string,
 ): string {
   switch (provider) {
-    case 'gitee':
+    case GitProvider.GITEE:
       return `https://${username ?? 'oauth2'}:${token}@gitee.com/${repoFullName}.git`;
-    case 'gitea':
+    case GitProvider.GITEA:
       return `https://${username ?? 'oauth2'}:${token}@${repoFullName}.git`;
-    case 'gitlab':
+    case GitProvider.GITLAB:
       return `https://oauth2:${token}@gitlab.com/${repoFullName}.git`;
-    case 'github':
+    case GitProvider.GITHUB:
     default:
       return `https://oauth2:${token}@github.com/${repoFullName}.git`;
   }

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { GitAccessTokenService } from '../git-access-token.service';
 
@@ -53,18 +54,18 @@ export class GitCommitStatusApplicationService {
       if (!owner || !repoName) return;
 
       switch (conn.gitProvider) {
-        case 'github':
+        case GitProvider.GITHUB:
           await this.postGithub(owner, repoName, token, sha, state, targetUrl, description, context);
           break;
-        case 'gitlab': {
-          const base = (conn.baseUrl ?? 'https://gitlab.com').replace(/\/+$/, '');
+        case GitProvider.GITLAB: {
+          const base = (conn.baseUrl ?? DEFAULT_GITLAB_BASE_URL).replace(/\/+$/, '');
           await this.postGitlab(base, token, repo, sha, state, targetUrl, description, context);
           break;
         }
-        case 'gitee':
+        case GitProvider.GITEE:
           await this.postGitee(owner, repoName, token, sha, state, targetUrl, description, context);
           break;
-        case 'gitea': {
+        case GitProvider.GITEA: {
           if (!conn.baseUrl?.trim()) return;
           const base = conn.baseUrl.replace(/\/+$/, '');
           await this.postGitea(base, owner, repoName, token, sha, state, targetUrl, description, context);

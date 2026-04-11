@@ -70,7 +70,7 @@
           <n-select v-model:value="form.gitProvider" :options="providerOptions" :disabled="Boolean(editing)" />
         </n-form-item>
         <n-form-item v-if="gitProviderRequiresBaseUrl(form.gitProvider)" label="Base URL">
-          <n-input v-model:value="form.baseUrl" placeholder="https://gitlab.com 或 https://gitea.yourdomain.com" />
+          <n-input v-model:value="form.baseUrl" :placeholder="baseUrlInputPlaceholder" />
         </n-form-item>
         <n-form-item :label="editing ? 'PAT（可选更新）' : 'PAT'">
           <n-input v-model:value="form.accessToken" type="password" placeholder="Personal Access Token" />
@@ -144,6 +144,7 @@ const testingId = ref<string | null>(null);
 
 const providerOptions = GIT_PROVIDER_SELECT_OPTIONS;
 const oauthDropdownOptions = GIT_PROVIDER_OAUTH_DROPDOWN_OPTIONS;
+const baseUrlInputPlaceholder = `${DEFAULT_GITLAB_BASE_URL} 或 https://gitea.yourdomain.com`;
 
 const form = ref({
   name: '',

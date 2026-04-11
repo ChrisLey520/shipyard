@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
 import type { RemoteWebhookRegistrar } from '../application/ports/remote-webhook.registrar.port';
 
 @Injectable()
@@ -30,7 +31,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     accessToken: string;
     webhookSecret: string;
   }): Promise<{ remoteWebhookId: string } | null> {
-    const callbackUrl = this.webhookCallbackUrl('github', opts.projectId);
+    const callbackUrl = this.webhookCallbackUrl(GitProvider.GITHUB, opts.projectId);
     if (!callbackUrl) {
       this.logger.warn('SERVER_PUBLIC_URL 未配置，跳过 Webhook 自动注册');
       return null;
@@ -110,7 +111,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     baseUrl: string;
     webhookSecret: string;
   }): Promise<{ remoteWebhookId: string } | null> {
-    const callbackUrl = this.webhookCallbackUrl('gitlab', opts.projectId);
+    const callbackUrl = this.webhookCallbackUrl(GitProvider.GITLAB, opts.projectId);
     if (!callbackUrl) {
       this.logger.warn('SERVER_PUBLIC_URL 未配置，跳过 GitLab Webhook 自动注册');
       return null;
@@ -175,7 +176,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     accessToken: string;
     webhookSecret: string;
   }): Promise<{ remoteWebhookId: string } | null> {
-    const callbackUrl = this.webhookCallbackUrl('gitee', opts.projectId);
+    const callbackUrl = this.webhookCallbackUrl(GitProvider.GITEE, opts.projectId);
     if (!callbackUrl) {
       this.logger.warn('SERVER_PUBLIC_URL 未配置，跳过 Gitee Webhook 自动注册');
       return null;
@@ -239,7 +240,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     baseUrl: string;
     webhookSecret: string;
   }): Promise<{ remoteWebhookId: string } | null> {
-    const callbackUrl = this.webhookCallbackUrl('gitea', opts.projectId);
+    const callbackUrl = this.webhookCallbackUrl(GitProvider.GITEA, opts.projectId);
     if (!callbackUrl) {
       this.logger.warn('SERVER_PUBLIC_URL 未配置，跳过 Gitea Webhook 自动注册');
       return null;
@@ -269,7 +270,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
         active: true,
         branch_filter: '*',
         events: ['push'],
-        type: 'gitea',
+        type: GitProvider.GITEA,
         config: {
           url: callbackUrl,
           content_type: 'json',
@@ -315,15 +316,15 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     webhookSecret: string;
   }): Promise<{ remoteWebhookId: string } | null> {
     switch (opts.gitProvider) {
-      case 'github':
+      case GitProvider.GITHUB:
         return this.registerGithubWebhook({
           projectId: opts.projectId,
           repoFullName: opts.repoFullName,
           accessToken: opts.accessToken,
           webhookSecret: opts.webhookSecret,
         });
-      case 'gitlab': {
-        const base = opts.baseUrl?.trim() || 'https://gitlab.com';
+      case GitProvider.GITLAB: {
+        const base = opts.baseUrl?.trim() || DEFAULT_GITLAB_BASE_URL;
         return this.registerGitlabWebhook({
           projectId: opts.projectId,
           repoFullName: opts.repoFullName,
@@ -332,14 +333,14 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
           webhookSecret: opts.webhookSecret,
         });
       }
-      case 'gitee':
+      case GitProvider.GITEE:
         return this.registerGiteeWebhook({
           projectId: opts.projectId,
           repoFullName: opts.repoFullName,
           accessToken: opts.accessToken,
           webhookSecret: opts.webhookSecret,
         });
-      case 'gitea': {
+      case GitProvider.GITEA: {
         if (!opts.baseUrl?.trim()) return null;
         return this.registerGiteaWebhook({
           projectId: opts.projectId,
@@ -362,29 +363,29 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     remoteWebhookId: string;
   }): Promise<void> {
     switch (opts.gitProvider) {
-      case 'github':
+      case GitProvider.GITHUB:
         await this.unregisterGithubWebhook({
           repoFullName: opts.repoFullName,
           accessToken: opts.accessToken,
           remoteWebhookId: opts.remoteWebhookId,
         });
         break;
-      case 'gitlab':
+      case GitProvider.GITLAB:
         await this.unregisterGitlabWebhook({
           repoFullName: opts.repoFullName,
           accessToken: opts.accessToken,
-          baseUrl: opts.baseUrl?.trim() || 'https://gitlab.com',
+          baseUrl: opts.baseUrl?.trim() || DEFAULT_GITLAB_BASE_URL,
           remoteWebhookId: opts.remoteWebhookId,
         });
         break;
-      case 'gitee':
+      case GitProvider.GITEE:
         await this.unregisterGiteeWebhook({
           repoFullName: opts.repoFullName,
           accessToken: opts.accessToken,
           remoteWebhookId: opts.remoteWebhookId,
         });
         break;
-      case 'gitea':
+      case GitProvider.GITEA:
         if (opts.baseUrl?.trim()) {
           await this.unregisterGiteaWebhook({
             repoFullName: opts.repoFullName,

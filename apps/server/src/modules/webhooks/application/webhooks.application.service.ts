@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { GitProvider } from '@shipyard/shared';
 import { validate as isUuid } from 'uuid';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
@@ -121,7 +122,7 @@ export class WebhooksApplicationService {
       return this.ok(200, { handled: false });
     }
 
-    if (provider === 'gitee') {
+    if (provider === GitProvider.GITEE) {
       const hn = String(payload['hook_name'] ?? '');
       if (hn && hn !== 'push_hooks') {
         return this.ok(200, { handled: false });
@@ -187,13 +188,13 @@ export class WebhooksApplicationService {
     rawBody: string,
   ): boolean {
     switch (provider) {
-      case 'github':
+      case GitProvider.GITHUB:
         return verifyGithubWebhookSignature(secret, rawBody, headers['x-hub-signature-256'] ?? '');
-      case 'gitlab':
+      case GitProvider.GITLAB:
         return verifyGitlabWebhookToken(secret, headers);
-      case 'gitee':
+      case GitProvider.GITEE:
         return verifyGiteeWebhookToken(secret, headers);
-      case 'gitea': {
+      case GitProvider.GITEA: {
         const sig = headers['x-gitea-signature'] ?? '';
         return verifyGiteaWebhookSignature(secret, rawBody, sig);
       }
@@ -211,13 +212,13 @@ export class WebhooksApplicationService {
     payload: Record<string, unknown>,
   ): string {
     switch (provider) {
-      case 'github':
+      case GitProvider.GITHUB:
         return githubWebhookIdempotencyKey(headers, rawBody);
-      case 'gitlab':
+      case GitProvider.GITLAB:
         return gitlabWebhookIdempotencyKey(headers, payload);
-      case 'gitee':
+      case GitProvider.GITEE:
         return giteeWebhookIdempotencyKey(payload);
-      case 'gitea':
+      case GitProvider.GITEA:
         return giteaWebhookIdempotencyKey(headers, rawBody);
       default: {
         const _exhaustive: never = provider;
@@ -232,17 +233,17 @@ export class WebhooksApplicationService {
     _payload: Record<string, unknown>,
   ): boolean {
     switch (provider) {
-      case 'github': {
+      case GitProvider.GITHUB: {
         const ev = parseGithubWebhookEvent(headers);
         return ev === 'ping' || (ev !== '' && ev !== 'push');
       }
-      case 'gitlab': {
+      case GitProvider.GITLAB: {
         const ev = parseGitlabWebhookEvent(headers);
         return ev !== '' && ev !== 'Push Hook';
       }
-      case 'gitee':
+      case GitProvider.GITEE:
         return false; // 非 push 由 hook_name 在 handleWebhook 中单独判断
-      case 'gitea': {
+      case GitProvider.GITEA: {
         const ev = parseGiteaWebhookEvent(headers);
         return ev !== '' && ev.toLowerCase() !== 'push';
       }
@@ -255,13 +256,13 @@ export class WebhooksApplicationService {
 
   private parsePush(provider: WebhooksGitProvider, payload: Record<string, unknown>): ParsedPushPayload | null {
     switch (provider) {
-      case 'github':
+      case GitProvider.GITHUB:
         return parseGithubPushPayload(payload);
-      case 'gitlab':
+      case GitProvider.GITLAB:
         return parseGitlabPushPayload(payload);
-      case 'gitee':
+      case GitProvider.GITEE:
         return parseGiteePushPayload(payload);
-      case 'gitea':
+      case GitProvider.GITEA:
         return parseGiteaPushPayload(payload);
       default: {
         const _exhaustive: never = provider;

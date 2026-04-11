@@ -152,7 +152,7 @@
             <n-select v-model:value="accountForm.gitProvider" :options="gitProviderOptions" placeholder="请选择 Git Provider" />
           </n-form-item>
           <n-form-item v-if="gitProviderRequiresBaseUrl(accountForm.gitProvider)" label="Base URL">
-            <n-input v-model:value="accountForm.baseUrl" placeholder="https://gitlab.com 或 https://gitea.yourdomain.com" />
+            <n-input v-model:value="accountForm.baseUrl" :placeholder="baseUrlInputPlaceholder" />
           </n-form-item>
           <n-form-item label="PAT">
             <n-input v-model:value="accountForm.accessToken" type="password" placeholder="Personal Access Token" />
@@ -232,6 +232,7 @@ const form = ref({
 });
 
 const gitProviderOptions = GIT_PROVIDER_SELECT_OPTIONS;
+const baseUrlInputPlaceholder = `${DEFAULT_GITLAB_BASE_URL} 或 https://gitea.yourdomain.com`;
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));
 

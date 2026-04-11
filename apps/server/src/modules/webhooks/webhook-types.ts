@@ -1,4 +1,6 @@
-export type WebhooksGitProvider = 'github' | 'gitlab' | 'gitee' | 'gitea';
+import type { GitProvider } from '@shipyard/shared';
+
+export type WebhooksGitProvider = GitProvider;
 
 export type WebhookErrorCode =
   | 'invalid_request'

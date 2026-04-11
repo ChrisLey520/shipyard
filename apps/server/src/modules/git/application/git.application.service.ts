@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 
@@ -72,13 +73,13 @@ export class GitApplicationService {
       select: { gitProvider: true, accessToken: true },
     });
     if (!gitConn) throw new Error('未配置 Git 连接');
-    if (gitConn.gitProvider !== 'github') throw new Error('当前仅支持 GitHub 分支下拉');
+    if (gitConn.gitProvider !== GitProvider.GITHUB) throw new Error('当前仅支持 GitHub 分支下拉');
 
     const pat = this.crypto.decrypt(gitConn.accessToken);
     return this.listGithubBranchesByPat(pat, project.repoFullName);
   }
 
-  async listGitlabReposByPat(pat: string, baseUrl = 'https://gitlab.com'): Promise<Array<{ fullName: string; private: boolean }>> {
+  async listGitlabReposByPat(pat: string, baseUrl = DEFAULT_GITLAB_BASE_URL): Promise<Array<{ fullName: string; private: boolean }>> {
     const apiBase = baseUrl.replace(/\/$/, '');
     const res = await fetch(`${apiBase}/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at`, {
       headers: {
@@ -98,7 +99,7 @@ export class GitApplicationService {
       .map((fullName) => ({ fullName, private: true }));
   }
 
-  async listGitlabBranchesByPat(pat: string, repoFullName: string, baseUrl = 'https://gitlab.com'): Promise<string[]> {
+  async listGitlabBranchesByPat(pat: string, repoFullName: string, baseUrl = DEFAULT_GITLAB_BASE_URL): Promise<string[]> {
     const apiBase = baseUrl.replace(/\/$/, '');
     const projectPath = encodeURIComponent(repoFullName);
     const res = await fetch(`${apiBase}/api/v4/projects/${projectPath}/repository/branches?per_page=100`, {
@@ -197,13 +198,13 @@ export class GitApplicationService {
 
     const pat = this.crypto.decrypt(gitConn.accessToken);
     switch (gitConn.gitProvider) {
-      case 'github':
+      case GitProvider.GITHUB:
         return this.listGithubBranchesByPat(pat, project.repoFullName);
-      case 'gitlab':
+      case GitProvider.GITLAB:
         return this.listGitlabBranchesByPat(pat, project.repoFullName, gitConn.baseUrl ?? undefined);
-      case 'gitee':
+      case GitProvider.GITEE:
         return this.listGiteeBranchesByPat(pat, project.repoFullName);
-      case 'gitea':
+      case GitProvider.GITEA:
         if (!gitConn.baseUrl) return [];
         return this.listGiteaBranchesByPat(pat, project.repoFullName, gitConn.baseUrl);
       default:

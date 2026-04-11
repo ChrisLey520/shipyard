@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { mkdirSync } from 'fs';
 import type { Request } from 'express';
 import { IsIn, IsString } from 'class-validator';
+import { supportedLocales } from '@shipyard/shared';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
@@ -29,7 +30,7 @@ function ensureAvatarDir() {
 
 class UpdateMeBody {
   @IsString()
-  @IsIn(['zh-CN', 'zh-TW', 'en', 'ja'])
+  @IsIn([...supportedLocales])
   locale!: string;
 }
 

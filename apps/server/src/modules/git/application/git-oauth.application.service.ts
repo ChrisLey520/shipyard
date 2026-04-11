@@ -8,13 +8,12 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { RedisService } from '../../../common/redis/redis.service';
-
-type OAuthProvider = 'github' | 'gitlab' | 'gitee' | 'gitea';
+import { DEFAULT_GITLAB_BASE_URL, GitProvider, isGitProviderString } from '@shipyard/shared';
 
 interface OAuthStatePayload {
   orgId: string;
   userId: string;
-  provider: OAuthProvider;
+  provider: GitProvider;
   codeVerifier?: string;
   gitlabHost?: string;
   giteaHost?: string;
@@ -48,10 +47,10 @@ export class GitOAuthApplicationService {
   }
 
   async buildAuthorizeUrl(orgId: string, userId: string, provider: string): Promise<string> {
-    const p = provider as OAuthProvider;
-    if (!['github', 'gitlab', 'gitee', 'gitea'].includes(p)) {
+    if (!isGitProviderString(provider)) {
       throw new BadRequestException('不支持的 OAuth 提供方');
     }
+    const p = provider;
 
     const stateToken = randomBytes(24).toString('hex');
     const payload: OAuthStatePayload = { orgId, userId, provider: p };
@@ -59,24 +58,24 @@ export class GitOAuthApplicationService {
 
     const redirectUri = `${this.redirectBase()}/api/git/oauth/${p}/callback`;
 
-    if (p === 'github') {
+    if (p === GitProvider.GITHUB) {
       const clientId = process.env['GIT_OAUTH_GITHUB_CLIENT_ID']?.trim();
       if (!clientId) throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITHUB_CLIENT_ID');
       const scope = encodeURIComponent('repo repo:status read:user');
       return `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${encodeURIComponent(stateToken)}`;
     }
 
-    if (p === 'gitlab') {
+    if (p === GitProvider.GITLAB) {
       const clientId = process.env['GIT_OAUTH_GITLAB_CLIENT_ID']?.trim();
       if (!clientId) throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITLAB_CLIENT_ID');
-      const host = (process.env['GIT_OAUTH_GITLAB_HOST'] ?? 'https://gitlab.com').replace(/\/+$/, '');
+      const host = (process.env['GIT_OAUTH_GITLAB_HOST'] ?? DEFAULT_GITLAB_BASE_URL).replace(/\/+$/, '');
       payload.gitlabHost = host;
       await this.redis.set(this.stateKey(stateToken), JSON.stringify(payload), 600);
       const scope = encodeURIComponent('api read_repository write_repository');
       return `${host}/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
     }
 
-    if (p === 'gitee') {
+    if (p === GitProvider.GITEE) {
       const clientId = process.env['GIT_OAUTH_GITEE_CLIENT_ID']?.trim();
       if (!clientId) throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITEE_CLIENT_ID');
       const scope = encodeURIComponent('user_info projects hook');
@@ -129,7 +128,7 @@ export class GitOAuthApplicationService {
   private async exchangeAndPersistAccount(payload: OAuthStatePayload, code: string): Promise<void> {
     const redirectUri = `${this.redirectBase()}/api/git/oauth/${payload.provider}/callback`;
 
-    if (payload.provider === 'github') {
+    if (payload.provider === GitProvider.GITHUB) {
       const clientId = process.env['GIT_OAUTH_GITHUB_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITHUB_CLIENT_SECRET']?.trim();
       if (!clientId || !clientSecret) throw new Error('missing github oauth secret');
@@ -164,7 +163,7 @@ export class GitOAuthApplicationService {
 
       await this.upsertOAuthAccount({
         orgId: payload.orgId,
-        provider: 'github',
+        provider: GitProvider.GITHUB,
         name: login,
         baseUrl: null,
         gitUsername: login,
@@ -176,11 +175,11 @@ export class GitOAuthApplicationService {
       return;
     }
 
-    if (payload.provider === 'gitlab') {
+    if (payload.provider === GitProvider.GITLAB) {
       const clientId = process.env['GIT_OAUTH_GITLAB_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITLAB_CLIENT_SECRET']?.trim();
       if (!clientId || !clientSecret) throw new Error('missing gitlab oauth secret');
-      const host = payload.gitlabHost ?? 'https://gitlab.com';
+      const host = payload.gitlabHost ?? DEFAULT_GITLAB_BASE_URL;
 
       const body = new URLSearchParams({
         client_id: clientId,
@@ -211,7 +210,7 @@ export class GitOAuthApplicationService {
 
       await this.upsertOAuthAccount({
         orgId: payload.orgId,
-        provider: 'gitlab',
+        provider: GitProvider.GITLAB,
         name: login,
         baseUrl: host,
         gitUsername: login,
@@ -223,7 +222,7 @@ export class GitOAuthApplicationService {
       return;
     }
 
-    if (payload.provider === 'gitee') {
+    if (payload.provider === GitProvider.GITEE) {
       const clientId = process.env['GIT_OAUTH_GITEE_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITEE_CLIENT_SECRET']?.trim();
       if (!clientId || !clientSecret) throw new Error('missing gitee oauth secret');
@@ -257,7 +256,7 @@ export class GitOAuthApplicationService {
 
       await this.upsertOAuthAccount({
         orgId: payload.orgId,
-        provider: 'gitee',
+        provider: GitProvider.GITEE,
         name: login,
         baseUrl: null,
         gitUsername: login,
@@ -269,7 +268,7 @@ export class GitOAuthApplicationService {
       return;
     }
 
-    if (payload.provider === 'gitea') {
+    if (payload.provider === GitProvider.GITEA) {
       const clientId = process.env['GIT_OAUTH_GITEA_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITEA_CLIENT_SECRET']?.trim();
       const host = payload.giteaHost;
@@ -304,7 +303,7 @@ export class GitOAuthApplicationService {
 
       await this.upsertOAuthAccount({
         orgId: payload.orgId,
-        provider: 'gitea',
+        provider: GitProvider.GITEA,
         name: login,
         baseUrl: host,
         gitUsername: login,
@@ -395,7 +394,7 @@ export class GitOAuthApplicationService {
 
     const refreshPlain = this.crypto.decrypt(acc.refreshToken);
 
-    if (acc.gitProvider === 'github') {
+    if (acc.gitProvider === GitProvider.GITHUB) {
       const clientId = process.env['GIT_OAUTH_GITHUB_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITHUB_CLIENT_SECRET']?.trim();
       if (!clientId || !clientSecret) return;
@@ -434,10 +433,10 @@ export class GitOAuthApplicationService {
       return;
     }
 
-    if (acc.gitProvider === 'gitlab') {
+    if (acc.gitProvider === GitProvider.GITLAB) {
       const clientId = process.env['GIT_OAUTH_GITLAB_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITLAB_CLIENT_SECRET']?.trim();
-      const host = acc.baseUrl?.replace(/\/+$/, '') || 'https://gitlab.com';
+      const host = acc.baseUrl?.replace(/\/+$/, '') || DEFAULT_GITLAB_BASE_URL;
       if (!clientId || !clientSecret) return;
 
       const body = new URLSearchParams({
