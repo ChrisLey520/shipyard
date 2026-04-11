@@ -146,6 +146,8 @@ The following items are the **next phase** priorities (ordered by “works end-t
 | **macOS / Windows** | **Not supported**: warns, falls back to host `child_process` |
 | **Linux without Docker** | Build steps **fail** if Docker cannot run |
 
+**Rootless Docker & volumes**: with [Rootless mode](https://docs.docker.com/engine/security/rootless/), run the Worker as the same user that owns the daemon (e.g. `export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock` or `docker context use rootless`). The build workdir is a host path under `/tmp/build-<deploymentId>` bind-mounted to `/workspace`. The **deps cache root** (`SHIPYARD_BUILD_DEPS_CACHE_PATH` or the default under the system temp dir) is read/written on the host by the Worker (it stays in sync with container `node_modules` via the mounted repo tree; you do not need a second mount of the cache root into the container). Ensure those paths are writable and have enough disk.
+
 ### Self-hosted Git compatibility (summary)
 
 | Provider | Notes | Reference |

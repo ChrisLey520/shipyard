@@ -226,6 +226,8 @@ pnpm -r build
 | **macOS / Windows** | **不支持**容器路径：启动时 **warn**，构建仍用本机 `child_process` |
 | **Linux 无 Docker / `docker` 调用失败** | 构建步骤 **失败**（与显式开启的预期一致） |
 
+**Docker rootless 与卷（运维）**：若使用 [Rootless Docker](https://docs.docker.com/engine/security/rootless/)，请让运行 Worker 的同一用户能访问 daemon（常见做法：`export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock`，或 `docker context use rootless`）。构建目录为宿主 `/tmp/build-<deploymentId>` 绑定挂载到容器 `/workspace`；**依赖缓存目录**在宿主 `SHIPYARD_BUILD_DEPS_CACHE_PATH`（或默认临时目录下 `shipyard-build-deps-cache`），由 Worker 进程在宿主侧读写（与容器内 `node_modules` 通过挂载目录同步，无需把缓存根再挂进容器）。请保证上述路径对该用户可写、磁盘充足。
+
 ### 自托管 Git 实例兼容（简表）
 
 | 平台 | 建议自测项 | 说明 | 参考文档 |
