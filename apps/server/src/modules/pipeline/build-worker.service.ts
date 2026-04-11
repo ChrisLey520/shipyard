@@ -25,7 +25,7 @@ import {
   runInBuildContainer,
   shouldRunBuildInDocker,
 } from './docker-build.executor';
-import { evictDepsCacheLru, resolveCacheMaxBytes } from './build-deps-cache';
+import { resolveCacheMaxBytes, runDepsCacheEvictionPipeline } from './build-deps-cache';
 
 // 安全的构建环境变量白名单
 const SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP'];
@@ -185,11 +185,6 @@ export class BuildWorkerService implements OnModuleInit {
             throw new Error(`[docker-build] 当前仅支持在仓库根目录执行命令，收到 cwd=${cwd}`);
           }
           const shellCommand = argvToShellCommand(cmd, args);
-          await this.appendLog(
-            deploymentId,
-            logSeq++,
-            `[${label}] [docker-build] 镜像 ${dockerImage} 内执行…`,
-          );
           await runInBuildContainer({
             tmpDir,
             image: dockerImage,
@@ -293,9 +288,9 @@ export class BuildWorkerService implements OnModuleInit {
       }
       try {
         const root = this.buildDepsCacheRoot();
-        evictDepsCacheLru(root, resolveCacheMaxBytes(), this.logger);
+        runDepsCacheEvictionPipeline(root, orgId, resolveCacheMaxBytes(), this.logger);
       } catch (e) {
-        this.logger.warn(`依赖缓存 LRU 淘汰异常: ${e}`);
+        this.logger.warn(`依赖缓存淘汰异常: ${e}`);
       }
 
       // lint（可选）

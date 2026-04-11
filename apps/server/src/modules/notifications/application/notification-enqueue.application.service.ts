@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { NotificationEvent } from '@shipyard/shared';
+import { NotificationEvent, renderNotificationPlaceholders } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedisService } from '../../../common/redis/redis.service';
 import type { NotifyJobData } from './notify-worker.application.service';
@@ -77,8 +77,18 @@ export class NotificationEnqueueApplicationService {
         }
       }
 
+      const templateVars: Record<string, string | undefined> = {
+        projectSlug,
+        orgSlug,
+        event,
+        detailUrl: detailUrl || undefined,
+        deploymentId: opts?.deploymentId,
+        approvalId: opts?.approvalId,
+      };
+      const renderedMessage = renderNotificationPlaceholders(message, templateVars);
+
       const payload: NotificationEnqueuePayload = {
-        message,
+        message: renderedMessage,
         detailUrl: detailUrl || undefined,
         deploymentId: opts?.deploymentId,
         approvalId: opts?.approvalId,

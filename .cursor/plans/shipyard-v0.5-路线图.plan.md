@@ -4,28 +4,28 @@ overview: v0.5.0 聚焦 Docker 构建资源与安全默认值、依赖缓存 TTL
 todos:
   - id: v05-docker-harden
     content: Docker run 非特权默认、CPU/内存/--network 可配置与 README/.env.example
-    status: pending
+    status: completed
   - id: v05-cache-ttl-lru
     content: SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS 与 LRU 淘汰顺序、cache_evict 日志区分
-    status: pending
+    status: completed
   - id: v05-cache-org-quota
     content: 按组织依赖缓存配额（P1）与文档/验收步骤
-    status: pending
+    status: completed
   - id: v05-ci-git-smoke
     content: 可选 CI job（GIT_SMOKE_BASE_URL 等 secrets）只读探测
-    status: pending
+    status: completed
   - id: v05-notify-templates
     content: 通知消息模板变量与各 channel 渲染/转义
-    status: pending
+    status: completed
   - id: v05-doc-selfhosted
     content: README 自托管矩阵版本或 issue 列补强（P1）
-    status: pending
+    status: completed
   - id: v05-readme-changelog
     content: 0.5.0 CHANGELOG + README/EN + Behavior 标注
-    status: pending
+    status: completed
   - id: v05-spi-executor
     content: Stretch：BuildCommandExecutor / Process+Docker 执行器 SPI 重构
-    status: pending
+    status: completed
 isProject: false
 ---
 

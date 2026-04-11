@@ -25,6 +25,20 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+  # 可选：在仓库 Secrets 中配置 GIT_SMOKE_BASE_URL（只读 HEAD，如自建 GitLab /version），未配置则跳过
+  git-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git 只读 smoke（可选）
+        env:
+          GIT_SMOKE_BASE_URL: ${{ secrets.GIT_SMOKE_BASE_URL }}
+        run: |
+          if [ -z "$GIT_SMOKE_BASE_URL" ]; then
+            echo "GIT_SMOKE_BASE_URL 未配置，跳过"
+            exit 0
+          fi
+          curl -sfI --max-time 15 "$GIT_SMOKE_BASE_URL" | head -n 1
+
   e2e:
     runs-on: ubuntu-latest
     services:

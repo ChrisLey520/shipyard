@@ -59,8 +59,8 @@ cp .env.example .env
 - `API_PUBLIC_URL`（可选）：与 `SERVER_PUBLIC_URL` 不一致时的 OAuth 回调基址
 - **Git OAuth**（可选）：`GIT_OAUTH_*` 系列，见根目录 `.env.example`
 - `ARTIFACT_STORE_PATH`：构建产物目录
-- **构建依赖缓存**：`SHIPYARD_BUILD_DEPS_CACHE_PATH`、`SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` 或 `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB`（见 `.env.example`）
-- **Docker 构建**：`SHIPYARD_BUILD_USE_DOCKER`、`SHIPYARD_BUILD_DOCKER_IMAGE`（仅 Linux Worker 生效，详见下文「Docker 构建支持矩阵」）
+- **构建依赖缓存**：`SHIPYARD_BUILD_DEPS_CACHE_PATH`、全局上限、`SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`（TTL）、`SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB`（单组织上限）等（见 `.env.example`）
+- **Docker 构建**：`SHIPYARD_BUILD_USE_DOCKER`、`SHIPYARD_BUILD_DOCKER_IMAGE`，以及可选 `SHIPYARD_BUILD_DOCKER_NETWORK` / `_CPUS` / `_MEMORY` / `_PRIVILEGED`（仅 Linux Worker，详见「Docker 构建支持矩阵」与下文运维说明）
 
 ## 运维与 nvm（SSH 部署目标机）
 
@@ -199,7 +199,7 @@ pnpm -r build
 - 数据表 `Notification`（按 `projectId` 存 `channel`、`config`、`events[]`、`enabled`）；BullMQ 队列 `notify-{orgId}`，由 Worker 进程消费。
 - **REST**：`GET/POST/PATCH/DELETE …/orgs/:orgSlug/projects/:projectSlug/notifications`（JWT + 角色：`VIEWER` 可读，`DEVELOPER` 可写）；**管理端**：项目详情 Tab「通知」。
 - **事件入队**：构建/部署/审批等路径调用 `NotificationEnqueueApplicationService` 写入队列（如 `attempts: 3`、指数退避）；负载含 `message`、`detailUrl`、`deploymentId`、`projectSlug`、`orgSlug`、`event` 等。
-- **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack/**企业微信**（机器人 Webhook JSON；企业微信为 `markdown` 载荷）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。
+- **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack/**企业微信**（机器人 Webhook JSON；企业微信为 `markdown` 载荷）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。入队前 **`message` 支持占位符** `{{projectSlug}}`、`{{orgSlug}}`、`{{event}}`、`{{detailUrl}}`、`{{deploymentId}}`、`{{approvalId}}`（未设置的变量保留原文）。
 - **敏感字段**：`config` 内 `secret`、`smtpPass` 等使用 `CryptoService` 加密落库；API 响应脱敏（如 `secretConfigured` / `smtpPassConfigured`）。
 - **SSRF 与 URL 主机**：允许配置**字面 IP** 的 `http(s)` URL，对该地址直接做阻断列表校验；若为**域名**，则对该主机名解析得到的**全部**结果逐一校验，任一对私网/保留段即拒绝。
 - **IM `secret`**：`secret` 加密存储；**钉钉**为毫秒时间戳 + HMAC 加签 query；**飞书**为秒时间戳 + 同结构加签 query（见 `buildFeishuSignedWebhookUrl`）；**Slack** 原生 Webhook 以 URL 为凭据，可选 `secret` 会作为 `Authorization: Bearer` 发出，便于你在网关侧校验（Slack 公网端点一般忽略该头）。
@@ -228,10 +228,14 @@ pnpm -r build
 
 **Docker rootless 与卷（运维）**：若使用 [Rootless Docker](https://docs.docker.com/engine/security/rootless/)，请让运行 Worker 的同一用户能访问 daemon（常见做法：`export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock`，或 `docker context use rootless`）。构建目录为宿主 `/tmp/build-<deploymentId>` 绑定挂载到容器 `/workspace`；**依赖缓存目录**在宿主 `SHIPYARD_BUILD_DEPS_CACHE_PATH`（或默认临时目录下 `shipyard-build-deps-cache`），由 Worker 进程在宿主侧读写（与容器内 `node_modules` 通过挂载目录同步，无需把缓存根再挂进容器）。请保证上述路径对该用户可写、磁盘充足。
 
+**Docker 资源与安全（v0.5+）**：`docker run` 默认 **`--network=bridge`**（保证 registry 访问）、**不**加 `--privileged`**。可通过 `SHIPYARD_BUILD_DOCKER_CPUS`、`SHIPYARD_BUILD_DOCKER_MEMORY` 限制 CPU/内存；`SHIPYARD_BUILD_DOCKER_NETWORK` 可选 `bridge`/`host`/`none`/`container:<name>`；仅在确有需要时设 `SHIPYARD_BUILD_DOCKER_PRIVILEGED=true`（高危）。构建日志会打印一行 `[docker-build] run opts: …` 摘要。
+
+**依赖缓存淘汰顺序（v0.5+）**：若配置 `SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`，在每次写入缓存后 **先** 按指纹目录 mtime 删除过期项（日志 `cache_evict_ttl`），**再** 若配置 `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB`（或 `_MAX_BYTES`）则对该 **组织** 子树做 LRU，**最后** 对全局总占用做 LRU（日志 `cache_evict` / `cache_evict_org`）。
+
 ### 自托管 Git 实例兼容（简表）
 
-| 平台 | 建议自测项 | 说明 | 参考文档 |
-|------|------------|------|----------|
-| GitLab | Webhook `merge_requests_events`、MR API 评论 | 自建版本与 gitlab.com 字段可能略有差异 | [Webhooks · GitLab Docs](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html) |
-| Gitea | `pull_request` 事件、PR 评论 API | 需在 `GitConnection.baseUrl` 填实例根 URL | [Webhooks · Gitea Docs](https://docs.gitea.com/usage/webhooks) |
-| Gitee | `merge_request_hooks` | 企业版与公有云文档路径请以实例文档为准 | [WebHook 说明 · Gitee 帮助](https://gitee.com/help/articles/4313) |
+| 平台 | 建议自测项 | 说明 | 参考文档 | 版本 / 已知问题 |
+|------|------------|------|----------|----------------|
+| GitLab | Webhook `merge_requests_events`、MR API 评论 | 自建版本与 gitlab.com 字段可能略有差异 | [Webhooks · GitLab Docs](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html) | 建议 ≥ 15.x；字段差异见官方 Webhook 文档 |
+| Gitea | `pull_request` 事件、PR 评论 API | 需在 `GitConnection.baseUrl` 填实例根 URL | [Webhooks · Gitea Docs](https://docs.gitea.com/usage/webhooks) | 建议 ≥ 1.21；issue 可在仓库 [Issues](https://github.com/ChrisLey520/shipyard/issues) 检索 `gitea` |
+| Gitee | `merge_request_hooks` | 企业版与公有云文档路径请以实例文档为准 | [WebHook 说明 · Gitee 帮助](https://gitee.com/help/articles/4313) | 企业版以实例文档为准 |

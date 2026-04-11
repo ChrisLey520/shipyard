@@ -34,8 +34,9 @@ Key variables:
 - `APP_URL` — web URL (used in email links, commit status `target_url`, etc.)
 - `SERVER_PUBLIC_URL` — public API base URL for webhooks and OAuth `redirect_uri`
 - `ARTIFACT_STORE_PATH` — artifact directory path
-- **Build deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_PATH`, `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` or `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB` (see `.env.example`)
-- **Docker builds**: `SHIPYARD_BUILD_USE_DOCKER`, `SHIPYARD_BUILD_DOCKER_IMAGE` (Linux workers only; see matrix below)
+- **Build deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_PATH`, `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` or `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB`, optional `SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`, `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB` / `_ORG_MAX_BYTES` (see `.env.example`)
+- **Docker builds**: `SHIPYARD_BUILD_USE_DOCKER`, `SHIPYARD_BUILD_DOCKER_IMAGE`, optional `SHIPYARD_BUILD_DOCKER_NETWORK`, `SHIPYARD_BUILD_DOCKER_CPUS`, `SHIPYARD_BUILD_DOCKER_MEMORY`, `SHIPYARD_BUILD_DOCKER_PRIVILEGED` (Linux workers only; see matrix below)
+- **CI**: optional repo secret `GIT_SMOKE_BASE_URL` for the `git-smoke` workflow job
 
 ## Operations: nvm on SSH deploy targets
 
@@ -128,13 +129,14 @@ The following items are the **next phase** priorities (ordered by “works end-t
 - Channels: `webhook`, `email` (Nodemailer), Feishu, DingTalk, Slack, **WeCom (WeChat Work)** robot webhooks (markdown payload), with encrypted secrets where applicable.
 - Outbound HTTP(S) uses **`assertSafeOutboundHttpUrl`**: resolve **all** A/AAAA records and block private/reserved ranges (`isBlockedOutboundIp`).
 - Triggers from build/deploy/approval flows enqueue notification jobs (retries + backoff).
+- **`message` placeholders** before enqueue: `{{projectSlug}}`, `{{orgSlug}}`, `{{event}}`, `{{detailUrl}}`, `{{deploymentId}}`, `{{approvalId}}` (`renderNotificationPlaceholders` in `@shipyard/shared`); unknown keys stay literal.
 
-**Optional follow-ups**: more channels, richer templates, signing variants.
+**Optional follow-ups**: more channels, signing variants.
 
 ### 4) Build, cache & deploy hardening
 
-- **Deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` / `_MAX_MB` caps total cache size; **LRU eviction** by fingerprint directory mtime when over budget; `cache_hit` / `cache_miss` logging.
-- **Docker (opt-in)**: on **Linux**, `SHIPYARD_BUILD_USE_DOCKER=true` runs install/lint/test/build inside `docker run` with the repo mounted at `/workspace` (`SHIPYARD_BUILD_DOCKER_IMAGE`, default `node:20-bookworm`). **Git clone stays on the host.** On **macOS/Windows**, enabling the flag logs a **warning** and keeps **`child_process`**. Requires a working `docker` CLI + daemon on Linux workers.
+- **Deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` / `_MAX_MB` caps total cache size; optional **`SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`** (TTL, `cache_evict_ttl` logs); optional **per-org** cap `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB` / `_ORG_MAX_BYTES` (`cache_evict_org`); **eviction order**: TTL → org LRU → global LRU; `cache_hit` / `cache_miss` logging.
+- **Docker (opt-in)**: on **Linux**, `SHIPYARD_BUILD_USE_DOCKER=true` runs install/lint/test/build inside `docker run` with the repo mounted at `/workspace` (`SHIPYARD_BUILD_DOCKER_IMAGE`, default `node:20-bookworm`). Explicit **`--network=bridge`** by default, optional **`--cpus` / `--memory`**, **no** `--privileged` unless `SHIPYARD_BUILD_DOCKER_PRIVILEGED=true`. Logs a `[docker-build] run opts: …` line. **Git clone stays on the host.** On **macOS/Windows**, enabling the flag logs a **warning** and keeps **`child_process`**. Requires a working `docker` CLI + daemon on Linux workers.
 - **Deploy `[precheck]`**: after SSH, checks `bash`/`rsync` and conditional `nginx`, `node`/`pm2`; if `node` is missing, logs stronger hints for **login shell, PATH, and nvm** (nvm is not required).
 - **Artifact cleanup**: `Organization.artifactRetention` (count-based).
 
@@ -150,8 +152,8 @@ The following items are the **next phase** priorities (ordered by “works end-t
 
 ### Self-hosted Git compatibility (summary)
 
-| Provider | Notes | Reference |
-|----------|-------|-----------|
-| GitLab | Self-managed fields may differ from gitlab.com | [Webhook events](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html) |
-| Gitea | Set `GitConnection.baseUrl` to the instance root | [Webhooks](https://docs.gitea.com/usage/webhooks) |
-| Gitee | Enterprise vs public docs may differ | [WebHook help (CN)](https://gitee.com/help/articles/4313) |
+| Provider | Notes | Reference | Version / issues |
+|----------|-------|-----------|-------------------|
+| GitLab | Self-managed fields may differ from gitlab.com | [Webhook events](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html) | Prefer ≥ 15.x |
+| Gitea | Set `GitConnection.baseUrl` to the instance root | [Webhooks](https://docs.gitea.com/usage/webhooks) | Prefer ≥ 1.21; search `gitea` in [repo Issues](https://github.com/ChrisLey520/shipyard/issues) |
+| Gitee | Enterprise vs public docs may differ | [WebHook help (CN)](https://gitee.com/help/articles/4313) | Use instance docs for enterprise |

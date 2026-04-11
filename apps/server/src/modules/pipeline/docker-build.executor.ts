@@ -4,6 +4,9 @@ import * as path from 'path';
 export const DEFAULT_BUILD_DOCKER_IMAGE =
   process.env['SHIPYARD_BUILD_DOCKER_IMAGE']?.trim() || 'node:20-bookworm';
 
+/** 默认 bridge，保证 pnpm/npm 可访问 registry（none 会导致 install 失败） */
+export const DEFAULT_DOCKER_NETWORK = 'bridge';
+
 /** Linux 且显式开启时使用容器内执行构建命令 */
 export function shouldRunBuildInDocker(): boolean {
   if (process.env['SHIPYARD_BUILD_USE_DOCKER'] !== 'true') return false;
@@ -23,6 +26,71 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'"'"'`)}'`;
 }
 
+/** 允许的 docker network 模式（防注入） */
+const ALLOWED_NETWORKS = new Set(['bridge', 'host', 'none']);
+
+function resolveDockerNetwork(): string {
+  const raw = process.env['SHIPYARD_BUILD_DOCKER_NETWORK']?.trim();
+  if (!raw) return DEFAULT_DOCKER_NETWORK;
+  if (raw.startsWith('container:')) {
+    const name = raw.slice('container:'.length).replace(/[^a-zA-Z0-9_.-]/g, '');
+    if (!name) {
+      throw new Error('[docker-build] SHIPYARD_BUILD_DOCKER_NETWORK=container: 须为非空容器名');
+    }
+    return `container:${name}`;
+  }
+  if (!ALLOWED_NETWORKS.has(raw)) {
+    throw new Error(
+      `[docker-build] SHIPYARD_BUILD_DOCKER_NETWORK 非法：${raw}。允许 bridge|host|none|container:<name>`,
+    );
+  }
+  return raw;
+}
+
+function resolveDockerCpusArg(): string[] {
+  const raw = process.env['SHIPYARD_BUILD_DOCKER_CPUS']?.trim();
+  if (!raw) return [];
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`[docker-build] SHIPYARD_BUILD_DOCKER_CPUS 须为正数，收到：${raw}`);
+  }
+  return ['--cpus', String(n)];
+}
+
+function resolveDockerMemoryArg(): string[] {
+  const raw = process.env['SHIPYARD_BUILD_DOCKER_MEMORY']?.trim();
+  if (!raw) return [];
+  if (raw.length > 32 || /[^0-9.kmgtKMGTbBiI]/.test(raw)) {
+    throw new Error(`[docker-build] SHIPYARD_BUILD_DOCKER_MEMORY 格式可疑：${raw}（示例 512m、4g、1g）`);
+  }
+  return ['--memory', raw];
+}
+
+function resolvePrivilegedArgs(): string[] {
+  if (process.env['SHIPYARD_BUILD_DOCKER_PRIVILEGED'] === 'true') {
+    return ['--privileged'];
+  }
+  return [];
+}
+
+/**
+ * 供测试与日志：生成 docker run 的资源/安全相关参数（不含 -v/-w/image）
+ */
+export function buildDockerResourceArgs(): { args: string[]; summary: Record<string, string> } {
+  const network = resolveDockerNetwork();
+  const cpus = resolveDockerCpusArg();
+  const memory = resolveDockerMemoryArg();
+  const priv = resolvePrivilegedArgs();
+  const args = [`--network`, network, ...cpus, ...memory, ...priv];
+  const summary: Record<string, string> = {
+    network,
+    cpus: cpus[1] ?? '(未限制)',
+    memory: memory[1] ?? '(未限制)',
+    privileged: priv.length ? 'true' : 'false',
+  };
+  return { args, summary };
+}
+
 /**
  * 在容器内执行单条 shell 命令（工作目录 /workspace，与宿主 tmpDir 挂载一致）。
  */
@@ -39,9 +107,15 @@ export async function runInBuildContainer(opts: {
     envArgs.push('-e', `${k}=${v}`);
   }
 
+  const { args: resourceArgs, summary } = buildDockerResourceArgs();
+  opts.onLine(
+    `[docker-build] run opts: network=${summary.network} cpus=${summary.cpus} memory=${summary.memory} privileged=${summary.privileged} image=${opts.image}`,
+  );
+
   const args = [
     'run',
     '--rm',
+    ...resourceArgs,
     ...envArgs,
     '-v',
     `${path.resolve(opts.tmpDir)}:/workspace`,

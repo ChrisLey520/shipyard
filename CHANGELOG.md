@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-12
+
+### Added
+
+- **Build (Docker)**：显式 **`--network`**（默认 `bridge`）、可选 **`--cpus` / `--memory`**（`SHIPYARD_BUILD_DOCKER_CPUS`、`SHIPYARD_BUILD_DOCKER_MEMORY`）；**默认不** `--privileged`，仅当 `SHIPYARD_BUILD_DOCKER_PRIVILEGED=true` 时开启；构建日志输出 `[docker-build] run opts: …` 摘要。
+- **Build cache**：可选 **`SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`**（按指纹目录 mtime TTL 淘汰，日志 `cache_evict_ttl`）；可选 **单组织** 上限 `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB` / `_MAX_BYTES`（日志 `cache_evict_org`）；写入缓存后淘汰顺序为 **TTL → 组织 LRU → 全局 LRU**。
+- **Notifications**：入队消息支持占位符 `{{projectSlug}}`、`{{orgSlug}}`、`{{event}}`、`{{detailUrl}}`、`{{deploymentId}}`、`{{approvalId}}`（`@shipyard/shared` `renderNotificationPlaceholders`）。
+- **CI**：可选 job **`git-smoke`**，当配置 secret **`GIT_SMOKE_BASE_URL`** 时对 URL 发起只读 `HEAD`/`GET` 探测。
+
+### Changed
+
+- **Behavior**：Docker 构建的 `docker run` 参数由隐式默认变为 **显式传入** `--network=bridge` 等（关闭 Docker 或未使用容器路径时无影响）。
+
+### Documentation
+
+- README / README-EN：Docker 资源变量、缓存淘汰顺序、自托管矩阵「版本/issue」列；`.env.example` 同步。
+
+[0.5.0]: https://github.com/ChrisLey520/shipyard/releases
+
 ## [0.4.0] - 2026-04-11
 
 ### Added
