@@ -186,9 +186,18 @@ pnpm -r build
 
 ### 2）通知系统完善（配置 + 触发点）
 
-- **通知配置 CRUD**（按 Project）：Webhook / Email（Nodemailer）/ IM（飞书/钉钉/Slack）
-- **事件触发点完善**：构建/部署成功失败、审批待处理/通过/拒绝
-- SSRF 防护升级：IPv4/IPv6 全覆盖 + 多 A/AAAA 解析校验
+**已有基础（代码中）**
+
+- 数据表 `Notification`（按 `projectId` 存 `channel`、`config`、`events[]`、`enabled`）；BullMQ 队列 `notify-{orgId}` + Worker 消费任务。
+- 出站渠道当前**仅实现 `webhook`**（POST JSON）；`email` / `feishu` / `dingtalk` / `slack` 等在 Worker 中仍为占位。
+- Webhook 出站带**基础 SSRF 防护**：`dns.lookup` 后对 IPv4 私网、`::1` 与 `fe80` 链路本地等做拦截（与 README 下文「全覆盖」目标仍有差距）。
+- **尚无** 管理端/REST 的通知配置 CRUD；**尚无** 构建、部署、审批等业务路径向 `notify` 队列**自动入队**，因此默认环境下即使表中有数据也不会被业务自动触发。
+
+**仍待增强**
+
+- **通知配置 CRUD**（API + 控制台，按 Project）：Webhook / Email（Nodemailer）/ IM（飞书/钉钉/Slack）等，与 `NotificationChannel` 枚举对齐的发送实现。
+- **事件触发**：构建/部署成功失败、审批待处理/通过/拒绝等统一入队（如 `enqueueNotify` 或等价应用服务）。
+- **SSRF 防护升级**：IPv4/IPv6 全覆盖、对同一主机名解析得到的全部 A/AAAA 记录逐一校验等。
 
 ### 3）构建与部署可靠性加固
 

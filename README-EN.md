@@ -113,11 +113,20 @@ The following items are the **next phase** priorities (ordered by “works end-t
 - **Instance compatibility**: self-hosted GitLab / Gitea / Gitee versions may differ from public-cloud API docs for hook PATCH fields or comment endpoints—verify against your instance’s official webhook and REST docs before production.
 - Optional product policy: fork PR previews and stronger isolation (beyond “skip fork” today).
 
-### 3) Notification system completion (config + triggers)
+### 3) Notification system (foundation vs completion)
 
-- **Notification config CRUD** (per project): Webhook / Email (Nodemailer) / IM (Feishu/DingTalk/Slack)
-- **Trigger points**: build/deploy success/failure, approvals pending/approved/rejected
-- SSRF hardening: full IPv4/IPv6 coverage + validate all DNS A/AAAA records
+**Already in code**
+
+- `Notification` rows per `projectId` (`channel`, `config` JSON, `events[]`, `enabled`); BullMQ queue `notify-{orgId}` with a worker consumer.
+- Outbound **`webhook` only** today (POST JSON); `email` / `feishu` / `dingtalk` / `slack` are still stubs in the worker.
+- **Basic SSRF guard** for webhooks: `dns.lookup` then block common private IPv4, `::1`, and `fe80` link-local—**not** yet the full IPv6 / all A/AAAA validation described below.
+- **No** admin/REST CRUD for notification configs; **no** automatic enqueue from build/deploy/approval flows—so nothing sends by default unless jobs are injected manually.
+
+**Still to do**
+
+- **CRUD** (API + UI per project) and real senders for Webhook / Email (Nodemailer) / IM (Feishu/DingTalk/Slack), aligned with `NotificationChannel`.
+- **Triggers**: enqueue on build/deploy outcomes and approval pending/approved/rejected (e.g. a shared `enqueueNotify` helper).
+- **SSRF hardening**: full IPv4/IPv6 coverage + validate **every** resolved A/AAAA record for the target host.
 
 ### 4) Build & deploy reliability hardening
 
