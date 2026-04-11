@@ -1,0 +1,16 @@
+---
+description: 版本路线图、需求规格、发版规划的工作流与文档落盘约定
+alwaysApply: true
+---
+
+# Shipyard 规划工作流（规则摘要）
+
+涉及**下一版本、路线图、需求规格、里程碑、发版、`.cursor/plans` 文档**时，必须先阅读并遵循项目 Skill：**[shipyard-plan-workflow](../skills/shipyard-plan-workflow/SKILL.md)**（仓库根路径：`.cursor/skills/shipyard-plan-workflow/SKILL.md`）。
+
+**硬性约定（摘要）**：
+
+- 规划类文档写在 **`.cursor/plans/`**，勿仅留在对话中。
+- 计划书经用户审阅确认后：**先写 `…-需求规格.md`，再写/同步 `…-路线图.plan.md`**，二者互链。
+- **由 Agent 执行** `pnpm` / Prisma / `git` 等命令，勿让用户本地代跑；环境无权限时再说明例外。
+- **Agent 按需主动切换** Plan / Agent 等 Cursor 模式，勿把「请用户手动切换模式」写为步骤。
+- 范围与优先级等决策以用户为准；Agent 不包办所有拍板事项。
