@@ -70,6 +70,7 @@ import {
 } from '@/composables/projects/useProjectListPageActions';
 import { useProjectListQuery } from '@/composables/projects/useProjectListQuery';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
+import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 
 const route = useRoute();
 const router = useRouter();
@@ -141,13 +142,11 @@ function confirmDelete(p: ProjectListItem) {
   });
 }
 
-const slugPattern = /^[a-z0-9-]+$/;
-
 async function saveEdit(v: ProjectEditFormValues) {
   if (!editing.value) return;
   if (!v.name || !v.slug) return;
-  if (!slugPattern.test(v.slug) || v.slug.length > 64) {
-    message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
+  if (!isValidUrlSlug(v.slug)) {
+    message.error(URL_SLUG_VALIDATION_MESSAGE);
     return;
   }
   if (!v.installCommand.trim() || !v.buildCommand.trim() || !v.outputDir.trim()) {

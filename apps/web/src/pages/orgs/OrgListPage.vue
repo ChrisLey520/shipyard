@@ -51,6 +51,7 @@ import {
 import { useI18n } from 'vue-i18n';
 import { useOrgStore } from '../../stores/org';
 import { useOrgCreateAction } from '@/composables/orgs/useOrgCreateAction';
+import { slugifyFromDisplayName } from '@shipyard/shared';
 
 const router = useRouter();
 const orgStore = useOrgStore();
@@ -62,10 +63,7 @@ const creating = ref(false);
 const form = ref({ name: '', slug: '' });
 
 function autoSlug() {
-  form.value.slug = form.value.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+  form.value.slug = slugifyFromDisplayName(form.value.name);
 }
 
 async function handleCreate() {

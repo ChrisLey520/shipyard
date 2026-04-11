@@ -30,6 +30,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NPageHeader, NCard, NForm, NFormItem, NInput, NInputNumber, NButton, useMessage } from 'naive-ui';
 import { useOrgStore } from '../../stores/org';
 import { useOrgSettings } from '@/composables/orgs/useOrgSettings';
+import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 
 const route = useRoute();
 const router = useRouter();
@@ -39,15 +40,13 @@ const orgSlug = computed(() => route.params['orgSlug'] as string);
 const { org, saveOrg, saving } = useOrgSettings(orgSlug);
 const form = ref({ name: '', slug: '', buildConcurrency: 2, artifactRetention: 10 });
 
-const slugPattern = /^[a-z0-9-]+$/;
-
 async function save() {
   if (!form.value.name || !form.value.slug) {
     message.error('请填写组织名称与 URL 标识');
     return;
   }
-  if (!slugPattern.test(form.value.slug) || form.value.slug.length > 64) {
-    message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
+  if (!isValidUrlSlug(form.value.slug)) {
+    message.error(URL_SLUG_VALIDATION_MESSAGE);
     return;
   }
   const slugBefore = orgSlug.value;

@@ -43,9 +43,9 @@
               <n-thing :title="acc.name">
                 <template #description>
                   <n-space size="small">
-                    <n-tag size="small">{{ providerLabel(acc.gitProvider) }}</n-tag>
+                    <n-tag size="small">{{ gitProviderLabel(acc.gitProvider) }}</n-tag>
                     <span>账号：{{ acc.gitUsername || '-' }}</span>
-                    <span>地址：{{ providerBaseUrl(acc) }}</span>
+                    <span>地址：{{ displayGitProviderBaseUrl(acc.gitProvider, acc.baseUrl) }}</span>
                   </n-space>
                 </template>
               </n-thing>
@@ -58,9 +58,13 @@
             <n-thing :title="`已选择：${selectedAccount?.name ?? ''}`">
               <template #description>
                 <n-space size="small">
-                  <n-tag size="small">{{ providerLabel(selectedAccount?.gitProvider ?? '') }}</n-tag>
+                  <n-tag size="small">{{ gitProviderLabel(selectedAccount?.gitProvider ?? '') }}</n-tag>
                   <span>账号：{{ selectedAccount?.gitUsername || '-' }}</span>
-                  <span>地址：{{ selectedAccount ? providerBaseUrl(selectedAccount) : '-' }}</span>
+                  <span>地址：{{
+                    selectedAccount
+                      ? displayGitProviderBaseUrl(selectedAccount.gitProvider, selectedAccount.baseUrl)
+                      : '-'
+                  }}</span>
                 </n-space>
               </template>
               <template #action>
@@ -147,7 +151,7 @@
           <n-form-item label="Git Provider">
             <n-select v-model:value="accountForm.gitProvider" :options="gitProviderOptions" placeholder="请选择 Git Provider" />
           </n-form-item>
-          <n-form-item v-if="accountForm.gitProvider === 'gitlab' || accountForm.gitProvider === 'gitea'" label="Base URL">
+          <n-form-item v-if="gitProviderRequiresBaseUrl(accountForm.gitProvider)" label="Base URL">
             <n-input v-model:value="accountForm.baseUrl" placeholder="https://gitlab.com 或 https://gitea.yourdomain.com" />
           </n-form-item>
           <n-form-item label="PAT">
@@ -176,6 +180,16 @@ import {
   NInput, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, useMessage,
 } from 'naive-ui';
 import { useProjectCreationFlow, type GitAccountListItem } from '@/composables/projects/useProjectCreationFlow';
+import {
+  DEFAULT_GITLAB_BASE_URL,
+  GIT_PROVIDER_SELECT_OPTIONS,
+  GitProvider,
+  displayGitProviderBaseUrl,
+  gitProviderLabel,
+  gitProviderRequiresBaseUrl,
+  isValidUrlSlug,
+  slugifyFromDisplayName,
+} from '@shipyard/shared';
 
 const route = useRoute();
 const router = useRouter();
@@ -194,35 +208,12 @@ const selectedAccount = computed(() =>
   gitAccounts.value.find((a) => a.id === form.value.gitAccountId) ?? null,
 );
 
-function providerLabel(p: string) {
-  switch (p) {
-    case 'github':
-      return 'GitHub';
-    case 'gitlab':
-      return 'GitLab';
-    case 'gitee':
-      return 'Gitee';
-    case 'gitea':
-      return 'Gitea';
-    default:
-      return p;
-  }
-}
-
-function providerBaseUrl(a: GitAccountListItem) {
-  if (a.baseUrl) return a.baseUrl;
-  if (a.gitProvider === 'github') return 'https://github.com';
-  if (a.gitProvider === 'gitlab') return 'https://gitlab.com';
-  if (a.gitProvider === 'gitee') return 'https://gitee.com';
-  return '-';
-}
-
 const showAddAccount = ref(false);
 const creatingAccount = ref(false);
 const accountForm = ref({
   name: '',
-  gitProvider: 'github',
-  baseUrl: 'https://gitlab.com',
+  gitProvider: GitProvider.GITHUB,
+  baseUrl: DEFAULT_GITLAB_BASE_URL,
   accessToken: '',
   gitUsername: '',
 });
@@ -240,24 +231,20 @@ const form = ref({
   ssrEntryPoint: 'dist/index.js',
 });
 
-const gitProviderOptions = [
-  { label: 'GitHub', value: 'github' },
-  { label: 'GitLab', value: 'gitlab' },
-  { label: 'Gitee', value: 'gitee' },
-  { label: 'Gitea', value: 'gitea' },
-];
+const gitProviderOptions = GIT_PROVIDER_SELECT_OPTIONS;
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));
 
-const canStep1 = computed(() =>
-  form.value.name && form.value.slug && Boolean(form.value.repoFullName) && form.value.gitAccountId,
+const canStep1 = computed(
+  () =>
+    Boolean(form.value.name) &&
+    isValidUrlSlug(form.value.slug) &&
+    Boolean(form.value.repoFullName) &&
+    Boolean(form.value.gitAccountId),
 );
 
 function autoSlug() {
-  form.value.slug = form.value.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+  form.value.slug = slugifyFromDisplayName(form.value.name);
 }
 
 async function handleCreate() {
@@ -317,16 +304,21 @@ async function handleCreateAccount() {
     const created = await creation.addGitAccount({
       name: accountForm.value.name,
       gitProvider: accountForm.value.gitProvider,
-      baseUrl:
-        accountForm.value.gitProvider === 'gitlab' || accountForm.value.gitProvider === 'gitea'
-          ? accountForm.value.baseUrl
-          : undefined,
+      baseUrl: gitProviderRequiresBaseUrl(accountForm.value.gitProvider)
+        ? accountForm.value.baseUrl
+        : undefined,
       accessToken: accountForm.value.accessToken,
       gitUsername: accountForm.value.gitUsername || undefined,
     });
     message.success('Git 账户已添加');
     showAddAccount.value = false;
-    accountForm.value = { name: '', gitProvider: 'github', baseUrl: 'https://gitlab.com', accessToken: '', gitUsername: '' };
+    accountForm.value = {
+      name: '',
+      gitProvider: GitProvider.GITHUB,
+      baseUrl: DEFAULT_GITLAB_BASE_URL,
+      accessToken: '',
+      gitUsername: '',
+    };
     await loadAccounts();
     if (created?.id) {
       form.value.gitAccountId = created.id;

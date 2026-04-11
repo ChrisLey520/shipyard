@@ -201,7 +201,12 @@ import {
   NModal, NInput, useDialog,
 } from 'naive-ui';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
-import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
+import {
+  URL_SLUG_VALIDATION_MESSAGE,
+  deploymentStatusKey,
+  formatDuration,
+  isValidUrlSlug,
+} from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -220,8 +225,6 @@ const message = useMessage();
 const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
-const slugPattern = /^[a-z0-9-]+$/;
-
 const projectApi = useProjectDetailActions(orgSlug, projectSlug);
 const projectDetailQuery = useProjectDetailQuery(orgSlug, projectSlug);
 const deploymentsQuery = useProjectDeploymentsQuery(orgSlug, projectSlug);
@@ -514,8 +517,8 @@ function openEditProject() {
 
 async function saveProject(v: ProjectEditFormValues) {
   if (!v.name || !v.slug) return;
-  if (!slugPattern.test(v.slug) || v.slug.length > 64) {
-    message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
+  if (!isValidUrlSlug(v.slug)) {
+    message.error(URL_SLUG_VALIDATION_MESSAGE);
     return;
   }
   if (!v.installCommand.trim() || !v.buildCommand.trim() || !v.outputDir.trim()) {

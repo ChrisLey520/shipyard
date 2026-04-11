@@ -32,11 +32,11 @@
             <n-thing :title="acc.name">
               <template #description>
                 <n-space size="small" style="flex-wrap: wrap">
-                  <n-tag size="small">{{ providerLabel(acc.gitProvider) }}</n-tag>
+                  <n-tag size="small">{{ gitProviderLabel(acc.gitProvider) }}</n-tag>
                   <n-tag v-if="acc.authType === 'oauth'" size="small" type="success">OAuth</n-tag>
                   <n-tag v-else size="small" type="default">PAT</n-tag>
                   <span>账号：{{ acc.gitUsername || '-' }}</span>
-                  <span>地址：{{ providerBaseUrl(acc) }}</span>
+                  <span>地址：{{ displayGitProviderBaseUrl(acc.gitProvider, acc.baseUrl) }}</span>
                 </n-space>
               </template>
               <template #action>
@@ -69,7 +69,7 @@
         <n-form-item label="Git Provider">
           <n-select v-model:value="form.gitProvider" :options="providerOptions" :disabled="Boolean(editing)" />
         </n-form-item>
-        <n-form-item v-if="form.gitProvider === 'gitlab' || form.gitProvider === 'gitea'" label="Base URL">
+        <n-form-item v-if="gitProviderRequiresBaseUrl(form.gitProvider)" label="Base URL">
           <n-input v-model:value="form.baseUrl" placeholder="https://gitlab.com 或 https://gitea.yourdomain.com" />
         </n-form-item>
         <n-form-item :label="editing ? 'PAT（可选更新）' : 'PAT'">
@@ -118,6 +118,15 @@ import {
   useOrgGitAccountsActions,
   type GitAccountItem,
 } from '@/composables/git-accounts/useOrgGitAccountsActions';
+import {
+  DEFAULT_GITLAB_BASE_URL,
+  GIT_PROVIDER_OAUTH_DROPDOWN_OPTIONS,
+  GIT_PROVIDER_SELECT_OPTIONS,
+  GitProvider,
+  displayGitProviderBaseUrl,
+  gitProviderLabel,
+  gitProviderRequiresBaseUrl,
+} from '@shipyard/shared';
 
 const route = useRoute();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
@@ -133,40 +142,16 @@ const saving = ref(false);
 const editing = ref<GitAccountItem | null>(null);
 const testingId = ref<string | null>(null);
 
-const providerOptions = [
-  { label: 'GitHub', value: 'github' },
-  { label: 'GitLab', value: 'gitlab' },
-  { label: 'Gitee', value: 'gitee' },
-  { label: 'Gitea', value: 'gitea' },
-];
-
-const oauthDropdownOptions = [
-  { label: 'GitHub OAuth', key: 'github' },
-  { label: 'GitLab OAuth', key: 'gitlab' },
-  { label: 'Gitee OAuth', key: 'gitee' },
-  { label: 'Gitea OAuth', key: 'gitea' },
-];
+const providerOptions = GIT_PROVIDER_SELECT_OPTIONS;
+const oauthDropdownOptions = GIT_PROVIDER_OAUTH_DROPDOWN_OPTIONS;
 
 const form = ref({
   name: '',
-  gitProvider: 'github',
-  baseUrl: 'https://gitlab.com',
+  gitProvider: GitProvider.GITHUB,
+  baseUrl: DEFAULT_GITLAB_BASE_URL,
   accessToken: '',
   gitUsername: '',
 });
-
-function providerLabel(p: string) {
-  const found = providerOptions.find((x) => x.value === p);
-  return found?.label ?? p;
-}
-
-function providerBaseUrl(a: GitAccountItem) {
-  if (a.baseUrl) return a.baseUrl;
-  if (a.gitProvider === 'github') return 'https://github.com';
-  if (a.gitProvider === 'gitlab') return 'https://gitlab.com';
-  if (a.gitProvider === 'gitee') return 'https://gitee.com';
-  return '-';
-}
 
 async function load() {
   loading.value = true;
@@ -195,7 +180,13 @@ async function oauthConnect(provider: string) {
 
 function openCreate() {
   editing.value = null;
-  form.value = { name: '', gitProvider: 'github', baseUrl: 'https://gitlab.com', accessToken: '', gitUsername: '' };
+  form.value = {
+    name: '',
+    gitProvider: GitProvider.GITHUB,
+    baseUrl: DEFAULT_GITLAB_BASE_URL,
+    accessToken: '',
+    gitUsername: '',
+  };
   showModal.value = true;
 }
 
@@ -203,8 +194,8 @@ function openEdit(acc: GitAccountItem) {
   editing.value = acc;
   form.value = {
     name: acc.name,
-    gitProvider: acc.gitProvider,
-    baseUrl: acc.baseUrl ?? (acc.gitProvider === 'gitlab' ? 'https://gitlab.com' : ''),
+    gitProvider: acc.gitProvider as GitProvider,
+    baseUrl: acc.baseUrl ?? (acc.gitProvider === GitProvider.GITLAB ? DEFAULT_GITLAB_BASE_URL : ''),
     accessToken: '',
     gitUsername: acc.gitUsername ?? '',
   };
@@ -221,10 +212,7 @@ async function save() {
       await gitApi.createGitAccount({
         name: form.value.name,
         gitProvider: form.value.gitProvider,
-        baseUrl:
-          form.value.gitProvider === 'gitlab' || form.value.gitProvider === 'gitea'
-            ? form.value.baseUrl
-            : undefined,
+        baseUrl: gitProviderRequiresBaseUrl(form.value.gitProvider) ? form.value.baseUrl : undefined,
         accessToken: form.value.accessToken,
         gitUsername: form.value.gitUsername || undefined,
       });
@@ -232,10 +220,7 @@ async function save() {
     } else {
       await gitApi.updateGitAccount(editing.value.id, {
         name: form.value.name,
-        baseUrl:
-          form.value.gitProvider === 'gitlab' || form.value.gitProvider === 'gitea'
-            ? (form.value.baseUrl || null)
-            : null,
+        baseUrl: gitProviderRequiresBaseUrl(form.value.gitProvider) ? (form.value.baseUrl || null) : null,
         accessToken: form.value.accessToken || undefined,
         gitUsername: form.value.gitUsername || null,
       });

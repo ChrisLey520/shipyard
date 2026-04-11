@@ -1,6 +1,10 @@
 /** 组织 URL 标识（slug）领域规则 */
 
-const SLUG_PATTERN = /^[a-z0-9-]+$/;
+import {
+  URL_SLUG_MAX_LENGTH,
+  URL_SLUG_PATTERN,
+  URL_SLUG_VALIDATION_MESSAGE,
+} from '@shipyard/shared';
 
 export class OrgSlugRuleError extends Error {
   constructor(message: string) {
@@ -11,8 +15,8 @@ export class OrgSlugRuleError extends Error {
 
 export function assertValidOrgSlug(raw: string): string {
   const next = raw.trim();
-  if (next.length < 1 || next.length > 64 || !SLUG_PATTERN.test(next)) {
-    throw new OrgSlugRuleError('URL 标识仅允许小写字母、数字和连字符，长度 1–64');
+  if (next.length < 1 || next.length > URL_SLUG_MAX_LENGTH || !URL_SLUG_PATTERN.test(next)) {
+    throw new OrgSlugRuleError(URL_SLUG_VALIDATION_MESSAGE);
   }
   return next;
 }

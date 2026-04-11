@@ -199,6 +199,7 @@ import { useOrgStore } from '../../stores/org';
 import { useThemeStore } from '../../stores/theme';
 import { THEME_OPTIONS, type ColorMode, type ThemeId } from '../../theme/themes';
 import { createOrg, getOrgBySlug } from '@/api/orgs';
+import { slugifyFromDisplayName } from '@shipyard/shared';
 
 // 临时图标组件（实际项目中使用 @vicons）
 const MenuOutlined = { render: () => h('span', '☰') };
@@ -299,10 +300,7 @@ function openCreateOrg() {
 }
 
 function autoSlugForCreateOrg() {
-  createOrgForm.value.slug = createOrgForm.value.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+  createOrgForm.value.slug = slugifyFromDisplayName(createOrgForm.value.name);
 }
 
 async function handleCreateOrg() {

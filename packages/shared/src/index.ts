@@ -4,3 +4,5 @@ export * from './dto';
 export * from './utils';
 export * from './error-codes';
 export * from './i18n-locale';
+export * from './slug-rules';
+export * from './git-provider';
