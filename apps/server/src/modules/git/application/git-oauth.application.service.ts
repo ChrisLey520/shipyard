@@ -8,7 +8,19 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { RedisService } from '../../../common/redis/redis.service';
-import { DEFAULT_GITLAB_BASE_URL, GitProvider, isGitProviderString } from '@shipyard/shared';
+import {
+  DEFAULT_GITLAB_BASE_URL,
+  GitProvider,
+  isGitProviderString,
+  stripTrailingSlashes,
+} from '@shipyard/shared';
+import {
+  GITEA_OAUTH_PATHS,
+  GITLAB_OAUTH_PATHS,
+  GIT_OAUTH_FIXED,
+  giteeApiV5UserUrl,
+  withNormalizedGitBase,
+} from '../git-oauth-urls';
 
 interface OAuthStatePayload {
   orgId: string;
@@ -34,15 +46,14 @@ export class GitOAuthApplicationService {
   }
 
   private appUrl(): string {
-    return (process.env['APP_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '');
+    return stripTrailingSlashes(process.env['APP_URL'] ?? 'http://localhost:5173');
   }
 
   private redirectBase(): string {
-    const pub = process.env['SERVER_PUBLIC_URL']?.trim().replace(/\/+$/, '');
-    if (pub) return pub;
-    return (process.env['API_PUBLIC_URL'] ?? `http://localhost:${process.env['PORT'] ?? '3000'}`).replace(
-      /\/+$/,
-      '',
+    const pub = process.env['SERVER_PUBLIC_URL']?.trim();
+    if (pub) return stripTrailingSlashes(pub);
+    return stripTrailingSlashes(
+      process.env['API_PUBLIC_URL'] ?? `http://localhost:${process.env['PORT'] ?? '3000'}`,
     );
   }
 
@@ -62,27 +73,30 @@ export class GitOAuthApplicationService {
       const clientId = process.env['GIT_OAUTH_GITHUB_CLIENT_ID']?.trim();
       if (!clientId) throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITHUB_CLIENT_ID');
       const scope = encodeURIComponent('repo repo:status read:user');
-      return `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${encodeURIComponent(stateToken)}`;
+      return `${GIT_OAUTH_FIXED.github.authorize}?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${encodeURIComponent(stateToken)}`;
     }
 
     if (p === GitProvider.GITLAB) {
       const clientId = process.env['GIT_OAUTH_GITLAB_CLIENT_ID']?.trim();
       if (!clientId) throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITLAB_CLIENT_ID');
-      const host = (process.env['GIT_OAUTH_GITLAB_HOST'] ?? DEFAULT_GITLAB_BASE_URL).replace(/\/+$/, '');
+      const host = stripTrailingSlashes(
+        process.env['GIT_OAUTH_GITLAB_HOST'] ?? DEFAULT_GITLAB_BASE_URL,
+      );
       payload.gitlabHost = host;
       await this.redis.set(this.stateKey(stateToken), JSON.stringify(payload), 600);
       const scope = encodeURIComponent('api read_repository write_repository');
-      return `${host}/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
+      return `${withNormalizedGitBase(host, GITLAB_OAUTH_PATHS.authorize)}?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
     }
 
     if (p === GitProvider.GITEE) {
       const clientId = process.env['GIT_OAUTH_GITEE_CLIENT_ID']?.trim();
       if (!clientId) throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITEE_CLIENT_ID');
       const scope = encodeURIComponent('user_info projects hook');
-      return `https://gitee.com/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
+      return `${GIT_OAUTH_FIXED.gitee.authorize}?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
     }
 
-    const giteaHost = process.env['GIT_OAUTH_GITEA_HOST']?.trim().replace(/\/+$/, '');
+    const giteaHostRaw = process.env['GIT_OAUTH_GITEA_HOST']?.trim();
+    const giteaHost = giteaHostRaw ? stripTrailingSlashes(giteaHostRaw) : '';
     const clientId = process.env['GIT_OAUTH_GITEA_CLIENT_ID']?.trim();
     if (!giteaHost || !clientId) {
       throw new ServiceUnavailableException('未配置 GIT_OAUTH_GITEA_HOST / GIT_OAUTH_GITEA_CLIENT_ID');
@@ -90,7 +104,7 @@ export class GitOAuthApplicationService {
     payload.giteaHost = giteaHost;
     await this.redis.set(this.stateKey(stateToken), JSON.stringify(payload), 600);
     const scope = encodeURIComponent('read_repository write_repository');
-    return `${giteaHost}/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
+    return `${withNormalizedGitBase(giteaHost, GITEA_OAUTH_PATHS.authorize)}?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(stateToken)}&scope=${scope}`;
   }
 
   async completeCallback(provider: string, code: string | undefined, state: string | undefined): Promise<string> {
@@ -133,7 +147,7 @@ export class GitOAuthApplicationService {
       const clientSecret = process.env['GIT_OAUTH_GITHUB_CLIENT_SECRET']?.trim();
       if (!clientId || !clientSecret) throw new Error('missing github oauth secret');
 
-      const res = await fetch('https://github.com/login/oauth/access_token', {
+      const res = await fetch(GIT_OAUTH_FIXED.github.accessToken, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -154,7 +168,7 @@ export class GitOAuthApplicationService {
       };
       if (!tok.access_token) throw new Error(tok.error ?? 'no access_token');
 
-      const userRes = await fetch('https://api.github.com/user', {
+      const userRes = await fetch(GIT_OAUTH_FIXED.github.apiUser, {
         headers: { Authorization: `Bearer ${tok.access_token}`, Accept: 'application/vnd.github+json' },
       });
       const u = (await userRes.json()) as { login?: string; id?: number };
@@ -188,7 +202,7 @@ export class GitOAuthApplicationService {
         grant_type: 'authorization_code',
         redirect_uri: redirectUri,
       });
-      const res = await fetch(`${host}/oauth/token`, {
+      const res = await fetch(withNormalizedGitBase(host, GITLAB_OAUTH_PATHS.token), {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
@@ -201,7 +215,7 @@ export class GitOAuthApplicationService {
       };
       if (!tok.access_token) throw new Error(tok.error ?? 'no access_token');
 
-      const userRes = await fetch(`${host}/api/v4/user`, {
+      const userRes = await fetch(withNormalizedGitBase(host, GITLAB_OAUTH_PATHS.apiV4User), {
         headers: { 'PRIVATE-TOKEN': tok.access_token },
       });
       const u = (await userRes.json()) as { username?: string; id?: number };
@@ -234,7 +248,7 @@ export class GitOAuthApplicationService {
         client_secret: clientSecret,
         redirect_uri: redirectUri,
       });
-      const res = await fetch('https://gitee.com/oauth/token', {
+      const res = await fetch(GIT_OAUTH_FIXED.gitee.token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
         body,
@@ -247,9 +261,7 @@ export class GitOAuthApplicationService {
       };
       if (!tok.access_token) throw new Error(tok.error ?? 'no access_token');
 
-      const userRes = await fetch(
-        `https://gitee.com/api/v5/user?access_token=${encodeURIComponent(tok.access_token)}`,
-      );
+      const userRes = await fetch(giteeApiV5UserUrl(tok.access_token));
       const u = (await userRes.json()) as { login?: string; id?: number };
       const login = u.login ?? 'gitee-user';
       const providerAccountId = String(u.id ?? login);
@@ -281,7 +293,7 @@ export class GitOAuthApplicationService {
         client_secret: clientSecret,
         redirect_uri: redirectUri,
       });
-      const res = await fetch(`${host}/login/oauth/access_token`, {
+      const res = await fetch(withNormalizedGitBase(host, GITEA_OAUTH_PATHS.accessToken), {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
         body,
@@ -294,7 +306,7 @@ export class GitOAuthApplicationService {
       };
       if (!tok.access_token) throw new Error(tok.error ?? 'no access_token');
 
-      const userRes = await fetch(`${host}/api/v1/user`, {
+      const userRes = await fetch(withNormalizedGitBase(host, GITEA_OAUTH_PATHS.apiV1User), {
         headers: { Authorization: `token ${tok.access_token}` },
       });
       const u = (await userRes.json()) as { login?: string; id?: number };
@@ -399,7 +411,7 @@ export class GitOAuthApplicationService {
       const clientSecret = process.env['GIT_OAUTH_GITHUB_CLIENT_SECRET']?.trim();
       if (!clientId || !clientSecret) return;
 
-      const res = await fetch('https://github.com/login/oauth/access_token', {
+      const res = await fetch(GIT_OAUTH_FIXED.github.accessToken, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -436,7 +448,7 @@ export class GitOAuthApplicationService {
     if (acc.gitProvider === GitProvider.GITLAB) {
       const clientId = process.env['GIT_OAUTH_GITLAB_CLIENT_ID']?.trim();
       const clientSecret = process.env['GIT_OAUTH_GITLAB_CLIENT_SECRET']?.trim();
-      const host = acc.baseUrl?.replace(/\/+$/, '') || DEFAULT_GITLAB_BASE_URL;
+      const host = (acc.baseUrl ? stripTrailingSlashes(acc.baseUrl) : '') || DEFAULT_GITLAB_BASE_URL;
       if (!clientId || !clientSecret) return;
 
       const body = new URLSearchParams({
@@ -445,7 +457,7 @@ export class GitOAuthApplicationService {
         client_id: clientId,
         client_secret: clientSecret,
       });
-      const res = await fetch(`${host}/oauth/token`, {
+      const res = await fetch(withNormalizedGitBase(host, GITLAB_OAUTH_PATHS.token), {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,

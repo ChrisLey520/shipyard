@@ -5,7 +5,7 @@ loadRootEnvFiles();
 
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
@@ -17,6 +17,8 @@ import { I18nHttpExceptionFilter } from './common/filters/i18n-exception.filter'
 import helmet from 'helmet';
 import express from 'express';
 import { join } from 'path';
+
+const bootstrapLogger = new Logger('Bootstrap');
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -58,13 +60,16 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   } catch (err) {
     // 避免 Swagger 元数据问题导致服务无法启动
-    console.warn('[swagger] disabled due to error:', err);
+    bootstrapLogger.warn(`[swagger] disabled due to error: ${err}`);
   }
 
   const port = process.env['PORT'] ?? 3000;
   await app.listen(port);
-  console.log(`Server running on http://localhost:${port}`);
-  console.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  bootstrapLogger.log(`Server running on http://localhost:${port}`);
+  bootstrapLogger.log(`Swagger docs: http://localhost:${port}/api/docs`);
 }
 
-bootstrap().catch(console.error);
+bootstrap().catch((err: unknown) => {
+  bootstrapLogger.error(err instanceof Error ? err.stack ?? err.message : String(err));
+  process.exit(1);
+});

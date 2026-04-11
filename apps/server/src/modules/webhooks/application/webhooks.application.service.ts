@@ -270,9 +270,4 @@ export class WebhooksApplicationService {
       }
     }
   }
-
-  /** @deprecated 保留兼容；新逻辑见各 adapter */
-  buildGiteeIdempotencyKey(payload: Record<string, unknown>): string {
-    return giteeWebhookIdempotencyKey(payload);
-  }
 }

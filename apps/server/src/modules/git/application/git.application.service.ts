@@ -2,6 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import {
+  githubRepoBranchesListUrl,
+  githubUserReposListUrl,
+  giteeRepoBranchesListUrl,
+  giteeUserReposListUrl,
+  gitlabApiV4MembershipProjectsUrl,
+  gitlabApiV4ProjectRepositoryBranchesUrl,
+  giteaApiV1RepoBranchesUrl,
+  giteaApiV1UserReposUrl,
+} from '../git-rest-api-urls';
 
 type GithubRepoItem = {
   id: number;
@@ -21,7 +31,7 @@ export class GitApplicationService {
 
   async listGithubReposByPat(pat: string): Promise<Array<{ fullName: string; private: boolean }>> {
     // 只取前 100 个（后续可做 pagination）
-    const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+    const res = await fetch(githubUserReposListUrl(), {
       headers: {
         Authorization: `token ${pat}`,
         Accept: 'application/vnd.github+json',
@@ -44,7 +54,7 @@ export class GitApplicationService {
     const [owner, repo] = repoFullName.split('/');
     if (!owner || !repo) throw new Error('repoFullName 格式错误，应为 owner/repo');
 
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`, {
+    const res = await fetch(githubRepoBranchesListUrl(owner, repo), {
       headers: {
         Authorization: `token ${pat}`,
         Accept: 'application/vnd.github+json',
@@ -80,8 +90,7 @@ export class GitApplicationService {
   }
 
   async listGitlabReposByPat(pat: string, baseUrl = DEFAULT_GITLAB_BASE_URL): Promise<Array<{ fullName: string; private: boolean }>> {
-    const apiBase = baseUrl.replace(/\/$/, '');
-    const res = await fetch(`${apiBase}/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at`, {
+    const res = await fetch(gitlabApiV4MembershipProjectsUrl(baseUrl), {
       headers: {
         'PRIVATE-TOKEN': pat,
         Accept: 'application/json',
@@ -100,9 +109,8 @@ export class GitApplicationService {
   }
 
   async listGitlabBranchesByPat(pat: string, repoFullName: string, baseUrl = DEFAULT_GITLAB_BASE_URL): Promise<string[]> {
-    const apiBase = baseUrl.replace(/\/$/, '');
     const projectPath = encodeURIComponent(repoFullName);
-    const res = await fetch(`${apiBase}/api/v4/projects/${projectPath}/repository/branches?per_page=100`, {
+    const res = await fetch(gitlabApiV4ProjectRepositoryBranchesUrl(baseUrl, projectPath), {
       headers: {
         'PRIVATE-TOKEN': pat,
         Accept: 'application/json',
@@ -118,8 +126,7 @@ export class GitApplicationService {
   }
 
   async listGiteeReposByPat(pat: string): Promise<Array<{ fullName: string; private: boolean }>> {
-    const url = `https://gitee.com/api/v5/user/repos?access_token=${encodeURIComponent(pat)}&per_page=100&sort=updated`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const res = await fetch(giteeUserReposListUrl(pat), { headers: { Accept: 'application/json' } });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.warn(`Gitee list repos failed HTTP ${res.status}: ${text}`);
@@ -134,8 +141,7 @@ export class GitApplicationService {
   async listGiteeBranchesByPat(pat: string, repoFullName: string): Promise<string[]> {
     const [owner, repo] = repoFullName.split('/');
     if (!owner || !repo) throw new Error('repoFullName 格式错误，应为 owner/repo');
-    const url = `https://gitee.com/api/v5/repos/${owner}/${repo}/branches?access_token=${encodeURIComponent(pat)}&per_page=100`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const res = await fetch(giteeRepoBranchesListUrl(owner, repo, pat), { headers: { Accept: 'application/json' } });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.warn(`Gitee list branches failed HTTP ${res.status}: ${text}`);
@@ -146,8 +152,7 @@ export class GitApplicationService {
   }
 
   async listGiteaReposByPat(pat: string, baseUrl: string): Promise<Array<{ fullName: string; private: boolean }>> {
-    const apiBase = baseUrl.replace(/\/$/, '');
-    const res = await fetch(`${apiBase}/api/v1/user/repos?limit=100`, {
+    const res = await fetch(giteaApiV1UserReposUrl(baseUrl), {
       headers: {
         Authorization: `token ${pat}`,
         Accept: 'application/json',
@@ -165,10 +170,9 @@ export class GitApplicationService {
   }
 
   async listGiteaBranchesByPat(pat: string, repoFullName: string, baseUrl: string): Promise<string[]> {
-    const apiBase = baseUrl.replace(/\/$/, '');
     const [owner, repo] = repoFullName.split('/');
     if (!owner || !repo) throw new Error('repoFullName 格式错误，应为 owner/repo');
-    const res = await fetch(`${apiBase}/api/v1/repos/${owner}/${repo}/branches?limit=100`, {
+    const res = await fetch(giteaApiV1RepoBranchesUrl(baseUrl, owner, repo), {
       headers: {
         Authorization: `token ${pat}`,
         Accept: 'application/json',

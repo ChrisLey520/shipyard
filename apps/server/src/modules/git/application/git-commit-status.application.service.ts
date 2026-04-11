@@ -1,7 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
+import { DEFAULT_GITLAB_BASE_URL, GitProvider, stripTrailingSlashes } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { GitAccessTokenService } from '../git-access-token.service';
+import {
+  githubCommitStatusPostUrl,
+  giteeCommitStatusPostUrl,
+  gitlabCommitStatusPostUrl,
+  giteaCommitStatusPostUrl,
+} from '../git-rest-api-urls';
 
 export type CommitStatusPhase = 'build' | 'deploy';
 
@@ -18,7 +24,7 @@ export class GitCommitStatusApplicationService {
   ) {}
 
   private appUrl(): string {
-    return (process.env['APP_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '');
+    return stripTrailingSlashes(process.env['APP_URL'] ?? 'http://localhost:5173');
   }
 
   async reportForDeployment(
@@ -58,7 +64,7 @@ export class GitCommitStatusApplicationService {
           await this.postGithub(owner, repoName, token, sha, state, targetUrl, description, context);
           break;
         case GitProvider.GITLAB: {
-          const base = (conn.baseUrl ?? DEFAULT_GITLAB_BASE_URL).replace(/\/+$/, '');
+          const base = stripTrailingSlashes(conn.baseUrl ?? DEFAULT_GITLAB_BASE_URL);
           await this.postGitlab(base, token, repo, sha, state, targetUrl, description, context);
           break;
         }
@@ -67,7 +73,7 @@ export class GitCommitStatusApplicationService {
           break;
         case GitProvider.GITEA: {
           if (!conn.baseUrl?.trim()) return;
-          const base = conn.baseUrl.replace(/\/+$/, '');
+          const base = stripTrailingSlashes(conn.baseUrl);
           await this.postGitea(base, owner, repoName, token, sha, state, targetUrl, description, context);
           break;
         }
@@ -89,7 +95,7 @@ export class GitCommitStatusApplicationService {
     description: string,
     context: string,
   ): Promise<void> {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/statuses/${sha}`, {
+    const res = await fetch(githubCommitStatusPostUrl(owner, repo, sha), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -126,7 +132,7 @@ export class GitCommitStatusApplicationService {
     context: string,
   ): Promise<void> {
     const enc = encodeURIComponent(pathWithNamespace);
-    const res = await fetch(`${apiBase}/api/v4/projects/${enc}/statuses/${sha}`, {
+    const res = await fetch(gitlabCommitStatusPostUrl(apiBase, enc, sha), {
       method: 'POST',
       headers: {
         'PRIVATE-TOKEN': token,
@@ -162,20 +168,16 @@ export class GitCommitStatusApplicationService {
     description: string,
     context: string,
   ): Promise<void> {
-    const q = `access_token=${encodeURIComponent(token)}`;
-    const res = await fetch(
-      `https://gitee.com/api/v5/repos/${owner}/${repo}/statuses/${sha}?${q}`,
-      {
-        method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          state: this.giteeState(state),
-          target_url: targetUrl,
-          description: description.slice(0, 140),
-          context,
-        }),
-      },
-    );
+    const res = await fetch(giteeCommitStatusPostUrl(owner, repo, sha, token), {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        state: this.giteeState(state),
+        target_url: targetUrl,
+        description: description.slice(0, 140),
+        context,
+      }),
+    });
     if (!res.ok) {
       const t = await res.text().catch(() => '');
       this.logger.warn(`Gitee status HTTP ${res.status}: ${t.slice(0, 200)}`);
@@ -193,7 +195,7 @@ export class GitCommitStatusApplicationService {
     description: string,
     context: string,
   ): Promise<void> {
-    const res = await fetch(`${apiBase}/api/v1/repos/${owner}/${repo}/statuses/${sha}`, {
+    const res = await fetch(giteaCommitStatusPostUrl(apiBase, owner, repo, sha), {
       method: 'POST',
       headers: {
         Authorization: `token ${token}`,

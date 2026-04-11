@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
-import { resolveDeployAccessHost } from '@shipyard/shared';
+import { normalizeHttpRootUrlWithSlash, resolveDeployAccessHost } from '@shipyard/shared';
 
 @Injectable()
 export class EnvironmentsApplicationService {
@@ -11,17 +11,12 @@ export class EnvironmentsApplicationService {
     private readonly crypto: CryptoService,
   ) {}
 
-  private normalizeUrl(hostOrUrl: string): string {
-    const s = hostOrUrl.trim();
-    const base = s.includes('://') ? s : `http://${s}`;
-    return `${base.replace(/\/+$/, '')}/`;
-  }
-
   private computeAccessUrl(domain: string | null | undefined, serverHost: string): string | null {
     const d = domain?.trim() ?? '';
     if (!d) return null;
     const host = resolveDeployAccessHost(d, serverHost);
-    return host ? this.normalizeUrl(host) : null;
+    if (!host) return null;
+    return normalizeHttpRootUrlWithSlash(host) || null;
   }
 
   async listEnvironments(projectId: string) {

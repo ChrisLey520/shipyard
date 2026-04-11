@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ServerOs, resolveDeployAccessHost, buildNginxServerNameList, isLoopbackHostLabel } from '@shipyard/shared';
+import {
+  ServerOs,
+  resolveDeployAccessHost,
+  buildNginxServerNameList,
+  isLoopbackHostLabel,
+  buildPm2StaticSiteRootUrl,
+  normalizeHttpRootUrlWithSlash,
+} from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedisService } from '../../../common/redis/redis.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
@@ -32,12 +39,6 @@ export class DeployApplicationService {
     private readonly commitStatus: GitCommitStatusService,
   ) {}
 
-  private normalizeUrl(hostOrUrl: string): string {
-    const s = hostOrUrl.trim();
-    const base = s.includes('://') ? s : `http://${s}`;
-    return `${base.replace(/\/+$/, '')}/`;
-  }
-
   /** 成功收尾时在日志中提示如何访问（与前端详情卡片字段对齐） */
   private buildDeployAccessLogLines(opts: {
     domain: string | null;
@@ -56,18 +57,13 @@ export class DeployApplicationService {
       );
     }
     if (accessHost) {
-      const base = accessHost.includes('://') ? accessHost : `http://${accessHost}`;
-      const normalized = `${base.replace(/\/+$/, '')}/`;
-      lines.push(`[deploy] 访问地址: ${normalized}`);
+      lines.push(`[deploy] 访问地址: ${normalizeHttpRootUrlWithSlash(accessHost)}`);
     }
     if (opts.staticFallback) {
-      const h = opts.staticFallback.host.includes('://')
-        ? opts.staticFallback.host
-        : `http://${opts.staticFallback.host}`;
-      const base = h.replace(/\/+$/, '');
-      lines.push(
-        `[deploy] macOS 无 Nginx（或未配置域名）时已由 PM2+Node 提供静态站点: ${base}:${opts.staticFallback.port}/`,
-      );
+      const pm2Url = buildPm2StaticSiteRootUrl(opts.staticFallback.host, opts.staticFallback.port);
+      if (pm2Url) {
+        lines.push(`[deploy] macOS 无 Nginx（或未配置域名）时已由 PM2+Node 提供静态站点: ${pm2Url}`);
+      }
     }
     if (rawDomain && isLoopbackHostLabel(rawDomain)) {
       if (opts.staticFallback) {
@@ -102,12 +98,12 @@ export class DeployApplicationService {
   }): string | null {
     if (opts.staticFallback) {
       const host = resolveDeployAccessHost(opts.domain, opts.staticFallback.host) || opts.staticFallback.host;
-      return `http://${host}:${opts.staticFallback.port}/`;
+      return buildPm2StaticSiteRootUrl(host, opts.staticFallback.port) || null;
     }
     const rawDomain = opts.domain?.trim();
     const accessHost = rawDomain ? resolveDeployAccessHost(rawDomain, opts.serverHost) : '';
     if (!accessHost) return null;
-    return this.normalizeUrl(accessHost);
+    return normalizeHttpRootUrlWithSlash(accessHost) || null;
   }
 
   /** 与构建日志同一套存储与 Pub/Sub，便于详情页连续展示 */

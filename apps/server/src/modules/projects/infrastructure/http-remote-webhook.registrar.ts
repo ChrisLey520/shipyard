@@ -1,5 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
+import { DEFAULT_GITLAB_BASE_URL, GitProvider, stripTrailingSlashes } from '@shipyard/shared';
+import {
+  githubRepoHookItemUrl,
+  githubRepoHooksUrl,
+  giteeRepoHookItemUrl,
+  giteeRepoHooksListUrl,
+  gitlabApiV4ProjectHookItemUrl,
+  gitlabApiV4ProjectHooksUrl,
+  giteaApiV1RepoHookItemUrl,
+  giteaApiV1RepoHooksUrl,
+} from '../../git/git-rest-api-urls';
 import type { RemoteWebhookRegistrar } from '../application/ports/remote-webhook.registrar.port';
 
 @Injectable()
@@ -9,7 +19,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
   private getServerPublicUrl(): string | null {
     const url = process.env['SERVER_PUBLIC_URL']?.trim();
     if (!url) return null;
-    return url.endsWith('/') ? url.slice(0, -1) : null;
+    return stripTrailingSlashes(url);
   }
 
   private webhookCallbackUrl(provider: string, projectId: string): string | null {
@@ -44,7 +54,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     }
 
     const pMark = `p=${opts.projectId}`;
-    const listRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
+    const listRes = await fetch(githubRepoHooksUrl(owner, repo), {
       headers: this.githubAuthHeader(opts.accessToken),
     });
     if (listRes.ok) {
@@ -55,7 +65,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       }
     }
 
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
+    const res = await fetch(githubRepoHooksUrl(owner, repo), {
       method: 'POST',
       headers: {
         ...this.githubAuthHeader(opts.accessToken),
@@ -93,7 +103,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     const [owner, repo] = opts.repoFullName.split('/');
     if (!owner || !repo) return;
 
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks/${opts.remoteWebhookId}`, {
+    const res = await fetch(githubRepoHookItemUrl(owner, repo, opts.remoteWebhookId), {
       method: 'DELETE',
       headers: this.githubAuthHeader(opts.accessToken),
     });
@@ -116,11 +126,10 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       this.logger.warn('SERVER_PUBLIC_URL 未配置，跳过 GitLab Webhook 自动注册');
       return null;
     }
-    const apiBase = opts.baseUrl.replace(/\/$/, '');
     const enc = encodeURIComponent(opts.repoFullName);
     const pMark = `p=${opts.projectId}`;
 
-    const listRes = await fetch(`${apiBase}/api/v4/projects/${enc}/hooks`, {
+    const listRes = await fetch(gitlabApiV4ProjectHooksUrl(opts.baseUrl, enc), {
       headers: { 'PRIVATE-TOKEN': opts.accessToken, Accept: 'application/json' },
     });
     if (listRes.ok) {
@@ -129,7 +138,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       if (existing?.id != null) return { remoteWebhookId: String(existing.id) };
     }
 
-    const res = await fetch(`${apiBase}/api/v4/projects/${enc}/hooks`, {
+    const res = await fetch(gitlabApiV4ProjectHooksUrl(opts.baseUrl, enc), {
       method: 'POST',
       headers: {
         'PRIVATE-TOKEN': opts.accessToken,
@@ -158,12 +167,14 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     baseUrl: string;
     remoteWebhookId: string;
   }): Promise<void> {
-    const apiBase = opts.baseUrl.replace(/\/$/, '');
     const enc = encodeURIComponent(opts.repoFullName);
-    const res = await fetch(`${apiBase}/api/v4/projects/${enc}/hooks/${opts.remoteWebhookId}`, {
-      method: 'DELETE',
-      headers: { 'PRIVATE-TOKEN': opts.accessToken },
-    });
+    const res = await fetch(
+      gitlabApiV4ProjectHookItemUrl(opts.baseUrl, enc, opts.remoteWebhookId),
+      {
+        method: 'DELETE',
+        headers: { 'PRIVATE-TOKEN': opts.accessToken },
+      },
+    );
     if (!res.ok && res.status !== 404) {
       const text = await res.text().catch(() => '');
       this.logger.warn(`GitLab Webhook 注销失败 HTTP ${res.status}: ${text}`);
@@ -184,19 +195,17 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     const [owner, repo] = opts.repoFullName.split('/');
     if (!owner || !repo) return null;
     const pMark = `p=${opts.projectId}`;
-    const tok = encodeURIComponent(opts.accessToken);
 
-    const listRes = await fetch(
-      `https://gitee.com/api/v5/repos/${owner}/${repo}/hooks?access_token=${tok}`,
-      { headers: { Accept: 'application/json' } },
-    );
+    const listRes = await fetch(giteeRepoHooksListUrl(owner, repo, opts.accessToken), {
+      headers: { Accept: 'application/json' },
+    });
     if (listRes.ok) {
       const hooks = (await listRes.json()) as Array<{ id?: number; url?: string }>;
       const existing = hooks.find((h) => h.url?.includes(pMark));
       if (existing?.id != null) return { remoteWebhookId: String(existing.id) };
     }
 
-    const res = await fetch(`https://gitee.com/api/v5/repos/${owner}/${repo}/hooks?access_token=${tok}`, {
+    const res = await fetch(giteeRepoHooksListUrl(owner, repo, opts.accessToken), {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -222,9 +231,8 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
   }): Promise<void> {
     const [owner, repo] = opts.repoFullName.split('/');
     if (!owner || !repo) return;
-    const tok = encodeURIComponent(opts.accessToken);
     const res = await fetch(
-      `https://gitee.com/api/v5/repos/${owner}/${repo}/hooks/${opts.remoteWebhookId}?access_token=${tok}`,
+      giteeRepoHookItemUrl(owner, repo, opts.remoteWebhookId, opts.accessToken),
       { method: 'DELETE' },
     );
     if (!res.ok && res.status !== 404) {
@@ -247,10 +255,9 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     }
     const [owner, repo] = opts.repoFullName.split('/');
     if (!owner || !repo) return null;
-    const apiBase = opts.baseUrl.replace(/\/$/, '');
     const pMark = `p=${opts.projectId}`;
 
-    const listRes = await fetch(`${apiBase}/api/v1/repos/${owner}/${repo}/hooks`, {
+    const listRes = await fetch(giteaApiV1RepoHooksUrl(opts.baseUrl, owner, repo), {
       headers: { Authorization: `token ${opts.accessToken}`, Accept: 'application/json' },
     });
     if (listRes.ok) {
@@ -259,7 +266,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       if (existing?.id != null) return { remoteWebhookId: String(existing.id) };
     }
 
-    const res = await fetch(`${apiBase}/api/v1/repos/${owner}/${repo}/hooks`, {
+    const res = await fetch(giteaApiV1RepoHooksUrl(opts.baseUrl, owner, repo), {
       method: 'POST',
       headers: {
         Authorization: `token ${opts.accessToken}`,
@@ -296,11 +303,13 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
   }): Promise<void> {
     const [owner, repo] = opts.repoFullName.split('/');
     if (!owner || !repo) return;
-    const apiBase = opts.baseUrl.replace(/\/$/, '');
-    const res = await fetch(`${apiBase}/api/v1/repos/${owner}/${repo}/hooks/${opts.remoteWebhookId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `token ${opts.accessToken}` },
-    });
+    const res = await fetch(
+      giteaApiV1RepoHookItemUrl(opts.baseUrl, owner, repo, opts.remoteWebhookId),
+      {
+        method: 'DELETE',
+        headers: { Authorization: `token ${opts.accessToken}` },
+      },
+    );
     if (!res.ok && res.status !== 404) {
       const text = await res.text().catch(() => '');
       this.logger.warn(`Gitea Webhook 注销失败 HTTP ${res.status}: ${text}`);
