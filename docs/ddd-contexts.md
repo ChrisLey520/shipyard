@@ -38,6 +38,11 @@
 
 - 仅放置无 IO 的枚举、DTO 形状、纯函数；不把 Prisma 生成类型放入领域 exports。
 
+## 横切：入站 Webhook 与实时通道
+
+- **Webhook 入站**：`modules/webhooks` 校验签名与解析后，通过已导入的 `PipelineModule` 所 **exports** 的 `PipelineService` 触发流水线侧效应；Pipeline 编排不应对 Webhooks 反向依赖，且 Webhooks **不应** `import` 穿透到 `pipeline/application` 等内部实现文件。
+- **Gateway**：`common/gateway`（如 `EventsGateway`）承载 WebSocket 日志订阅与转发，属于基础设施型实时通道，**不作为**业务领域聚合根，也不承担 Webhook 入站编排职责。
+
 ## 测试策略（阶段 3）
 
 - **domain**：纯函数与不变量用 Jest/Vitest 单测，无 Nest 容器。
@@ -49,3 +54,4 @@
 
 - 初版：与仓库 DDD 技能及执行计划对齐。
 - 补充测试策略与 api-smoke 脚本说明。
+- 补充横切说明：Webhook 入站经 `PipelineModule` exports；`common/gateway` 非领域根。

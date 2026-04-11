@@ -9,6 +9,8 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { MailService } from '../../auth/mail.service';
 import { v4 as uuidv4 } from 'uuid';
 import { ShipyardHttpException } from '../../../common/http/shipyard-http.exception';
+import { assertValidOrgSlug, OrgSlugRuleError } from '../domain/org-slug.rules';
+import { InvitationRuleError, normalizeInviteEmail } from '../domain/invitation.rules';
 
 @Injectable()
 export class OrgsApplicationService {
@@ -62,9 +64,12 @@ export class OrgsApplicationService {
     if (data.buildConcurrency !== undefined) patch.buildConcurrency = data.buildConcurrency;
     if (data.artifactRetention !== undefined) patch.artifactRetention = data.artifactRetention;
     if (data.slug !== undefined) {
-      const next = data.slug.trim();
-      if (next.length < 1 || next.length > 64 || !/^[a-z0-9-]+$/.test(next)) {
-        throw new BadRequestException('URL 标识仅允许小写字母、数字和连字符，长度 1–64');
+      let next: string;
+      try {
+        next = assertValidOrgSlug(data.slug);
+      } catch (e) {
+        if (e instanceof OrgSlugRuleError) throw new BadRequestException(e.message);
+        throw e;
       }
       const taken = await this.prisma.organization.findFirst({
         where: { slug: next, id: { not: orgId } },
@@ -86,11 +91,19 @@ export class OrgsApplicationService {
   }
 
   async inviteMember(orgId: string, inviterUserId: string, email: string, role: string) {
+    let normalizedEmail: string;
+    try {
+      normalizedEmail = normalizeInviteEmail(email);
+    } catch (e) {
+      if (e instanceof InvitationRuleError) throw new BadRequestException(e.message);
+      throw e;
+    }
+
     const org = await this.prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
     const inviter = await this.prisma.user.findUniqueOrThrow({ where: { id: inviterUserId } });
 
     // 已是成员则拒绝
-    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+    const existingUser = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existingUser) {
       const member = await this.prisma.orgMember.findUnique({
         where: { organizationId_userId: { organizationId: orgId, userId: existingUser.id } },
@@ -102,10 +115,17 @@ export class OrgsApplicationService {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await this.prisma.orgInvitation.create({
-      data: { organizationId: orgId, email, role, token, expiresAt, invitedByUserId: inviterUserId },
+      data: {
+        organizationId: orgId,
+        email: normalizedEmail,
+        role,
+        token,
+        expiresAt,
+        invitedByUserId: inviterUserId,
+      },
     });
 
-    await this.mail.sendOrgInvitation(email, org.name, inviter.name, token);
+    await this.mail.sendOrgInvitation(normalizedEmail, org.name, inviter.name, token);
     return { message: '邀请已发送' };
   }
 
