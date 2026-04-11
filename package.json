@@ -10,6 +10,8 @@
     "lint": "eslint apps/web/src apps/server/src packages/shared/src --cache --max-warnings 0",
     "lint:recursive": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
+    "typecheck:build": "tsc -b",
+    "test": "pnpm --filter @shipyard/shared test && pnpm --filter @shipyard/server test && pnpm --filter @shipyard/web test",
     "db:migrate": "pnpm --filter @shipyard/server db:migrate",
     "db:migrate:deploy": "pnpm --filter @shipyard/server db:migrate:deploy",
     "db:generate": "pnpm --filter @shipyard/server db:generate",

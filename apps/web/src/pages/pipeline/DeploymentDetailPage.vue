@@ -261,7 +261,6 @@ import '@xterm/xterm/css/xterm.css';
 import { io } from 'socket.io-client';
 import {
   formatDuration,
-  resolveDeployAccessHost,
   isLoopbackHostLabel,
   deploymentStatusKey,
   deploymentTriggerKey,
@@ -271,8 +270,12 @@ import { useAuthStore } from '../../stores/auth';
 import {
   useDeploymentDetailActions,
   type DeploymentDetail,
-  type ShipyardDeployAccessMeta,
 } from '@/composables/pipeline/useDeploymentDetailActions';
+import {
+  buildPm2StaticAccessUrlFromSnapshot,
+  buildPrimarySiteAccessUrl,
+  pickSecondaryAccessUrl,
+} from '@/lib/deployment-access-urls';
 
 const route = useRoute();
 const router = useRouter();
@@ -287,13 +290,6 @@ const terminalEl = ref<HTMLElement | null>(null);
 const deployment = ref<DeploymentDetail | null>(null);
 const retrying = ref(false);
 const logLines = ref<string[]>([]);
-
-/** 由环境域名推导站点根 URL（与 deploy 日志一致） */
-function normalizeSiteUrl(domain: string): string {
-  const d = domain.trim();
-  const base = d.includes('://') ? d : `http://${d}`;
-  return `${base.replace(/\/+$/, '')}/`;
-}
 
 type FlowStatus = 'process' | 'finish' | 'error' | 'wait';
 type StepStatus = 'process' | 'finish' | 'error' | 'wait';
@@ -490,44 +486,24 @@ const showLocalLoopbackHint = computed(() => {
   return d.length > 0 && isLoopbackHostLabel(d);
 });
 
-function readShipyardAccess(
-  snap: Record<string, unknown> | null | undefined,
-): ShipyardDeployAccessMeta | null {
-  const raw = snap?.['shipyardAccess'];
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
-  const port = o['staticPort'];
-  const host = o['staticHost'];
-  if (typeof port !== 'number' || typeof host !== 'string') return null;
-  return { staticPort: port, staticHost: host };
-}
-
-const pm2StaticAccessUrl = computed(() => {
-  const acc = readShipyardAccess(deployment.value?.configSnapshot ?? undefined);
-  if (!acc) return '';
-  const env = deployment.value?.environment;
-  const host =
-    resolveDeployAccessHost(env?.domain ?? null, acc.staticHost) || acc.staticHost;
-  return `http://${host}:${acc.staticPort}/`;
-});
+const pm2StaticAccessUrl = computed(() =>
+  buildPm2StaticAccessUrlFromSnapshot(
+    deployment.value?.configSnapshot ?? undefined,
+    deployment.value?.environment?.domain,
+  ),
+);
 
 const primaryAccessUrl = computed(() => {
   const env = deployment.value?.environment;
-  const d = env?.domain?.trim();
-  if (!d) return '';
-  const host = resolveDeployAccessHost(d, env?.server?.host);
-  return host ? normalizeSiteUrl(host) : '';
+  return buildPrimarySiteAccessUrl(env?.domain, env?.server?.host);
 });
 
-const secondaryAccessUrl = computed(() => {
-  const hc = deployment.value?.environment?.healthCheckUrl?.trim() ?? '';
-  if (!hc) return '';
-  const pri = primaryAccessUrl.value;
-  if (!pri) return hc;
-  const stripTrail = (s: string) => s.replace(/\/+$/, '');
-  if (stripTrail(hc) === stripTrail(pri)) return '';
-  return hc;
-});
+const secondaryAccessUrl = computed(() =>
+  pickSecondaryAccessUrl(
+    primaryAccessUrl.value,
+    deployment.value?.environment?.healthCheckUrl ?? '',
+  ),
+);
 
 async function copyUrl(url: string) {
   try {

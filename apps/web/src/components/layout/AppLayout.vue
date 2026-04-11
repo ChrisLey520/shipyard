@@ -11,10 +11,11 @@
     >
       <!-- Logo -->
       <div class="logo" :class="{ collapsed }">
-        <span v-if="!collapsed" class="text-[18px] font-700 text-[var(--n-primary-color)]">
-          ⚓ Shipyard
+        <span v-if="!collapsed" class="logo-title text-[18px] font-700 text-[var(--n-primary-color)]">
+          <n-icon class="logo-mark" :component="BoatOutline" />
+          Shipyard
         </span>
-        <span v-else style="font-size: 18px">⚓</span>
+        <n-icon v-else class="logo-mark-collapsed" :component="BoatOutline" />
       </div>
 
       <!-- 组织切换 -->
@@ -57,7 +58,7 @@
       <n-layout-header bordered class="h-14 flex items-center px-5 gap-3">
         <n-button quaternary circle @click="collapsed = !collapsed">
           <template #icon>
-            <n-icon><MenuOutlined /></n-icon>
+            <n-icon :component="MenuOutline" />
           </template>
         </n-button>
         <div class="flex-1" />
@@ -184,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, watch } from 'vue';
+import { ref, computed, h, onMounted, watch, type Component } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutHeader, NLayoutContent,
@@ -200,9 +201,21 @@ import { useThemeStore } from '../../stores/theme';
 import { THEME_OPTIONS, type ColorMode, type ThemeId } from '../../theme/themes';
 import { createOrg, getOrgBySlug } from '@/api/orgs';
 import { slugifyFromDisplayName } from '@shipyard/shared';
+import {
+  BoatOutline,
+  MenuOutline,
+  StatsChartOutline,
+  CubeOutline,
+  KeyOutline,
+  DesktopOutline,
+  PeopleOutline,
+  CheckmarkDoneOutline,
+  SettingsOutline,
+} from '@vicons/ionicons5';
 
-// 临时图标组件（实际项目中使用 @vicons）
-const MenuOutlined = { render: () => h('span', '☰') };
+function menuIcon(component: Component) {
+  return () => h(NIcon, { component });
+}
 
 const router = useRouter();
 const route = useRoute();
@@ -326,13 +339,13 @@ const menuOptions = computed<MenuOption[]>(() => {
   const slug = orgSlugParam.value;
   if (!slug || orgGateLoading.value || orgGateError.value) return [];
   return [
-    { label: t('nav.dashboard'), key: `/orgs/${slug}`, icon: () => h('span', '📊') },
-    { label: t('nav.projects'), key: `/orgs/${slug}/projects`, icon: () => h('span', '📦') },
-    { label: t('nav.gitAccounts'), key: `/orgs/${slug}/git-accounts`, icon: () => h('span', '🔑') },
-    { label: t('nav.servers'), key: `/orgs/${slug}/servers`, icon: () => h('span', '🖥') },
-    { label: t('nav.team'), key: `/orgs/${slug}/team`, icon: () => h('span', '👥') },
-    { label: t('nav.approvals'), key: `/orgs/${slug}/approvals`, icon: () => h('span', '✅') },
-    { label: t('nav.orgSettings'), key: `/orgs/${slug}/settings`, icon: () => h('span', '⚙️') },
+    { label: t('nav.dashboard'), key: `/orgs/${slug}`, icon: menuIcon(StatsChartOutline) },
+    { label: t('nav.projects'), key: `/orgs/${slug}/projects`, icon: menuIcon(CubeOutline) },
+    { label: t('nav.gitAccounts'), key: `/orgs/${slug}/git-accounts`, icon: menuIcon(KeyOutline) },
+    { label: t('nav.servers'), key: `/orgs/${slug}/servers`, icon: menuIcon(DesktopOutline) },
+    { label: t('nav.team'), key: `/orgs/${slug}/team`, icon: menuIcon(PeopleOutline) },
+    { label: t('nav.approvals'), key: `/orgs/${slug}/approvals`, icon: menuIcon(CheckmarkDoneOutline) },
+    { label: t('nav.orgSettings'), key: `/orgs/${slug}/settings`, icon: menuIcon(SettingsOutline) },
   ];
 });
 
@@ -432,6 +445,21 @@ onMounted(async () => {
   align-items: center;
   padding: 0 16px;
   border-bottom: 1px solid var(--n-border-color);
+}
+
+.logo-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-mark {
+  font-size: 22px;
+}
+
+.logo-mark-collapsed {
+  font-size: 22px;
+  margin: 0 auto;
 }
 
 /* 组织校验失败/加载时主区域垂直水平居中 */
