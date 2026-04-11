@@ -19,7 +19,7 @@ import { IsIn, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { UsersApplicationService } from './application/users.application.service';
 
 const AVATAR_DIR = join(process.cwd(), 'uploads', 'avatars');
 
@@ -36,19 +36,14 @@ class UpdateMeBody {
 @ApiTags('用户')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly usersApplication: UsersApplicationService) {}
 
   @Patch('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '更新当前用户信息（语言）' })
   async updateMe(@CurrentUser() user: User, @Body() body: UpdateMeBody) {
-    const updated = await this.prisma.user.update({
-      where: { id: user.id },
-      data: { locale: body.locale },
-      select: { locale: true },
-    });
-    return updated;
+    return this.usersApplication.updateLocale(user.id, body.locale);
   }
 
   @Post('me/avatar')
@@ -80,13 +75,6 @@ export class UsersController {
     if (!file) throw new BadRequestException('请上传文件');
 
     const avatarUrl = `/uploads/avatars/${file.filename}`;
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { avatarUrl },
-      select: { id: true },
-    });
-
-    return { avatarUrl };
+    return this.usersApplication.setAvatarUrl(user.id, avatarUrl);
   }
 }
-

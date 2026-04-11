@@ -204,7 +204,7 @@ import ProjectEditModal, { type ProjectEditFormValues } from './components/Proje
 import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
-import { getEnvironmentAccessUrls } from '../environments/api';
+import { getEnvironmentAccessUrls } from '@/api/environments';
 import {
   getProject,
   listDeployments,

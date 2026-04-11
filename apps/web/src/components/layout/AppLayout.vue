@@ -198,7 +198,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useOrgStore } from '../../stores/org';
 import { useThemeStore } from '../../stores/theme';
 import { THEME_OPTIONS, type ColorMode, type ThemeId } from '../../theme/themes';
-import { createOrg, getOrgBySlug } from '../../pages/orgs/api';
+import { createOrg, getOrgBySlug } from '@/api/orgs';
 
 // 临时图标组件（实际项目中使用 @vicons）
 const MenuOutlined = { render: () => h('span', '☰') };

@@ -1,0 +1,4 @@
+interface:
+  display_name: "DDD 后端架构"
+  short_description: "NestJS DDD: domain, application, infrastructure"
+  default_prompt: "Use $ddd-backend to structure Shipyard server (NestJS) with DDD layers, modules per bounded context, and ports/adapters."

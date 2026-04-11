@@ -46,8 +46,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useQueryClient } from '@tanstack/vue-query';
 import {
   NPageHeader,
   NGrid,
@@ -63,7 +64,6 @@ import {
   useMessage,
 } from 'naive-ui';
 import {
-  listProjects,
   getProject,
   updateProject,
   updatePipelineConfig,
@@ -71,13 +71,15 @@ import {
   type ProjectListItem,
   type ProjectDetail,
 } from './api';
+import { useProjectListQuery } from '@/composables/projects/useProjectListQuery';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
 
 const route = useRoute();
 const router = useRouter();
+const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
-const loading = ref(false);
-const projects = ref<ProjectListItem[]>([]);
+const { data: projectsData, isPending: loading } = useProjectListQuery(orgSlug);
+const projects = computed(() => projectsData.value ?? []);
 const message = useMessage();
 const dialog = useDialog();
 
@@ -136,7 +138,7 @@ function confirmDelete(p: ProjectListItem) {
     onPositiveClick: async () => {
       await deleteProject(orgSlug.value, p.slug);
       message.success('项目已移除');
-      await load();
+      await queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });
     },
   });
 }
@@ -186,7 +188,7 @@ async function saveEdit(v: ProjectEditFormValues) {
     showEdit.value = false;
     editing.value = null;
     editingDetail.value = null;
-    await load();
+    await queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(e?.response?.data?.message ?? '保存失败');
@@ -195,16 +197,4 @@ async function saveEdit(v: ProjectEditFormValues) {
   }
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    projects.value = await listProjects(orgSlug.value);
-  } finally {
-    loading.value = false;
-  }
-}
-
-watch(orgSlug, () => {
-  void load();
-}, { immediate: true });
 </script>

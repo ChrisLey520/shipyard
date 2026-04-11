@@ -274,7 +274,7 @@ import {
   type DeploymentDetail,
   type ShipyardDeployAccessMeta,
 } from './api';
-import { retryDeployment } from '../projects/api';
+import { retryDeployment } from '@/api/projects';
 
 const route = useRoute();
 const router = useRouter();

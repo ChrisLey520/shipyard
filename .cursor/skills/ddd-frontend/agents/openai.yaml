@@ -1,0 +1,4 @@
+interface:
+  display_name: "DDD 前端架构"
+  short_description: "Vue 3 DDD: bounded context & ACL patterns"
+  default_prompt: "Use $ddd-frontend to align Shipyard web (Vue 3) with DDD: bounded contexts, application flow, and anti-corruption at the API boundary."
