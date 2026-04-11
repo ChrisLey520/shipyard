@@ -106,6 +106,10 @@ const editInitial = ref<ProjectEditFormValues>({
   previewServerId: null,
   previewBaseDomain: '',
   previewHealthCheckPath: '',
+  containerImageEnabled: false,
+  containerImageName: '',
+  registryUsername: '',
+  registryPassword: '',
 });
 
 async function openEdit(p: ProjectListItem) {
@@ -140,6 +144,10 @@ async function openEdit(p: ProjectListItem) {
       previewServerId: d.previewServerId ?? null,
       previewBaseDomain: d.previewBaseDomain ?? '',
       previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
+      containerImageEnabled: pc?.containerImageEnabled ?? false,
+      containerImageName: pc?.containerImageName ?? '',
+      registryUsername: '',
+      registryPassword: '',
     };
     showEdit.value = true;
   } catch {
@@ -216,6 +224,16 @@ async function saveEdit(v: ProjectEditFormValues) {
           v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
             ? v.previewHealthCheckPath.trim()
             : null,
+        containerImageEnabled: v.containerImageEnabled,
+        containerImageName: v.containerImageEnabled ? v.containerImageName.trim() || null : null,
+        ...(v.registryPassword.trim()
+          ? {
+              containerRegistryAuth: {
+                username: v.registryUsername.trim() || undefined,
+                password: v.registryPassword.trim(),
+              },
+            }
+          : {}),
       });
     }
 

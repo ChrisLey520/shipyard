@@ -36,6 +36,8 @@ export interface ProjectDetail {
     timeoutSeconds: number;
     ssrEntryPoint: string | null;
     previewHealthCheckPath: string | null;
+    containerImageEnabled?: boolean;
+    containerImageName?: string | null;
     updatedAt: string;
   };
   _count?: { deployments: number; environments: number };
@@ -55,6 +57,15 @@ export interface ProjectDetail {
     accessUrl?: string | null;
     healthCheckUrl: string | null;
     server: { id: string; name: string; host: string; os: string };
+    releaseConfig?: unknown;
+    blueGreenActiveSlot?: number | null;
+    environmentServers?: Array<{
+      id: string;
+      serverId: string;
+      sortOrder: number;
+      weight: number;
+      server: { id: string; name: string; host: string; os: string };
+    }>;
   }[];
 }
 
@@ -177,6 +188,9 @@ export type UpdatePipelineConfigPayload = Partial<{
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
   previewHealthCheckPath: string | null;
+  containerImageEnabled: boolean;
+  containerImageName: string | null;
+  containerRegistryAuth: { username?: string; password?: string } | null;
 }>;
 
 export async function updatePipelineConfig(

@@ -147,6 +147,10 @@
         <project-notifications-panel :org-slug="orgSlug" :project-slug="projectSlug" />
       </n-tab-pane>
 
+      <n-tab-pane name="feature-flags" tab="特性开关">
+        <project-feature-flags-panel :org-slug="orgSlug" :project-slug="projectSlug" />
+      </n-tab-pane>
+
       <n-tab-pane name="deployments" tab="部署历史">
         <n-space justify="space-between" align="center" style="margin-top: 8px">
           <n-space>
@@ -231,6 +235,7 @@ import {
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
 import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
+import ProjectFeatureFlagsPanel from './components/ProjectFeatureFlagsPanel.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
@@ -262,12 +267,13 @@ const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
 
 /** 与路由 ?tab= 同步，避免刷新后总是回到「概览」 */
-const activeProjectTab = ref<'overview' | 'deployments' | 'notifications'>('overview');
+const activeProjectTab = ref<'overview' | 'deployments' | 'notifications' | 'feature-flags'>('overview');
 
 function syncProjectTabFromRoute() {
   const tab = route.query['tab'];
   if (tab === 'deployments') activeProjectTab.value = 'deployments';
   else if (tab === 'notifications') activeProjectTab.value = 'notifications';
+  else if (tab === 'feature-flags') activeProjectTab.value = 'feature-flags';
   else activeProjectTab.value = 'overview';
 }
 
@@ -530,6 +536,10 @@ const editProjectInitial = ref<ProjectEditFormValues>({
   previewEnabled: false,
   previewServerId: null,
   previewBaseDomain: '',
+  containerImageEnabled: false,
+  containerImageName: '',
+  registryUsername: '',
+  registryPassword: '',
 });
 
 async function loadPreviewServerOptions() {
@@ -565,6 +575,10 @@ async function openEditProject() {
     previewEnabled: p?.previewEnabled ?? false,
     previewServerId: p?.previewServerId ?? null,
     previewBaseDomain: p?.previewBaseDomain ?? '',
+    containerImageEnabled: pc?.containerImageEnabled ?? false,
+    containerImageName: pc?.containerImageName ?? '',
+    registryUsername: '',
+    registryPassword: '',
   };
   showEditProject.value = true;
 }
@@ -621,6 +635,16 @@ async function saveProject(v: ProjectEditFormValues) {
           v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
             ? v.previewHealthCheckPath.trim()
             : null,
+        containerImageEnabled: v.containerImageEnabled,
+        containerImageName: v.containerImageEnabled ? v.containerImageName.trim() || null : null,
+        ...(v.registryPassword.trim()
+          ? {
+              containerRegistryAuth: {
+                username: v.registryUsername.trim() || undefined,
+                password: v.registryPassword.trim(),
+              },
+            }
+          : {}),
       });
     }
 

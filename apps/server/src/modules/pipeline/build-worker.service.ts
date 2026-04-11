@@ -7,6 +7,7 @@ import { RedisService } from '../../common/redis/redis.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { GitAccessTokenService } from '../git/git-access-token.service';
 import { GitCommitStatusService } from '../git/git-commit-status.service';
+import { spawn } from 'child_process';
 import { mkdirSync, rmSync, existsSync, cpSync } from 'fs';
 import { writeFile, readdir, readFile } from 'fs/promises';
 import * as path from 'path';
@@ -325,6 +326,20 @@ export class BuildWorkerService implements OnModuleInit {
 
       await this.appendLog(deploymentId, logSeq++, `[archive] 产物打包完成: ${artifactPath}`);
 
+      let imageRef: string | null = null;
+      let imageDigest: string | null = null;
+      if (pipelineConfig.containerImageEnabled) {
+        const pushed = await this.pushBuiltImageToRegistry({
+          deploymentId,
+          tmpDir: tmpAbs,
+          pipelineConfig,
+          nextLog: () => logSeq++,
+        });
+        imageRef = pushed.imageRef;
+        imageDigest = pushed.imageDigest;
+        await this.appendLog(deploymentId, logSeq++, `[container] 已推送 ${imageRef}`);
+      }
+
       // 获取文件大小
       const { statSync } = await import('fs');
       const stat = statSync(artifactPath);
@@ -335,6 +350,8 @@ export class BuildWorkerService implements OnModuleInit {
           deploymentId,
           storagePath: artifactPath,
           sizeBytes: BigInt(stat.size),
+          imageRef: imageRef ?? undefined,
+          imageDigest: imageDigest ?? undefined,
         },
       });
 
@@ -443,6 +460,91 @@ export class BuildWorkerService implements OnModuleInit {
         rmSync(tmpDir, { recursive: true, force: true });
       }
     }
+  }
+
+  /** Docker 输出写入 Worker 进程 stdout/stderr（避免海量 seq 占满 deploymentLog） */
+  private runDockerInherit(args: string[], cwd: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn('docker', args, { cwd, stdio: 'inherit' });
+      child.on('close', (code: number | null) => {
+        if (code === 0) resolve();
+        else reject(new Error(`docker ${args.join(' ')} 退出码 ${code}`));
+      });
+      child.on('error', reject);
+    });
+  }
+
+  private runDockerCapture(args: string[], cwd: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const child = spawn('docker', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout?.on('data', (c: Buffer) => chunks.push(c));
+      child.stderr?.on('data', (c: Buffer) => chunks.push(c));
+      child.on('close', (code: number | null) => {
+        if (code === 0) resolve(Buffer.concat(chunks).toString('utf8').trim());
+        else reject(new Error(`docker ${args.join(' ')} 失败`));
+      });
+      child.on('error', reject);
+    });
+  }
+
+  /** 仓库根目录须有 Dockerfile；镜像名不含 tag */
+  private async pushBuiltImageToRegistry(opts: {
+    deploymentId: string;
+    tmpDir: string;
+    pipelineConfig: {
+      containerImageName: string | null;
+      containerRegistryAuthEncrypted: string | null;
+    };
+    nextLog: () => number;
+  }): Promise<{ imageRef: string; imageDigest: string }> {
+    const { deploymentId, tmpDir, pipelineConfig } = opts;
+    const dockerOk = await probeDockerAvailable();
+    if (!dockerOk) {
+      throw new Error('[container] 需要可用 Docker（docker info）以构建/推送镜像');
+    }
+    const base = pipelineConfig.containerImageName?.trim();
+    if (!base) {
+      throw new Error('[container] 已启用镜像推送但缺少 containerImageName');
+    }
+    const tag = `shipyard-${deploymentId.slice(0, 12)}`;
+    const localImage = `${base}:${tag}`;
+    await this.appendLog(deploymentId, opts.nextLog(), `[container] docker build -t ${localImage} .`);
+    await this.runDockerInherit(['build', '-t', localImage, '.'], tmpDir);
+
+    const enc = pipelineConfig.containerRegistryAuthEncrypted;
+    if (enc) {
+      const auth = JSON.parse(this.crypto.decrypt(enc)) as { username?: string; password?: string };
+      const reg = base.includes('/') ? base.split('/')[0]! : 'docker.io';
+      await this.appendLog(deploymentId, opts.nextLog(), `[container] docker login ${reg}`);
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('docker', ['login', reg, '-u', auth.username ?? '', '--password-stdin'], {
+          cwd: tmpDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        child.stdin?.write(auth.password ?? '');
+        child.stdin?.end();
+        let err = '';
+        child.stderr?.on('data', (d: Buffer) => {
+          err += d.toString();
+        });
+        child.on('close', (code: number | null) => {
+          if (code === 0) resolve();
+          else reject(new Error(err.trim() || `docker login 退出码 ${code}`));
+        });
+        child.on('error', reject);
+      });
+    }
+
+    await this.appendLog(deploymentId, opts.nextLog(), `[container] docker push ${localImage}`);
+    await this.runDockerInherit(['push', localImage], tmpDir);
+
+    const ref = await this.runDockerCapture(['inspect', '--format={{index .RepoDigests 0}}', localImage], tmpDir);
+    if (!ref.includes('@')) {
+      throw new Error('[container] docker inspect 未返回 RepoDigest');
+    }
+    const imageDigest = ref.split('@')[1] ?? ref;
+    return { imageRef: ref, imageDigest };
   }
 
   private buildDepsCacheRoot(): string {

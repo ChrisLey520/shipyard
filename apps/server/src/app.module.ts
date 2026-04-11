@@ -16,6 +16,8 @@ import { GatewayModule } from './common/gateway/gateway.module';
 import { UsersModule } from './modules/users/users.module';
 import { GitModule } from './modules/git/git.module';
 import { NotificationsApiModule } from './modules/notifications/notifications-api.module';
+import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
+import { KubernetesClustersModule } from './modules/kubernetes-clusters/kubernetes-clusters.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -43,6 +45,8 @@ import { HealthController } from './health.controller';
     ApprovalsModule,
     GitModule,
     NotificationsApiModule,
+    FeatureFlagsModule,
+    KubernetesClustersModule,
   ],
   controllers: [HealthController],
 })

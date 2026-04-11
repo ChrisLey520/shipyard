@@ -237,6 +237,23 @@ pnpm -r build
 
 **依赖缓存并发（v0.6+）**：多个 Worker 进程或 **同一进程内** 多并发构建 Job 若共享 **同一** `SHIPYARD_BUILD_DEPS_CACHE_PATH`，对 **淘汰路径**（删除指纹目录）在缓存根下使用 `.shipyard-deps-evict.lock` **跨进程文件锁**串行化，降低并发 `rmSync` 竞态；向 workdir **复制** `node_modules` 仍可与淘汰以外的步骤并行。若长时间无法获取锁，当次淘汰会跳过并记录 `evict_lock_acquire_failed`。
 
+### 发布策略与环境配置（环境级 `releaseConfig`）
+
+| 能力 | 前置条件 | 说明 |
+|------|----------|------|
+| `direct` / `rolling`、多机 | SSH；`EnvironmentServer` 多行 | 按 `sortOrder` 串行 rsync；`primaryServerId` 或第一台写 Nginx/域名 |
+| `blue_green`（静态） | Linux + 域名 | 槽位目录 `.shipyard-bg0` / `.shipyard-bg1`，切换站点 Nginx root；健康失败回指旧槽 |
+| `blue_green`（SSR 等） | — | 当前记录日志后按与 `direct` 相同的多机语义部署（与预览双槽对齐可后续增强） |
+| `canary` | 提供 `nginxCanaryPath` + `nginxCanaryBody` | 原子写片段并重载；未配置时仅记录降级说明 |
+| Prometheus 门禁 | `gates.prometheus.queryUrl` | GET 后解析 JSON 向量样本；与通知出站相同的 SSRF 校验 |
+| pre/post hooks | SSH | 在入口机 `deployPath` 下 `timeout 120 bash -lc …` |
+| Kubernetes | 组织「Kubernetes 集群」+ 流水线开启镜像推送 | `kubectl set image` + `rollout status`；Worker 需本机 `kubectl` 与可访问集群 |
+| 特性开关 | — | 组织级或项目级 `FeatureFlag` CRUD，与部署路径解耦 |
+
+**验收**：未配置 `releaseConfig` 时行为与旧版单服务器直连一致。迁移会为每个已有环境插入一条 `EnvironmentServer` 指向原 `serverId`。
+
+**Stretch / 仅运维文档**：完整 GitOps reconcile、多区域 HA、影子流量（Nginx `mirror` / Mesh）不纳入产品内建路径，占位说明见 `docs/runbooks/gitops-shadow-traffic.md`。
+
 ### 自托管 Git 实例兼容（简表）
 
 **拆分说明**：**CI 多 URL 只读探测** 与 **实例 API 版本自检脚本** 分文档维护，见 **[docs/self-hosted-git.md](docs/self-hosted-git.md)**（含 `GIT_SMOKE_URLS`、`GIT_SMOKE_BASE_URL` 与 `scripts/probe-git-api-version.mjs`）。

@@ -10,6 +10,15 @@ export interface Env {
   accessUrl?: string | null;
   healthCheckUrl?: string | null;
   server?: { id: string; name: string; host: string; os: string } | null;
+  releaseConfig?: unknown;
+  blueGreenActiveSlot?: number | null;
+  environmentServers?: Array<{
+    id: string;
+    serverId: string;
+    sortOrder: number;
+    weight: number;
+    server: { id: string; name: string; host: string; os: string };
+  }>;
 }
 
 export interface EnvVar {
@@ -41,6 +50,8 @@ export type UpdateEnvironmentPayload = Partial<{
   domain: string | null;
   healthCheckUrl: string | null;
   protected: boolean;
+  releaseConfig: unknown;
+  environmentTargets: Array<{ serverId: string; sortOrder?: number; weight?: number }>;
 }>;
 
 export async function updateEnvironment(

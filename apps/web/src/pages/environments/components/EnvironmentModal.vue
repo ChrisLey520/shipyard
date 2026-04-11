@@ -92,6 +92,30 @@
       <n-form-item label="受保护">
         <n-switch v-model:value="envForm.protected" />
       </n-form-item>
+
+      <n-form-item label="附加部署服务器">
+        <n-select
+          v-model:value="envForm.extraServerIds"
+          :options="extraServerOptions"
+          multiple
+          clearable
+          filterable
+          placeholder="除主服务器外，滚动/多机时的其它目标（顺序即部署顺序）"
+        />
+      </n-form-item>
+
+      <n-form-item label="发布配置 (JSON)" :show-feedback="false">
+        <n-input
+          v-model:value="envForm.releaseConfigJson"
+          type="textarea"
+          placeholder='{"executor":"ssh","strategy":"direct"}'
+          :rows="6"
+          :autosize="{ minRows: 4, maxRows: 14 }"
+        />
+        <div style="font-size: 12px; color: var(--n-text-color-3); margin-top: 6px; line-height: 1.5">
+          可选。缺省与留空等价于 <n-text code>ssh</n-text> + <n-text code>direct</n-text>。Kubernetes 须先在组织下登记集群（API）。
+        </div>
+      </n-form-item>
     </n-form>
 
     <template #footer>
@@ -151,14 +175,28 @@ const showProxy = computed({
 const modalTitle = computed(() => (props.mode === 'edit' ? '编辑环境' : '新建环境'));
 const primaryLabel = computed(() => (props.mode === 'edit' ? '保存' : '创建'));
 
-const envForm = ref({
+type EnvFormState = {
+  name: string;
+  triggerBranch: string;
+  serverId: string | null;
+  deployPath: string;
+  domain: string;
+  healthCheckUrl: string;
+  protected: boolean;
+  extraServerIds: string[];
+  releaseConfigJson: string;
+};
+
+const envForm = ref<EnvFormState>({
   name: '',
   triggerBranch: 'main',
-  serverId: null as string | null,
+  serverId: null,
   deployPath: '',
   domain: '',
   healthCheckUrl: '',
   protected: false,
+  extraServerIds: [],
+  releaseConfigJson: '',
 });
 
 const submitting = ref(false);
@@ -166,17 +204,29 @@ const loadingBranches = ref(false);
 const branchOptions = ref<Array<{ label: string; value: string }>>([]);
 const serverOptions = ref<Array<{ label: string; value: string }>>([]);
 
+const extraServerOptions = computed(() =>
+  serverOptions.value.filter((o) => o.value !== envForm.value.serverId),
+);
+
 function resetFromInitial() {
   const e = props.initialEnv;
   if (props.mode === 'edit' && e) {
+    const targets = e.environmentServers?.length
+      ? [...e.environmentServers].sort((a, b) => a.sortOrder - b.sortOrder)
+      : [];
+    const primaryId = e.server?.id ?? targets[0]?.serverId ?? null;
+    const extras = targets.map((t) => t.serverId).filter((id) => id !== primaryId);
     envForm.value = {
       name: e.name,
       triggerBranch: e.triggerBranch,
-      serverId: e.server?.id ?? null,
+      serverId: primaryId,
       deployPath: e.deployPath,
       domain: e.domain ?? '',
       healthCheckUrl: e.healthCheckUrl ?? '',
       protected: e.protected,
+      extraServerIds: extras,
+      releaseConfigJson:
+        e.releaseConfig != null ? JSON.stringify(e.releaseConfig, null, 2) : '',
     };
     return;
   }
@@ -188,6 +238,8 @@ function resetFromInitial() {
     domain: '',
     healthCheckUrl: '',
     protected: false,
+    extraServerIds: [],
+    releaseConfigJson: '',
   };
 }
 
@@ -217,6 +269,39 @@ watch(
   },
 );
 
+/** 编辑时清空文本表示将 releaseConfig 置空；新建时留空表示不传 */
+function parseReleaseConfigField():
+  | { ok: true; value: unknown | undefined | null }
+  | { ok: false } {
+  const rawTrim = envForm.value.releaseConfigJson.trim();
+  if (!rawTrim) {
+    if (props.mode === 'edit' && props.initialEnv?.releaseConfig != null) {
+      return { ok: true, value: null };
+    }
+    return { ok: true, value: undefined };
+  }
+  try {
+    return { ok: true, value: JSON.parse(rawTrim) as unknown };
+  } catch {
+    message.error('发布配置 JSON 无法解析');
+    return { ok: false };
+  }
+}
+
+function buildEnvironmentTargets(primary: string): Array<{ serverId: string; sortOrder: number }> {
+  const seen = new Set<string>();
+  const targets: Array<{ serverId: string; sortOrder: number }> = [];
+  seen.add(primary);
+  targets.push({ serverId: primary, sortOrder: 0 });
+  let order = 1;
+  for (const id of envForm.value.extraServerIds) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    targets.push({ serverId: id, sortOrder: order++ });
+  }
+  return targets;
+}
+
 async function handleSubmit() {
   if (!envForm.value.serverId) {
     message.warning('请选择服务器');
@@ -230,8 +315,12 @@ async function handleSubmit() {
     return;
   }
 
+  const rcParsed = parseReleaseConfigField();
+  if (!rcParsed.ok) return;
+
   submitting.value = true;
   try {
+    const targets = buildEnvironmentTargets(envForm.value.serverId);
     if (props.mode === 'edit') {
       if (!props.initialEnv?.id) throw new Error('missing env id');
       await envApi.updateEnvironment(props.initialEnv.id, {
@@ -244,6 +333,8 @@ async function handleSubmit() {
           ? envForm.value.healthCheckUrl.trim()
           : null,
         protected: envForm.value.protected,
+        ...(rcParsed.value !== undefined ? { releaseConfig: rcParsed.value } : {}),
+        environmentTargets: targets,
       });
       message.success('已保存');
     } else {
@@ -255,6 +346,8 @@ async function handleSubmit() {
         domain: envForm.value.domain.trim() || undefined,
         healthCheckUrl: envForm.value.healthCheckUrl.trim() || undefined,
         protected: envForm.value.protected,
+        ...(rcParsed.value !== undefined ? { releaseConfig: rcParsed.value } : {}),
+        environmentTargets: targets,
       });
       message.success('环境创建成功');
     }

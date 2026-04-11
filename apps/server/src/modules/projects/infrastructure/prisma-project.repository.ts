@@ -21,10 +21,34 @@ export class PrismaProjectRepository {
       where: { organizationId: orgId, slug: projectSlug },
       include: {
         gitConnection: { select: { id: true, gitProvider: true, gitUsername: true, createdAt: true, updatedAt: true } },
-        pipelineConfig: true,
+        pipelineConfig: {
+          select: {
+            id: true,
+            projectId: true,
+            installCommand: true,
+            buildCommand: true,
+            lintCommand: true,
+            testCommand: true,
+            outputDir: true,
+            nodeVersion: true,
+            cacheEnabled: true,
+            timeoutSeconds: true,
+            ssrEntryPoint: true,
+            previewHealthCheckPath: true,
+            containerImageEnabled: true,
+            containerImageName: true,
+            updatedAt: true,
+          },
+        },
         previewServer: { select: { id: true, name: true, host: true, os: true } },
         environments: {
-          include: { server: { select: { id: true, name: true, host: true, os: true } } },
+          include: {
+            server: { select: { id: true, name: true, host: true, os: true } },
+            environmentServers: {
+              orderBy: { sortOrder: 'asc' },
+              include: { server: { select: { id: true, name: true, host: true, os: true } } },
+            },
+          },
         },
         _count: { select: { deployments: true, environments: true } },
       },
@@ -153,6 +177,9 @@ export class PrismaProjectRepository {
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
       previewHealthCheckPath?: string | null;
+      containerImageEnabled?: boolean;
+      containerImageName?: string | null;
+      containerRegistryAuthEncrypted?: string | null;
     },
   ) {
     return this.prisma.pipelineConfig.update({

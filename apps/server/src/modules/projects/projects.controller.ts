@@ -77,7 +77,8 @@ export class ProjectsController {
   updatePipelineConfig(
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
-    @Body() body: {
+    @Body()
+    body: {
       installCommand?: string;
       buildCommand?: string;
       lintCommand?: string;
@@ -88,6 +89,9 @@ export class ProjectsController {
       timeoutSeconds?: number;
       ssrEntryPoint?: string;
       previewHealthCheckPath?: string | null;
+      containerImageEnabled?: boolean;
+      containerImageName?: string | null;
+      containerRegistryAuth?: { username?: string; password?: string } | null;
     },
   ) {
     return this.projects.updatePipelineConfig(orgId, projectSlug, body);

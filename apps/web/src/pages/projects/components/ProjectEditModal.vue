@@ -60,6 +60,25 @@
           <n-switch v-model:value="form.cacheEnabled" />
         </n-form-item>
 
+        <n-divider title-placement="left">容器镜像（Kubernetes 部署）</n-divider>
+        <n-form-item label="构建后推送镜像">
+          <n-switch v-model:value="form.containerImageEnabled" />
+        </n-form-item>
+        <template v-if="form.containerImageEnabled">
+          <n-form-item label="镜像名（无 tag）">
+            <n-input v-model:value="form.containerImageName" placeholder="registry.example.com/org/app" />
+          </n-form-item>
+          <n-form-item label="Registry 用户">
+            <n-input v-model:value="form.registryUsername" placeholder="可选" />
+          </n-form-item>
+          <n-form-item label="Registry 密码">
+            <n-input v-model:value="form.registryPassword" type="password" placeholder="留空则保留已保存凭据" />
+          </n-form-item>
+          <n-text depth="3" style="display: block; margin-bottom: 12px; font-size: 12px">
+            仓库根目录需有 Dockerfile；Worker 须可用 Docker。凭据加密存储，仅保存时发送非空密码。
+          </n-text>
+        </template>
+
         <n-divider title-placement="left">PR 预览（GitHub pull_request）</n-divider>
         <n-form-item label="启用 PR 预览">
           <n-switch v-model:value="form.previewEnabled" />
@@ -125,6 +144,10 @@ export type ProjectEditFormValues = {
   previewEnabled: boolean;
   previewServerId: string | null;
   previewBaseDomain: string;
+  containerImageEnabled: boolean;
+  containerImageName: string;
+  registryUsername: string;
+  registryPassword: string;
 };
 
 const props = defineProps<{
@@ -163,6 +186,10 @@ const form = reactive<ProjectEditFormValues>({
   previewEnabled: false,
   previewServerId: null,
   previewBaseDomain: '',
+  containerImageEnabled: false,
+  containerImageName: '',
+  registryUsername: '',
+  registryPassword: '',
 });
 
 function snapshotForm(): ProjectEditFormValues {
@@ -189,6 +216,10 @@ watch(
     form.previewEnabled = v.previewEnabled ?? false;
     form.previewServerId = v.previewServerId ?? null;
     form.previewBaseDomain = v.previewBaseDomain ?? '';
+    form.containerImageEnabled = v.containerImageEnabled ?? false;
+    form.containerImageName = v.containerImageName ?? '';
+    form.registryUsername = v.registryUsername ?? '';
+    form.registryPassword = '';
   },
   { immediate: true, deep: true },
 );

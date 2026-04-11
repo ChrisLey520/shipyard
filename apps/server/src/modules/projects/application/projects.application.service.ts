@@ -240,6 +240,9 @@ export class ProjectsApplicationService {
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
       previewHealthCheckPath?: string | null;
+      containerImageEnabled?: boolean;
+      containerImageName?: string | null;
+      containerRegistryAuth?: { username?: string; password?: string } | null;
     },
   ) {
     const project = await this.getProject(orgId, projectSlug);
@@ -253,7 +256,16 @@ export class ProjectsApplicationService {
     } else if (data.previewHealthCheckPath === '' || data.previewHealthCheckPath === null) {
       data = { ...data, previewHealthCheckPath: null };
     }
-    return this.repo.updatePipelineConfigByProjectId(project.id, data);
+
+    const { containerRegistryAuth, ...rest } = data;
+    const updatePayload: Parameters<typeof this.repo.updatePipelineConfigByProjectId>[1] = { ...rest };
+    if (containerRegistryAuth !== undefined) {
+      updatePayload.containerRegistryAuthEncrypted =
+        containerRegistryAuth === null
+          ? null
+          : this.crypto.encrypt(JSON.stringify(containerRegistryAuth));
+    }
+    return this.repo.updatePipelineConfigByProjectId(project.id, updatePayload);
   }
 
   async getDeployments(orgId: string, projectSlug: string, environmentId?: string) {

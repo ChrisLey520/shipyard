@@ -19,6 +19,10 @@ import { GitPrCommentApplicationService } from '../../git/application/git-pr-com
 import { NotificationEnqueueApplicationService } from '../../notifications/application/notification-enqueue.application.service';
 import { NotificationEvent } from '@shipyard/shared';
 import { PreviewPortPoolService } from './preview-port-pool.service';
+import { KubernetesClustersApplicationService } from '../../kubernetes-clusters/application/kubernetes-clusters.application.service';
+import { envReleaseConfig } from '../domain/env-release-config';
+import type { ReleaseConfig } from '../../environments/domain/release-config.schema';
+import { assertSafeOutboundHttpUrl } from '../../notifications/outbound-url-guard';
 import { Client as SshClient } from 'ssh2';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
@@ -51,6 +55,7 @@ export class DeployApplicationService {
     private readonly previewPorts: PreviewPortPoolService,
     private readonly gitPrComment: GitPrCommentApplicationService,
     private readonly notifications: NotificationEnqueueApplicationService,
+    private readonly k8sClusters: KubernetesClustersApplicationService,
   ) {}
 
   /** 成功收尾时在日志中提示如何访问（与前端详情卡片字段对齐） */
@@ -189,7 +194,10 @@ export class DeployApplicationService {
         }),
         this.prisma.environment.findUniqueOrThrow({
           where: { id: environmentId },
-          include: { server: true },
+          include: {
+            server: true,
+            environmentServers: { orderBy: { sortOrder: 'asc' }, include: { server: true } },
+          },
         }),
         this.prisma.project.findUniqueOrThrow({ where: { id: projectId } }),
         this.prisma.pipelineConfig.findUniqueOrThrow({ where: { projectId } }),
@@ -197,76 +205,203 @@ export class DeployApplicationService {
 
       if (!deployment.artifact) throw new Error('构建产物不存在');
 
-      await this.appendLogLine(
-        deploymentId,
-        `[deploy] 目标服务器 ${env.server.host}:${env.server.port}，路径 ${env.deployPath}`,
-      );
+      const rc = envReleaseConfig(env.releaseConfig);
+      await this.appendLogLine(deploymentId, `[deploy] executor=${rc.executor} strategy=${rc.strategy}`);
 
-      const server = env.server;
-      const privateKey = this.crypto.decrypt(server.privateKey);
-
-      // 获取部署时的环境变量
-      const envVars = await this.getDecryptedEnvVars(environmentId);
-
-      // 解压产物到临时目录
-      const tmpExtractDir = path.join('/tmp', `deploy-${deploymentId}`);
-      mkdirSync(tmpExtractDir, { recursive: true });
-      await this.appendLogLine(deploymentId, '[deploy] 开始解压产物包…');
-      await tar.extract({ file: deployment.artifact.storagePath, cwd: tmpExtractDir });
-      await this.appendLogLine(deploymentId, '[deploy] 产物包已解压到本地临时目录');
-
-      // 获取部署锁
       const lockKey = `deploy-lock:${environmentId}`;
       await this.appendLogLine(deploymentId, '[deploy] 获取部署锁…');
       const locked = await this.redis.acquireLock(lockKey, 600);
       if (!locked) throw new Error('该环境正在部署中，请稍后重试');
 
-      // rsync 走系统 ssh，必须把私钥落到可读文件（此前用 /tmp/key-${host} 但未写入，会导致 exit 255）
       const sshKeyPath = path.join('/tmp', `shipyard-deploy-${deploymentId}.pem`);
+      let tmpExtractDir: string | null = null;
+      /** 蓝绿静态：健康失败时需把 Nginx root 指回旧槽 */
+      let blueGreenRollback:
+        | {
+            connParams: { host: string; port: number; username: string; privateKey: string };
+            slug: string;
+            serverNames: string;
+            deployPath: string;
+            oldSlot: 0 | 1;
+          }
+        | null = null;
+      let blueGreenSuccessSlot: 0 | 1 | null = null;
 
       try {
-        await writeFile(sshKeyPath, privateKey, { encoding: 'utf8', mode: 0o600 });
-        await this.appendLogLine(
-          deploymentId,
-          `[deploy] rsync → ${server.user}@${server.host}:${env.deployPath}`,
-        );
-        await this.appendLogLine(deploymentId, '[deploy] 开始同步文件（rsync）…');
-        const sshResult = await this.sshDeploy({
-          deploymentId,
-          host: server.host,
-          port: server.port,
-          username: server.user,
-          privateKey,
-          sshKeyPath,
-          serverOs: server.os,
-          deployPath: env.deployPath,
-          localDir: tmpExtractDir,
-          frameworkType: project.frameworkType,
-          projectSlug: project.slug,
-          domain: env.domain ?? null,
-          ssrEntryPoint: pipelineConfig.ssrEntryPoint ?? 'dist/index.js',
-          envVars,
-        });
-        macStaticPort = sshResult.macStaticPort;
-        await this.appendLogLine(deploymentId, '[deploy] 远端 rsync / PM2 / Nginx 步骤已完成');
+        if (rc.executor === 'kubernetes') {
+          await this.performKubernetesRollout({
+            deploymentId,
+            orgId: data.orgId,
+            deployment,
+            pipelineConfig,
+            rc,
+          });
+          await this.appendLogLine(deploymentId, '[deploy] 远端 Kubernetes 步骤已完成');
+        } else {
+          const targets = this.resolveDeployTargetServers(env);
+          const primaryId = this.resolvePrimaryServerId(env, rc);
+          const primaryServer =
+            targets.find((s) => s.id === primaryId) ?? targets[0] ?? env.server;
+          await this.appendLogLine(
+            deploymentId,
+            `[deploy] 目标 ${targets.length} 台，入口机 ${primaryServer.host}:${primaryServer.port}，路径 ${env.deployPath}`,
+          );
+
+          const envVars = await this.getDecryptedEnvVars(environmentId);
+          tmpExtractDir = path.join('/tmp', `deploy-${deploymentId}`);
+          mkdirSync(tmpExtractDir, { recursive: true });
+          await this.appendLogLine(deploymentId, '[deploy] 开始解压产物包…');
+          await tar.extract({ file: deployment.artifact.storagePath, cwd: tmpExtractDir });
+          await this.appendLogLine(deploymentId, '[deploy] 产物包已解压到本地临时目录');
+
+          const primaryKey = this.crypto.decrypt(primaryServer.privateKey);
+          await writeFile(sshKeyPath, primaryKey, { encoding: 'utf8', mode: 0o600 });
+
+          await this.maybeRunSshHooks({
+            deploymentId,
+            commands: rc.hooks?.preDeploy,
+            label: 'preDeploy',
+            host: primaryServer.host,
+            port: primaryServer.port,
+            username: primaryServer.user,
+            privateKey: primaryKey,
+            deployPath: env.deployPath,
+          });
+
+          if (rc.strategy === 'canary' && (!rc.ssh?.nginxCanaryPath || !rc.ssh?.nginxCanaryBody)) {
+            await this.appendLogLine(
+              deploymentId,
+              '[deploy] canary：未配置 nginxCanaryPath/nginxCanaryBody；无独立入口 LB 时须依赖外部流量控制，本次跳过片段写入',
+            );
+          }
+
+          const useBgStatic =
+            rc.strategy === 'blue_green' &&
+            project.frameworkType !== 'ssr' &&
+            primaryServer.os === ServerOs.LINUX &&
+            !!env.domain?.trim();
+
+          if (useBgStatic) {
+            const bg = await this.sshDeployBlueGreenStatic({
+              deploymentId,
+              env,
+              primaryServer,
+              privateKey: primaryKey,
+              sshKeyPath,
+              localDir: tmpExtractDir,
+              projectSlug: project.slug,
+            });
+            macStaticPort = undefined;
+            blueGreenRollback = bg.rollback;
+            blueGreenSuccessSlot = bg.candidateSlot;
+          } else {
+            if (rc.strategy === 'blue_green') {
+              await this.appendLogLine(
+                deploymentId,
+                '[deploy] blue_green：当前为 SSR 或非 Linux/无域名，回退为与 direct 相同的多机同步语义',
+              );
+            }
+            for (let i = 0; i < targets.length; i++) {
+              const server = targets[i]!;
+              const isPrimary = server.id === primaryId;
+              const pk = this.crypto.decrypt(server.privateKey);
+              await writeFile(sshKeyPath, pk, { encoding: 'utf8', mode: 0o600 });
+              await this.appendLogLine(
+                deploymentId,
+                `[deploy] rsync → ${server.user}@${server.host}:${env.deployPath} (${i + 1}/${targets.length})`,
+              );
+              const sshResult = await this.sshDeploy({
+                deploymentId,
+                host: server.host,
+                port: server.port,
+                username: server.user,
+                privateKey: pk,
+                sshKeyPath,
+                serverOs: server.os,
+                deployPath: env.deployPath,
+                localDir: tmpExtractDir,
+                frameworkType: project.frameworkType,
+                projectSlug: project.slug,
+                domain: isPrimary ? (env.domain ?? null) : null,
+                ssrEntryPoint: pipelineConfig.ssrEntryPoint ?? 'dist/index.js',
+                envVars,
+                skipNginx: !isPrimary,
+                skipPm2: !isPrimary && project.frameworkType === 'static',
+              });
+              if (isPrimary) macStaticPort = sshResult.macStaticPort;
+            }
+
+            if (
+              rc.strategy === 'canary' &&
+              rc.ssh?.nginxCanaryPath &&
+              rc.ssh.nginxCanaryBody &&
+              primaryServer.os === ServerOs.LINUX
+            ) {
+              await this.appendLogLine(deploymentId, '[deploy] traffic_switch 写入金丝雀 Nginx 片段');
+              await this.sshWriteCanaryNginxAtomic({
+                deploymentId,
+                host: primaryServer.host,
+                port: primaryServer.port,
+                username: primaryServer.user,
+                privateKey: primaryKey,
+                fragmentPath: rc.ssh.nginxCanaryPath,
+                body: rc.ssh.nginxCanaryBody,
+              });
+            }
+          }
+
+          await this.maybeRunSshHooks({
+            deploymentId,
+            commands: rc.hooks?.postDeploy,
+            label: 'postDeploy',
+            host: primaryServer.host,
+            port: primaryServer.port,
+            username: primaryServer.user,
+            privateKey: primaryKey,
+            deployPath: env.deployPath,
+          });
+
+          await this.appendLogLine(deploymentId, '[deploy] 远端 rsync / PM2 / Nginx 步骤已完成');
+        }
       } finally {
         await unlink(sshKeyPath).catch(() => undefined);
         await this.redis.releaseLock(lockKey);
-        rmSync(tmpExtractDir, { recursive: true, force: true });
+        if (tmpExtractDir) rmSync(tmpExtractDir, { recursive: true, force: true });
       }
 
       // 健康检查
       if (!skipHealthCheck && env.healthCheckUrl) {
-        await this.appendLogLine(deploymentId, `[deploy] 健康检查 ${env.healthCheckUrl}`);
+        await this.appendLogLine(deploymentId, `[deploy] health_ok 探测 ${env.healthCheckUrl}`);
         const healthy = await this.healthCheck(env.healthCheckUrl);
         if (!healthy) {
           await this.appendLogLine(deploymentId, '[deploy] 健康检查未通过');
+          if (blueGreenRollback) {
+            await this.revertBlueGreenNginxRoot(deploymentId, blueGreenRollback);
+          }
           await this.triggerAutoRollback(data);
           return;
         }
-        await this.appendLogLine(deploymentId, '[deploy] 健康检查通过');
+        await this.appendLogLine(deploymentId, '[deploy] health_ok 通过');
       } else if (skipHealthCheck) {
         await this.appendLogLine(deploymentId, '[deploy] 已跳过健康检查（回滚流程）');
+      }
+
+      try {
+        await this.maybePrometheusGate(deploymentId, rc);
+      } catch (pe) {
+        const msg = this.formatDeployFailureMessage(pe);
+        await this.appendLogLine(deploymentId, `[deploy] gate prometheus 未通过: ${msg}`);
+        if (blueGreenRollback) {
+          await this.revertBlueGreenNginxRoot(deploymentId, blueGreenRollback);
+        }
+        throw pe;
+      }
+
+      if (blueGreenSuccessSlot != null) {
+        await this.prisma.environment.update({
+          where: { id: environmentId },
+          data: { blueGreenActiveSlot: blueGreenSuccessSlot },
+        });
       }
 
       const now = new Date();
@@ -587,6 +722,331 @@ export class DeployApplicationService {
       await this.previewPorts.releaseIfOwned(server.id, preview.allocatedPort, preview.id);
     }
     await this.prisma.preview.delete({ where: { id: preview.id } }).catch(() => undefined);
+  }
+
+  private resolveDeployTargetServers(env: {
+    server: {
+      id: string;
+      host: string;
+      port: number;
+      user: string;
+      privateKey: string;
+      os: string;
+    };
+    environmentServers: Array<{ server: (typeof env)['server'] }>;
+  }): Array<(typeof env)['server']> {
+    if (env.environmentServers?.length) {
+      return env.environmentServers.map((es) => es.server);
+    }
+    return [env.server];
+  }
+
+  private resolvePrimaryServerId(
+    env: { serverId: string; environmentServers: Array<{ serverId: string; sortOrder: number }> },
+    rc: ReleaseConfig,
+  ): string {
+    if (rc.ssh?.primaryServerId) return rc.ssh.primaryServerId;
+    if (env.environmentServers?.length) {
+      return [...env.environmentServers].sort((a, b) => a.sortOrder - b.sortOrder)[0]!.serverId;
+    }
+    return env.serverId;
+  }
+
+  private async sshDeployBlueGreenStatic(opts: {
+    deploymentId: string;
+    env: {
+      deployPath: string;
+      domain: string | null;
+      blueGreenActiveSlot: number | null;
+    };
+    primaryServer: { host: string; port: number; user: string; privateKey: string; os: string };
+    privateKey: string;
+    sshKeyPath: string;
+    localDir: string;
+    projectSlug: string;
+  }): Promise<{
+    candidateSlot: 0 | 1;
+    rollback: {
+      connParams: { host: string; port: number; username: string; privateKey: string };
+      slug: string;
+      serverNames: string;
+      deployPath: string;
+      oldSlot: 0 | 1;
+    } | null;
+  }> {
+    const active = opts.env.blueGreenActiveSlot;
+    const candidate: 0 | 1 = active === null || active === 1 ? 0 : 1;
+    const oldSlot: 0 | 1 | null = active === 0 || active === 1 ? active : null;
+    const { deployPath } = opts.env;
+    const slotPath = `${deployPath}/.shipyard-bg${candidate}`;
+    const server = opts.primaryServer;
+
+    const connMk = await this.createSshClient({
+      host: server.host,
+      port: server.port,
+      username: server.user,
+      privateKey: opts.privateKey,
+    });
+    try {
+      await this.sshRemotePrecheck(connMk, opts.deploymentId, { needNginx: true, needPm2: false });
+      await this.sshExec(connMk, `bash -lc ${this.shellSingleQuote(`mkdir -p ${slotPath}`)}`);
+    } finally {
+      connMk.end();
+    }
+
+    await this.execLocal('rsync', [
+      '-avz',
+      '--delete',
+      `${opts.localDir}/`,
+      `${server.user}@${server.host}:${slotPath}/`,
+      '-e',
+      `ssh -p ${server.port} -i ${opts.sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
+    ]);
+
+    const conn = await this.createSshClient({
+      host: server.host,
+      port: server.port,
+      username: server.user,
+      privateKey: opts.privateKey,
+    });
+    try {
+      const serverNames = buildNginxServerNameList(opts.env.domain!.trim(), server.host);
+      const nginxConf = this.generateStaticNginxConf(serverNames, slotPath);
+      await this.sshWriteLinuxSiteNginxAtomic(conn, opts.projectSlug, nginxConf, opts.deploymentId);
+      await this.appendLogLine(opts.deploymentId, '[deploy] traffic_switch Nginx root → 候选槽');
+      const rollback =
+        oldSlot === 0 || oldSlot === 1
+          ? {
+              connParams: {
+                host: server.host,
+                port: server.port,
+                username: server.user,
+                privateKey: opts.privateKey,
+              },
+              slug: opts.projectSlug,
+              serverNames,
+              deployPath,
+              oldSlot,
+            }
+          : null;
+      return { candidateSlot: candidate, rollback };
+    } finally {
+      conn.end();
+    }
+  }
+
+  private async revertBlueGreenNginxRoot(
+    deploymentId: string,
+    rb: {
+      connParams: { host: string; port: number; username: string; privateKey: string };
+      slug: string;
+      serverNames: string;
+      deployPath: string;
+      oldSlot: 0 | 1;
+    },
+  ): Promise<void> {
+    const c = rb.connParams;
+    const conn = await this.createSshClient({
+      host: c.host,
+      port: c.port,
+      username: c.username,
+      privateKey: c.privateKey,
+    });
+    try {
+      const root = `${rb.deployPath}/.shipyard-bg${rb.oldSlot}`;
+      const nginxConf = this.generateStaticNginxConf(rb.serverNames, root);
+      await this.sshWriteLinuxSiteNginxAtomic(conn, rb.slug, nginxConf, deploymentId);
+      await this.appendLogLine(deploymentId, '[deploy] rollback 蓝绿：Nginx 已指回旧槽');
+    } finally {
+      conn.end();
+    }
+  }
+
+  private async sshWriteCanaryNginxAtomic(opts: {
+    deploymentId: string;
+    host: string;
+    port: number;
+    username: string;
+    privateKey: string;
+    fragmentPath: string;
+    body: string;
+  }): Promise<void> {
+    const conn = await this.createSshClient({
+      host: opts.host,
+      port: opts.port,
+      username: opts.username,
+      privateKey: opts.privateKey,
+    });
+    try {
+      const dir = opts.fragmentPath.replace(/\/[^/]+$/, '') || '/';
+      const tag = `SYXCY_${randomBytes(8).toString('hex')}`;
+      if (opts.body.includes(tag)) {
+        throw new Error('金丝雀 Nginx 片段与内部分隔符冲突');
+      }
+      const qDir = this.shellSingleQuote(dir);
+      const qFinal = this.shellSingleQuote(opts.fragmentPath);
+      const tmpQuoted = this.shellSingleQuote(`${opts.fragmentPath}.tmp.shipyard$$`);
+      const inner = [
+        'set -euo pipefail',
+        `mkdir -p ${qDir}`,
+        `tmp=${tmpQuoted}`,
+        `cat > "$tmp" <<'${tag}'`,
+        opts.body,
+        tag,
+        `mv -f "$tmp" ${qFinal}`,
+        'nginx -t && nginx -s reload',
+      ].join('\n');
+      await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
+      await this.appendLogLine(opts.deploymentId, '[deploy] 金丝雀 Nginx 片段已原子更新并重载');
+    } finally {
+      conn.end();
+    }
+  }
+
+  /** K8s：set image + rollout status；健康检查与收尾由调用方与 SSH 路径共用 */
+  private async performKubernetesRollout(opts: {
+    deploymentId: string;
+    orgId: string;
+    deployment: { artifact: { imageRef: string | null; imageDigest: string | null } | null };
+    pipelineConfig: { containerImageName: string | null };
+    rc: ReleaseConfig;
+  }): Promise<void> {
+    const { deploymentId, orgId, deployment, pipelineConfig, rc } = opts;
+    const k = rc.kubernetes;
+    if (!k) throw new Error('缺少 kubernetes 配置');
+    const artifact = deployment.artifact;
+    if (!artifact) throw new Error('构建产物不存在');
+    const image =
+      artifact.imageRef?.trim() ||
+      (artifact.imageDigest?.trim() && pipelineConfig.containerImageName?.trim()
+        ? `${pipelineConfig.containerImageName.trim()}@${artifact.imageDigest.trim()}`
+        : null);
+    if (!image) {
+      throw new Error('K8s 部署需要构建启用容器镜像并成功推送（制品须含 imageRef 或 imageDigest + 流水线 imageName）');
+    }
+    const kubeconfig = await this.k8sClusters.getDecryptedKubeconfig(orgId, k.clusterId);
+    const kubePath = path.join('/tmp', `shipyard-kube-${deploymentId}.yaml`);
+    await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
+    try {
+      const ns = k.namespace;
+      const depName = k.deploymentName;
+      const container = (k.containerName ?? k.deploymentName).trim();
+      await this.appendLogLine(
+        deploymentId,
+        `[deploy] k8s candidate_up set-image ns=${ns} deploy=${depName} container=${container}`,
+      );
+      await this.execLocal('kubectl', [
+        `--kubeconfig=${kubePath}`,
+        '-n',
+        ns,
+        'set',
+        'image',
+        `deployment/${depName}`,
+        `${container}=${image}`,
+      ]);
+      await this.appendLogLine(deploymentId, '[deploy] k8s rollout status…');
+      await this.execLocal('kubectl', [
+        `--kubeconfig=${kubePath}`,
+        '-n',
+        ns,
+        'rollout',
+        'status',
+        `deployment/${depName}`,
+        '--timeout=10m',
+      ]);
+      await this.appendLogLine(deploymentId, '[deploy] traffic_switch k8s rollout 完成');
+      await this.prisma.deployment.update({
+        where: { id: deploymentId },
+        data: {
+          containerImageDigest: artifact.imageDigest ?? undefined,
+          containerImageRef: artifact.imageRef ?? image,
+        },
+      });
+    } finally {
+      await unlink(kubePath).catch(() => undefined);
+    }
+  }
+
+  private async maybeRunSshHooks(opts: {
+    deploymentId: string;
+    commands: string[] | undefined;
+    label: string;
+    host: string;
+    port: number;
+    username: string;
+    privateKey: string;
+    deployPath: string;
+  }): Promise<void> {
+    const cmds = opts.commands?.filter((c) => c.trim().length > 0) ?? [];
+    if (!cmds.length) return;
+    const conn = await this.createSshClient({
+      host: opts.host,
+      port: opts.port,
+      username: opts.username,
+      privateKey: opts.privateKey,
+    });
+    try {
+      const cwd = this.shellSingleQuote(opts.deployPath);
+      for (const raw of cmds) {
+        const cmd = raw.trim().slice(0, 4096);
+        await this.appendLogLine(opts.deploymentId, `[deploy] hook ${opts.label}: ${cmd.slice(0, 200)}`);
+        const inner = `set -euo pipefail; cd ${cwd}; timeout 120 bash -lc ${this.shellSingleQuote(cmd)}`;
+        const out = await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
+        await this.appendRemoteStdoutToDeployLog(opts.deploymentId, out);
+      }
+    } finally {
+      conn.end();
+    }
+  }
+
+  private async maybePrometheusGate(deploymentId: string, rc: ReleaseConfig): Promise<void> {
+    const prom = rc.gates?.prometheus;
+    if (!prom?.queryUrl) return;
+    const u = await assertSafeOutboundHttpUrl(prom.queryUrl);
+    await this.appendLogLine(deploymentId, `[deploy] gate prometheus GET ${u.toString().slice(0, 120)}…`);
+    const { default: https } = await import('https');
+    const { default: http } = await import('http');
+    const client = u.protocol === 'https:' ? https : http;
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = client.get(u, (res) => {
+        let d = '';
+        res.on('data', (c: Buffer) => {
+          d += c.toString();
+          if (d.length > 2_000_000) {
+            req.destroy();
+            reject(new Error('Prometheus 响应过大'));
+          }
+        });
+        res.on('end', () => resolve(d));
+      });
+      req.on('error', reject);
+      req.setTimeout(15_000, () => {
+        req.destroy();
+        reject(new Error('Prometheus 请求超时'));
+      });
+    });
+    let parsed: { data?: { result?: Array<{ value?: [unknown, string] }> } };
+    try {
+      parsed = JSON.parse(body) as { data?: { result?: Array<{ value?: [unknown, string] }> } };
+    } catch {
+      throw new Error('Prometheus 响应非 JSON');
+    }
+    const samples = parsed.data?.result ?? [];
+    let maxV = Number.NEGATIVE_INFINITY;
+    for (const s of samples) {
+      const v = parseFloat(String(s.value?.[1] ?? ''));
+      if (!Number.isNaN(v)) maxV = Math.max(maxV, v);
+    }
+    if (samples.length === 0) maxV = 0;
+    const threshold = prom.maxSampleValue ?? 0;
+    const passBelow = prom.passIfBelowOrEqual !== false;
+    const ok = passBelow ? maxV <= threshold : maxV >= threshold;
+    if (!ok) {
+      throw new Error(
+        `Prometheus 门禁未通过：样本最大值=${maxV}，阈值=${threshold}（passIfBelowOrEqual=${passBelow}）`,
+      );
+    }
+    await this.appendLogLine(deploymentId, `[deploy] gate prometheus ok max=${maxV}`);
   }
 
   async deployPreview(opts: { deploymentId: string; projectId: string; previewId: string; orgId: string }) {
@@ -984,6 +1444,9 @@ export class DeployApplicationService {
     domain: string | null;
     ssrEntryPoint: string;
     envVars: Record<string, string>;
+    /** 多机滚动：非入口机仅同步文件 */
+    skipNginx?: boolean;
+    skipPm2?: boolean;
   }): Promise<{ macStaticPort?: number }> {
     const { host, port, username, privateKey, sshKeyPath } = opts;
 
@@ -991,15 +1454,17 @@ export class DeployApplicationService {
     let macNginxOut = '';
 
     try {
+      const needNginx = !opts.skipNginx && !!opts.domain?.trim();
+      const needPm2 = !opts.skipPm2 && opts.frameworkType === 'ssr';
       if (opts.serverOs === ServerOs.LINUX) {
         await this.sshRemotePrecheck(conn, opts.deploymentId, {
-          needNginx: !!opts.domain?.trim(),
-          needPm2: opts.frameworkType === 'ssr',
+          needNginx,
+          needPm2,
         });
       } else if (opts.serverOs === ServerOs.MACOS) {
         await this.sshRemotePrecheck(conn, opts.deploymentId, {
           needNginx: false,
-          needPm2: opts.frameworkType === 'ssr',
+          needPm2,
         });
       }
 
@@ -1012,7 +1477,7 @@ export class DeployApplicationService {
         `ssh -p ${port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
       ]);
 
-      if (opts.frameworkType === 'ssr') {
+      if (opts.frameworkType === 'ssr' && !opts.skipPm2) {
         await this.appendLogLine(opts.deploymentId, '[deploy] SSR：开始生成 PM2 配置并启动/重载服务…');
         // 生成 ecosystem.config.js
         const envStr = Object.entries(opts.envVars)
@@ -1037,7 +1502,7 @@ export class DeployApplicationService {
       }
 
       // 生成/更新 Nginx 配置（Linux 用 sites-available；macOS Homebrew 用 etc/nginx/servers/）
-      if (opts.domain) {
+      if (opts.domain && !opts.skipNginx) {
         await this.appendLogLine(opts.deploymentId, '[deploy] 开始生成/更新 Nginx 配置…');
         const serverNames = buildNginxServerNameList(opts.domain.trim(), opts.host);
         const nginxConf = opts.frameworkType === 'ssr'
@@ -1063,7 +1528,7 @@ export class DeployApplicationService {
 
       // macOS + 静态站点：无 Nginx 或未配置域名时，用 Node 脚本 + PM2 在固定端口提供站点
       let macStaticPort: number | undefined;
-      if (opts.serverOs === ServerOs.MACOS && opts.frameworkType === 'static') {
+      if (opts.serverOs === ServerOs.MACOS && opts.frameworkType === 'static' && !opts.skipNginx) {
         const nginxSkipped = !opts.domain?.trim() || macNginxOut.includes('SHIPYARD_NGINX_SKIPPED=1');
         if (nginxSkipped) {
             await this.appendLogLine(opts.deploymentId, '[deploy] macOS：Nginx 不可用，准备使用 PM2 + Node 启动静态站点…');
