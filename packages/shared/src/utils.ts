@@ -6,6 +6,35 @@ export function isLoopbackHostLabel(s: string | null | undefined): boolean {
   return /^localhost$/i.test(t) || t === '127.0.0.1' || t === '::1';
 }
 
+/** 去掉字符串末尾连续斜杠（规范 HTTP(S) base URL） */
+export function stripTrailingSlashes(input: string): string {
+  return input.replace(/\/+$/, '');
+}
+
+/**
+ * 将主机名或完整 URL 规范为带末尾斜杠的根访问地址（与部署日志、环境访问 URL 展示一致）。
+ * 无 scheme 时补 `http://`；仅空白则返回空串。
+ */
+export function normalizeHttpRootUrlWithSlash(hostOrUrl: string): string {
+  const s = hostOrUrl.trim();
+  if (!s) return '';
+  const base = s.includes('://') ? s : `http://${s}`;
+  return `${stripTrailingSlashes(base)}/`;
+}
+
+/**
+ * PM2 / 本机静态回退站点的根 URL（固定 `http://`，与 deploy 落库 accessUrl、详情页展示一致）。
+ * `hostInput` 可为裸主机名、IP，或带 `http(s)://` 前缀（会去掉 scheme 与路径）。
+ */
+export function buildPm2StaticSiteRootUrl(hostInput: string, port: number): string {
+  const raw = hostInput.trim();
+  if (!raw || !Number.isFinite(port) || port <= 0 || port > 65535) return '';
+  let hostPart = raw.replace(/^https?:\/\//i, '');
+  hostPart = hostPart.split('/')[0]?.trim() ?? '';
+  if (!hostPart) return '';
+  return `http://${hostPart}:${port}/`;
+}
+
 /**
  * 环境「域名」为 localhost/127.0.0.1 且 SSH 目标非本机时，返回服务器 host 作为对外访问主机与 Nginx server_name；
  * 避免用户在本机浏览器访问 localhost 却访问不到远端已部署站点。
