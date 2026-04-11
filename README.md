@@ -168,7 +168,7 @@ pnpm -r build
 - **Gitea**：`pull_request`；仓库 Hook 的 `events` 含 `push` 与 `pull_request`，已存在 Hook 会 PATCH 补齐。
 - 上述平台统一行为：同仓库 MR/PR 触发构建与 Linux 预览部署、关闭/合并时清理（含队列 job 取消与远端 teardown 幂等）、**Fork 来源与目标不一致时跳过**。
 - 预览 URL：`pr-{prNumber}-{projectId前8位}.{previewBaseDomain}`（项目在控制台配置「预览父域」，例如 `preview.example.com`）。
-- **SSR**：Redis 端口池；每 PR 固定 PM2 应用名；每次部署**新占端口**，单次 SSH 内 `pm2 delete`（若存在）后 `pm2 start`，Nginx 指新端口并重载；成功后释放旧端口占用；**部署失败且尚未写入 DB 时会回滚本次新端口的 Redis 占用**（非「双进程并行 + 原子切流」的完整蓝绿）。
+- **SSR（蓝绿）**：Redis 端口池；**双槽位** PM2 名 `…-bg0` / `…-bg1` 交替；新部署先起**候选**进程与健康检查（远端 `curl` 本机新端口），**Nginx 片段先写临时文件再 `mv` 原子切换**并重载，再摘除旧槽位/遗留名单进程名；成功后释放旧端口；失败时回滚 Redis 新端口占用，健康检查或 Nginx 失败时尽量恢复旧片段并删除候选 PM2。
 - **静态站点**：`releases/<deploymentId>` + `current` 软链，Nginx `root` 指向 `current`。
 - **预览评论**（成功/失败同一条更新）：GitHub（issues comments）、GitLab（MR notes）、Gitee（pull comments）、Gitea（PR 走 issues comments API，需配置实例 **baseUrl**）；Token 需具备对应 API 写权限。
 
@@ -181,8 +181,7 @@ pnpm -r build
 
 **仍待增强（可选）**
 
-- **完整蓝绿**：例如候选 PM2 进程名、新旧实例并行监听、健康检查通过后再摘旧进程、Nginx 配置原子切换（`rename`/双文件）等，以进一步压缩切换空窗并降低异常时无进程风险。
-- **实例兼容**：自托管 GitLab / Gitea / Gitee 版本差异可能导致 Hook PATCH 或评论 REST 路径、字段与公有云文档不一致，部署前请对照各实例官方 Webhook 与 REST API 文档做一次核对。
+- **实例兼容**：自托管 GitLab / Gitea / Gitee 版本差异可能导致 Hook PATCH 或评论 REST 路径、字段与公有云文档不一致，部署前请对照各实例官方 Webhook 与 REST API 文档做一次核对（可在下方矩阵中补充你的实例版本与结论）。
 
 ### 2）通知系统完善（配置 + 触发点）
 
@@ -194,18 +193,26 @@ pnpm -r build
 - **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack（机器人 Webhook JSON）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。
 - **敏感字段**：`config` 内 `secret`、`smtpPass` 等使用 `CryptoService` 加密落库；API 响应脱敏（如 `secretConfigured` / `smtpPassConfigured`）。
 - **SSRF 与 URL 主机**：允许配置**字面 IP** 的 `http(s)` URL，对该地址直接做阻断列表校验；若为**域名**，则对该主机名解析得到的**全部**结果逐一校验，任一对私网/保留段即拒绝。
-- **IM `secret`**：`secret` 加密存储；**钉钉**渠道在配置密钥时使用官方加签（`timestamp` + `sign`）；飞书 / Slack 仍为无签 Webhook URL。
+- **IM `secret`**：`secret` 加密存储；**钉钉**为毫秒时间戳 + HMAC 加签 query；**飞书**为秒时间戳 + 同结构加签 query（见 `buildFeishuSignedWebhookUrl`）；**Slack** 原生 Webhook 以 URL 为凭据，可选 `secret` 会作为 `Authorization: Bearer` 发出，便于你在网关侧校验（Slack 公网端点一般忽略该头）。
 - **新建组织与 Worker**：创建组织后向 Redis 发布 `worker:new-org`；Build / Deploy / Notify Worker 均已订阅并为新组织注册对应 BullMQ 队列，**一般无需重启** Worker 进程。
 - **产物保留**：构建成功后按 `Organization.artifactRetention` 对该组织下全部 `BuildArtifact` 与 `ARTIFACT_STORE_PATH` 内 `*.tar.gz` 做 **count-based** 清理，保留最近 N 条。
 - **测试**：根目录 `pnpm test` 会先执行 `pnpm --filter @shipyard/shared build` 再跑各包测试，避免 `@shipyard/server` Vitest 引用过期 `dist` 报错。若 CI 将 job 拆分，运行 server 测试的 job 也须先构建 `@shipyard/shared`。GitHub Actions 见 `.github/workflows/ci.yml`（含可选 E2E）。
 
 **仍待增强**
 
-- **IM 加签（非钉钉）**：飞书 / Slack 等与已存储 `secret` 的签名协议待实现。
+- 通知渠道与事件矩阵可继续扩充（如企业微信等）。
 
 ### 3）构建与部署可靠性加固
 
-- BuildWorker：clone/workdir、按 lockfile hash 的缓存等仍可增强；日志已改为 **DB 与 Redis Pub/Sub 分别容错**，单路失败不阻断另一路。
-- DeployWorker：SSH/rsync 失败时日志与通知附带 `code`/`errno`（若有）；远端依赖预检（nginx/rsync/acme.sh/pm2/nvm）等仍可增强。
+- **BuildWorker**：按 **组织 + 包管理器 + lockfile 内容 SHA256 前缀** 维护可复用的 `node_modules` 缓存（`cache_hit` / `cache_miss` 日志）；缓存根目录可用环境变量 `SHIPYARD_BUILD_DEPS_CACHE_PATH` 指定（默认系统临时目录下 `shipyard-build-deps-cache`）。构建 workdir 仍为每次 `build-<deploymentId>`，结束后 `finally` 清理，与缓存目录分离。
+- **DeployWorker**：SSH 连通后先做 **`[precheck]`**（Linux：`bash`/`rsync`/按条件 `nginx` 与 SSR 时 `node`+`pm2`；macOS 至少 `bash`/`rsync`，SSR 时检查 `pm2`/`node`）；失败日志带安装提示。SSH/rsync 失败仍附带 `code`/`errno`（若有）。
 - **产物清理**：已在构建成功后按 `artifactRetention` 自动执行（见 §2）。
-- Docker 构建隔离（Phase 2）：rootless + 资源限制 + seccomp
+- **Docker 构建隔离（Phase 2）**：环境变量 `SHIPYARD_BUILD_USE_DOCKER=true` 为预留开关；当前 **仅打日志提醒**，执行路径仍为 `child_process`（rootless + seccomp 等在后续小版本落地）。
+
+### 自托管 Git 实例兼容（简表）
+
+| 平台 | 建议自测项 | 说明 |
+|------|------------|------|
+| GitLab | Webhook `merge_requests_events`、MR API 评论 | 自建版本与 gitlab.com 字段可能略有差异 |
+| Gitea | `pull_request` 事件、PR 评论 API | 需在 `GitConnection.baseUrl` 填实例根 URL |
+| Gitee | `merge_request_hooks` | 企业版与公有云文档路径请以实例文档为准 |

@@ -1,4 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
+import * as os from 'os';
 import { Worker, Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
@@ -6,8 +8,8 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { GitAccessTokenService } from '../git/git-access-token.service';
 import { GitCommitStatusService } from '../git/git-commit-status.service';
 import { spawn } from 'child_process';
-import { mkdirSync, rmSync, existsSync } from 'fs';
-import { writeFile, readdir } from 'fs/promises';
+import { mkdirSync, rmSync, existsSync, cpSync } from 'fs';
+import { writeFile, readdir, readFile } from 'fs/promises';
 import * as path from 'path';
 import * as tar from 'tar';
 import { buildCloneUrl, GitProvider, NotificationEvent } from '@shipyard/shared';
@@ -15,6 +17,7 @@ import { NotificationEnqueueApplicationService } from '../notifications/applicat
 import { ArtifactRetentionApplicationService } from '../artifacts/application/artifact-retention.application.service';
 import { GitPrCommentApplicationService } from '../git/application/git-pr-comment.application.service';
 import type { BuildJobData } from './pipeline.service';
+import { warnIfDockerBuildFlagWithoutExecutor } from './docker-build-flag';
 
 // 安全的构建环境变量白名单
 const SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP'];
@@ -58,6 +61,7 @@ export class BuildWorkerService implements OnModuleInit {
     });
 
     this.logger.log(`BuildWorker initialized for ${orgs.length} organizations`);
+    warnIfDockerBuildFlagWithoutExecutor(this.logger);
   }
 
   private startWorkerForOrg(orgId: string, concurrency: number) {
@@ -203,11 +207,38 @@ export class BuildWorkerService implements OnModuleInit {
       // 检测包管理器
       const pm = await this.detectPackageManager(tmpDir);
 
+      const fp = await this.lockfileFingerprint(tmpDir, pm);
+      const cacheModulesPath = path.join(this.buildDepsCacheRoot(), orgId, pm, fp, 'node_modules');
+      if (existsSync(cacheModulesPath)) {
+        await this.appendLog(
+          deploymentId,
+          logSeq++,
+          `[install] cache_hit lockfile=${fp.slice(0, 12)}… 复制 node_modules`,
+        );
+        const destNm = path.join(tmpDir, 'node_modules');
+        if (existsSync(destNm)) rmSync(destNm, { recursive: true, force: true });
+        cpSync(cacheModulesPath, destNm, { recursive: true });
+      } else {
+        await this.appendLog(deploymentId, logSeq++, `[install] cache_miss (${pm}) lockfile=${fp.slice(0, 12)}…`);
+      }
+
       // install
       const installCmd = pipelineConfig.installCommand ?? `${pm} install`;
       const [installBin, ...installArgs] = installCmd.split(' ');
       await this.appendLog(deploymentId, logSeq++, '[install] 开始安装依赖…');
       await runCmd(installBin!, installArgs, tmpDir, 'install');
+
+      try {
+        const parent = path.dirname(cacheModulesPath);
+        mkdirSync(parent, { recursive: true });
+        const srcNm = path.join(tmpDir, 'node_modules');
+        if (existsSync(srcNm)) {
+          rmSync(cacheModulesPath, { recursive: true, force: true });
+          cpSync(srcNm, cacheModulesPath, { recursive: true });
+        }
+      } catch (e) {
+        this.logger.warn(`写入依赖缓存失败 org=${orgId} fp=${fp.slice(0, 8)}: ${e}`);
+      }
 
       // lint（可选）
       if (pipelineConfig.lintCommand) {
@@ -377,6 +408,22 @@ export class BuildWorkerService implements OnModuleInit {
       if (existsSync(tmpDir)) {
         rmSync(tmpDir, { recursive: true, force: true });
       }
+    }
+  }
+
+  private buildDepsCacheRoot(): string {
+    const raw = process.env['SHIPYARD_BUILD_DEPS_CACHE_PATH']?.trim();
+    return raw && raw.length > 0 ? raw : path.join(os.tmpdir(), 'shipyard-build-deps-cache');
+  }
+
+  private async lockfileFingerprint(tmpDir: string, pm: string): Promise<string> {
+    const lockFile =
+      pm === 'pnpm' ? 'pnpm-lock.yaml' : pm === 'yarn' ? 'yarn.lock' : 'package-lock.json';
+    try {
+      const buf = await readFile(path.join(tmpDir, lockFile));
+      return createHash('sha256').update(buf).digest('hex').slice(0, 48);
+    } catch {
+      return createHash('sha256').update(`no-lock:${pm}`).digest('hex').slice(0, 48);
     }
   }
 

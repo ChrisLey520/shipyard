@@ -358,6 +358,8 @@ model Preview {
   prBranch     String
   url          String
   allocatedPort Int?
+  /// SSR 预览蓝绿：最近一次成功部署后对外提供流量的槽位 0 或 1（对应 PM2 名 …-bg0 / …-bg1）
+  ssrBgSlot    Int?
   gitProvider  String
   commentId    String?
   expiresAt    DateTime?

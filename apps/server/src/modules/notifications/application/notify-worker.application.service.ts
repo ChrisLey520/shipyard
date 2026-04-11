@@ -8,6 +8,8 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { assertSafeOutboundHttpUrl } from '../outbound-url-guard';
 import { decryptNotificationSecrets } from '../notification-config.crypto';
+import { buildFeishuSignedWebhookUrl } from '../feishu-webhook-sign';
+import { buildSlackOptionalHeaders } from '../slack-webhook-headers';
 
 export interface NotifyJobData {
   projectId: string;
@@ -43,13 +45,13 @@ export class NotifyWorkerApplicationService {
             await this.sendWebhook(plain as { url: string }, data.payload);
             break;
           case NotificationChannel.FEISHU:
-            await this.sendFeishu(plain as { url: string }, text);
+            await this.sendFeishu(plain as { url: string; secret?: string }, text);
             break;
           case NotificationChannel.DINGTALK:
             await this.sendDingtalk(plain as { url: string; secret?: string }, text);
             break;
           case NotificationChannel.SLACK:
-            await this.sendSlack(plain as { url: string }, text);
+            await this.sendSlack(plain as { url: string; secret?: string }, text);
             break;
           case NotificationChannel.EMAIL:
             await this.sendEmail(
@@ -88,7 +90,11 @@ export class NotifyWorkerApplicationService {
     return lines.length ? `${msg}\n${lines.join('\n')}` : msg;
   }
 
-  private async postJson(url: string, body: unknown): Promise<void> {
+  private async postJson(
+    url: string,
+    body: unknown,
+    extraHeaders?: Record<string, string>,
+  ): Promise<void> {
     const urlObj = await assertSafeOutboundHttpUrl(url);
     const bodyStr = JSON.stringify(body);
     const client = urlObj.protocol === 'https:' ? https : http;
@@ -100,6 +106,7 @@ export class NotifyWorkerApplicationService {
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
             'Content-Length': Buffer.byteLength(bodyStr),
+            ...(extraHeaders ?? {}),
           },
         },
         (res) => {
@@ -119,8 +126,10 @@ export class NotifyWorkerApplicationService {
     await this.postJson(config.url, payload);
   }
 
-  private async sendFeishu(config: { url: string }, text: string) {
-    await this.postJson(config.url, {
+  private async sendFeishu(config: { url: string; secret?: string }, text: string) {
+    const secret = typeof config.secret === 'string' && config.secret.trim() ? config.secret.trim() : '';
+    const url = secret ? buildFeishuSignedWebhookUrl(config.url, secret) : config.url;
+    await this.postJson(url, {
       msg_type: 'text',
       content: { text },
     });
@@ -146,8 +155,8 @@ export class NotifyWorkerApplicationService {
     });
   }
 
-  private async sendSlack(config: { url: string }, text: string) {
-    await this.postJson(config.url, { text });
+  private async sendSlack(config: { url: string; secret?: string }, text: string) {
+    await this.postJson(config.url, { text }, buildSlackOptionalHeaders(config.secret));
   }
 
   private async sendEmail(

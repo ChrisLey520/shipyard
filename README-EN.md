@@ -94,7 +94,7 @@ pnpm -r build
 - **Deploy**: SSH deploy (rsync + nginx/pm2 logic), deploy lock, health check + auto rollback
 - **Approvals**: protected env approvals list + approve/reject (approve enqueues deploy job)
 - **Web UI**: login/register, dashboard, projects/envs/servers/team/approvals, deployment logs (xterm)
-- **PR Preview (multi-provider)**: GitHub `pull_request`, GitLab merge request hooks, Gitee `merge_request_hooks`, Gitea `pull_request`; preview deploy to Linux over SSH; Redis port pool; per-preview Nginx under `/etc/nginx/shipyard-previews.d/`; SSR uses a **new port per deploy**, single-SSH `pm2 delete` + `pm2 start`, Nginx to new port, old port released on success, **new port Redis lease rolled back** if deploy fails before DB commit; comments on GitHub / GitLab MR notes / Gitee pull comments / Gitea issue-style PR comments (**Gitea needs instance baseUrl**); fork PRs (different head vs base repo) skipped
+- **PR Preview (multi-provider)**: GitHub `pull_request`, GitLab merge request hooks, Gitee `merge_request_hooks`, Gitea `pull_request`; Linux SSH deploy; Redis port pool; Nginx snippets under `/etc/nginx/shipyard-previews.d/` with **atomic write** (`mv`); **SSR blue/green** with alternating PM2 slots (`-bg0`/`-bg1`), candidate health check on the server (`curl` to localhost), then Nginx cutover and teardown of the old slot / legacy process name; old port released after success; failed deploy rolls back the new port lease in Redis; PR comments as in the Chinese README; fork PRs skipped when head/base repos differ
 
 ## Next phase roadmap
 
@@ -109,7 +109,6 @@ The following items are the **next phase** priorities (ordered by “works end-t
 
 ### 2) PR Preview (optional follow-ups)
 
-- **Full blue/green**: e.g. candidate PM2 app name, old/new processes listening in parallel, health check before tearing down the old instance, atomic Nginx switch (`rename` or dual-file pattern) to shrink cutover gaps and “no process” windows.
 - **Instance compatibility**: self-hosted GitLab / Gitea / Gitee versions may differ from public-cloud API docs for hook PATCH fields or comment endpoints—verify against your instance’s official webhook and REST docs before production.
 - Optional product policy: fork PR previews and stronger isolation (beyond “skip fork” today).
 
@@ -130,7 +129,7 @@ The following items are the **next phase** priorities (ordered by “works end-t
 
 ### 4) Build & deploy reliability hardening
 
-- BuildWorker: fix clone/workdir flow, log flush strategy, cache strategy (lockfile-hash based)
-- DeployWorker: proper SSH/rsync key handling, remote dependency checks (nginx/rsync/acme.sh/pm2/nvm) with actionable errors
-- Artifact cleanup: enforce `Organization.artifactRetention` (count-based retention)
-- Docker build isolation (Phase 2): rootless + resource limits + seccomp
+- BuildWorker: per-org **lockfile-fingerprint `node_modules` cache** (`SHIPYARD_BUILD_DEPS_CACHE_PATH`); workdir still one clean dir per deployment
+- DeployWorker: **`[precheck]`** after SSH (bash/rsync; nginx and node/pm2 when needed) with actionable errors; SSH/rsync failures still surface `code`/`errno` when present
+- Artifact cleanup: `Organization.artifactRetention` (count-based)
+- Docker build isolation (Phase 2): `SHIPYARD_BUILD_USE_DOCKER=true` logs a warning only; execution still uses `child_process` until a later release

@@ -21,6 +21,7 @@ import { NotificationEvent } from '@shipyard/shared';
 import { PreviewPortPoolService } from './preview-port-pool.service';
 import { Client as SshClient } from 'ssh2';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
 import { spawn } from 'child_process';
 import { mkdirSync, rmSync } from 'fs';
 import { writeFile, unlink } from 'fs/promises';
@@ -364,6 +365,95 @@ export class DeployApplicationService {
     return `sh-preview-${this.sanitizePm2Segment(projectSlug)}-pr-${prNumber}`;
   }
 
+  /** SSR 蓝绿：双槽位 PM2 进程名（与 Preview.ssrBgSlot 对应） */
+  private previewPm2BgName(baseName: string, slot: 0 | 1): string {
+    return `${baseName}-bg${slot}`;
+  }
+
+  /** SSH 连通后检测远端必备命令，失败时抛出带 [precheck] 前缀的说明 */
+  private async sshRemotePrecheck(
+    conn: SshClient,
+    deploymentId: string,
+    opts: { needNginx: boolean; needPm2: boolean },
+  ): Promise<void> {
+    const parts: string[] = [
+      'command -v bash >/dev/null 2>&1 || { echo "missing: bash"; exit 2; }',
+      'command -v rsync >/dev/null 2>&1 || { echo "missing: rsync"; exit 2; }',
+    ];
+    if (opts.needNginx) {
+      parts.push('command -v nginx >/dev/null 2>&1 || { echo "missing: nginx"; exit 2; }');
+    }
+    if (opts.needPm2) {
+      parts.push('command -v pm2 >/dev/null 2>&1 || { echo "missing: pm2"; exit 2; }');
+      parts.push(
+        'command -v node >/dev/null 2>&1 || { echo "missing: node"; exit 2; }',
+      );
+    }
+    const script = parts.join('; ');
+    try {
+      await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(script)}`);
+    } catch (e) {
+      const tail = this.formatDeployFailureMessage(e);
+      throw new Error(
+        `[precheck] 远端环境检测未通过（需 bash、rsync` +
+          (opts.needNginx ? '、nginx' : '') +
+          (opts.needPm2 ? '、node、pm2；若使用 nvm 请在目标用户登录 shell 中默认加载 node' : '') +
+          `）。详情: ${tail}`,
+      );
+    }
+    await this.appendLogLine(
+      deploymentId,
+      `[precheck] 通过（bash/rsync${opts.needNginx ? '/nginx' : ''}${opts.needPm2 ? '/node/pm2' : ''}）`,
+    );
+  }
+
+  /** 预览 Nginx 片段：先写临时文件再 rename，避免 include 读到半成品 */
+  private async sshWritePreviewNginxAtomic(
+    conn: SshClient,
+    nginxSnippetPath: string,
+    body: string,
+    deploymentId: string,
+  ): Promise<void> {
+    const tag = `SYXSH_${randomBytes(8).toString('hex')}`;
+    if (body.includes(tag)) {
+      throw new Error('Nginx 片段内容与内部分隔符冲突，请调整域名或路径后重试');
+    }
+    const qDir = this.shellSingleQuote(DeployApplicationService.PREVIEW_NGINX_DIR);
+    const qFinal = this.shellSingleQuote(nginxSnippetPath);
+    const tmpQuoted = this.shellSingleQuote(`${nginxSnippetPath}.tmp.shipyard$$`);
+    const inner = [
+      'set -euo pipefail',
+      `mkdir -p ${qDir}`,
+      `tmp=${tmpQuoted}`,
+      `cat > "$tmp" <<'${tag}'`,
+      body,
+      tag,
+      `mv -f "$tmp" ${qFinal}`,
+      'nginx -t && nginx -s reload',
+    ].join('\n');
+    await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
+    await this.appendLogLine(deploymentId, '[preview-deploy] nginx 片段已原子更新并重载');
+  }
+
+  /** 在远端对 SSR 候选端口做 HTTP 探活（与 Nginx 切换前门禁一致） */
+  private async sshPreviewSsrHealthCheck(
+    conn: SshClient,
+    port: number,
+    deploymentId: string,
+  ): Promise<void> {
+    const max = 5;
+    const sleepSec = 2;
+    const inner = `for i in $(seq 1 ${max}); do curl -fsS --max-time 5 "http://127.0.0.1:${port}/" >/dev/null 2>&1 && exit 0; sleep ${sleepSec}; done; exit 1`;
+    try {
+      await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
+    } catch {
+      throw new Error(
+        `SSR 候选实例健康检查未通过（http://127.0.0.1:${port}/ ，已重试 ${max} 次）`,
+      );
+    }
+    await this.appendLogLine(deploymentId, `[preview-deploy] health_ok localhost:${port}`);
+  }
+
   private shellSingleQuote(s: string): string {
     return `'${s.replace(/'/g, `'"'"'`)}'`;
   }
@@ -424,8 +514,13 @@ export class DeployApplicationService {
         privateKey,
       });
       try {
+        const q0 = this.shellSingleQuote(this.previewPm2BgName(pm2Name, 0));
+        const q1 = this.shellSingleQuote(this.previewPm2BgName(pm2Name, 1));
+        const qLegacy = this.shellSingleQuote(pm2Name);
         const inner = [
-          `pm2 describe ${this.shellSingleQuote(pm2Name)} >/dev/null 2>&1 && pm2 delete ${this.shellSingleQuote(pm2Name)} || true`,
+          `pm2 describe ${qLegacy} >/dev/null 2>&1 && pm2 delete ${qLegacy} || true`,
+          `pm2 describe ${q0} >/dev/null 2>&1 && pm2 delete ${q0} || true`,
+          `pm2 describe ${q1} >/dev/null 2>&1 && pm2 delete ${q1} || true`,
           `rm -f ${this.shellSingleQuote(nginxPath)}`,
           `(nginx -t && nginx -s reload) || true`,
           `rm -rf ${this.shellSingleQuote(deployBase)}`,
@@ -557,18 +652,6 @@ export class DeployApplicationService {
       if (!locked) throw new Error('该 PR 预览正在部署中');
 
       try {
-        await this.appendLogLine(
-          deploymentId,
-          `[preview-deploy] rsync → ${server.user}@${server.host}:${releaseDir}`,
-        );
-        await this.execLocal('rsync', [
-          '-avz',
-          `${tmpExtractDir}/`,
-          `${server.user}@${server.host}:${releaseDir}/`,
-          '-e',
-          `ssh -p ${server.port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
-        ]);
-
         const conn = await this.createSshClient({
           host: server.host,
           port: server.port,
@@ -576,46 +659,112 @@ export class DeployApplicationService {
           privateKey,
         });
         try {
+          await this.sshRemotePrecheck(conn, deploymentId, { needNginx: true, needPm2: isSsr });
+
+          await this.appendLogLine(
+            deploymentId,
+            `[preview-deploy] rsync → ${server.user}@${server.host}:${releaseDir}`,
+          );
+          await this.execLocal('rsync', [
+            '-avz',
+            `${tmpExtractDir}/`,
+            `${server.user}@${server.host}:${releaseDir}/`,
+            '-e',
+            `ssh -p ${server.port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
+          ]);
+
           await this.sshExec(
             conn,
             `bash -lc ${this.shellSingleQuote(`mkdir -p "${deployBase}/releases" && ln -sfn "releases/${deploymentId}" "${deployBase}/current"`)}`,
           );
 
-          const pm2Name = this.previewPm2AppName(project.slug, preview.prNumber);
+          const pm2Base = this.previewPm2AppName(project.slug, preview.prNumber);
           const entry = pipelineConfig.ssrEntryPoint ?? 'dist/index.js';
 
-          if (isSsr) {
+          if (isSsr && newSsrPort != null) {
+            const activeSlot = preview.ssrBgSlot;
+            const candidateSlot: 0 | 1 = activeSlot == null ? 0 : activeSlot === 0 ? 1 : 0;
+            const candPm2Name = this.previewPm2BgName(pm2Base, candidateSlot);
+            const oldSlotName =
+              activeSlot === 0 || activeSlot === 1 ? this.previewPm2BgName(pm2Base, activeSlot as 0 | 1) : null;
+
+            const nginxBodyNew = this.generateSsrNginxConf(previewHost, '127.0.0.1', newSsrPort);
+            const nginxBodyOld =
+              oldSsrPort != null ? this.generateSsrNginxConf(previewHost, '127.0.0.1', oldSsrPort) : null;
+
             const envStr = Object.entries(envVars)
               .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
               .join(',\n');
             const cwd = `${deployBase}/current`;
+            const ecoPath = `${deployBase}/current/ecosystem.bg${candidateSlot}.config.js`;
             const ecosystemJs = `module.exports = {
   apps: [{
-    name: ${JSON.stringify(pm2Name)},
+    name: ${JSON.stringify(candPm2Name)},
     script: ${JSON.stringify(entry)},
     cwd: ${JSON.stringify(cwd)},
     env: {\n${envStr}\n    }
   }]
 };`;
+
+            await this.appendLogLine(
+              deploymentId,
+              `[preview-deploy] candidate_up slot=${candidateSlot} pm2=${candPm2Name} port=${newSsrPort}`,
+            );
+
             await this.sshExec(
               conn,
-              `cat > ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)} << 'EOFCONFIG'\n${ecosystemJs}\nEOFCONFIG`,
+              `cat > ${this.shellSingleQuote(ecoPath)} << 'EOFCONFIG'\n${ecosystemJs}\nEOFCONFIG`,
             );
-            const qPm2 = this.shellSingleQuote(pm2Name);
-            const qEco = this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`);
-            const pm2Switch = `(pm2 describe ${qPm2} >/dev/null 2>&1 && pm2 delete ${qPm2} || true); pm2 start ${qEco}`;
-            await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(pm2Switch)}`);
+            const qCand = this.shellSingleQuote(candPm2Name);
+            const qEco = this.shellSingleQuote(ecoPath);
+            const pm2Cand = `(pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true); pm2 start ${qEco}`;
+            await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(pm2Cand)}`);
+
+            try {
+              await this.sshPreviewSsrHealthCheck(conn, newSsrPort, deploymentId);
+            } catch (hcErr) {
+              await this.sshExec(
+                conn,
+                `bash -lc ${this.shellSingleQuote(`pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true`)}`,
+              ).catch(() => undefined);
+              throw hcErr;
+            }
+
+            await this.appendLogLine(deploymentId, '[preview-deploy] traffic_switch nginx → 候选端口');
+            try {
+              await this.sshWritePreviewNginxAtomic(conn, nginxSnippet, nginxBodyNew, deploymentId);
+            } catch (nginxErr) {
+              if (nginxBodyOld) {
+                await this.sshWritePreviewNginxAtomic(conn, nginxSnippet, nginxBodyOld, deploymentId).catch((e) =>
+                  this.logger.warn(`预览 Nginx 回滚失败: ${e}`),
+                );
+              }
+              const qCandDel = this.shellSingleQuote(candPm2Name);
+              await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(`pm2 describe ${qCandDel} >/dev/null 2>&1 && pm2 delete ${qCandDel} || true`)}`).catch(
+                () => undefined,
+              );
+              throw nginxErr;
+            }
+
+            const qLegacy = this.shellSingleQuote(pm2Base);
+            const cutoverPm2 = [
+              `pm2 describe ${qLegacy} >/dev/null 2>&1 && pm2 delete ${qLegacy} || true`,
+              oldSlotName
+                ? `pm2 describe ${this.shellSingleQuote(oldSlotName)} >/dev/null 2>&1 && pm2 delete ${this.shellSingleQuote(oldSlotName)} || true`
+                : 'true',
+            ].join('; ');
+            await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(cutoverPm2)}`);
+            await this.appendLogLine(deploymentId, '[preview-deploy] rollback_old_instance 已摘除旧 PM2 槽位/遗留进程名');
+
+            await this.prisma.preview.update({
+              where: { id: preview.id },
+              data: { allocatedPort: newSsrPort, ssrBgSlot: candidateSlot },
+            });
+            ssrPortRollback = null;
+          } else {
+            const nginxBody = this.generateStaticNginxConf(previewHost, `${deployBase}/current`);
+            await this.sshWritePreviewNginxAtomic(conn, nginxSnippet, nginxBody, deploymentId);
           }
-
-          const nginxBody =
-            project.frameworkType === 'ssr'
-              ? this.generateSsrNginxConf(previewHost, '127.0.0.1', newSsrPort!)
-              : this.generateStaticNginxConf(previewHost, `${deployBase}/current`);
-
-          await this.sshExec(
-            conn,
-            `mkdir -p ${this.shellSingleQuote(DeployApplicationService.PREVIEW_NGINX_DIR)} && cat > ${this.shellSingleQuote(nginxSnippet)} <<'EOFNGINX'\n${nginxBody}\nEOFNGINX\nnginx -t && nginx -s reload`,
-          );
         } finally {
           conn.end();
         }
@@ -624,11 +773,6 @@ export class DeployApplicationService {
           if (oldSsrPort != null && oldSsrPort !== newSsrPort) {
             await this.previewPorts.releaseIfOwned(server.id, oldSsrPort, preview.id);
           }
-          await this.prisma.preview.update({
-            where: { id: preview.id },
-            data: { allocatedPort: newSsrPort },
-          });
-          ssrPortRollback = null;
         }
       } finally {
         await this.redis.releaseLock(lockKey);
@@ -786,20 +930,31 @@ export class DeployApplicationService {
   }): Promise<{ macStaticPort?: number }> {
     const { host, port, username, privateKey, sshKeyPath } = opts;
 
-    // rsync 上传（ssh 使用与上面 writeFile 一致的密钥文件）
-    await this.appendLogLine(opts.deploymentId, '[deploy] 远端阶段：开始 rsync 上传…');
-    await this.execLocal('rsync', [
-      '-avz', '--delete',
-      `${opts.localDir}/`,
-      `${username}@${host}:${opts.deployPath}/`,
-      '-e',
-      `ssh -p ${port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
-    ]);
-
     const conn = await this.createSshClient({ host, port, username, privateKey });
     let macNginxOut = '';
 
     try {
+      if (opts.serverOs === ServerOs.LINUX) {
+        await this.sshRemotePrecheck(conn, opts.deploymentId, {
+          needNginx: !!opts.domain?.trim(),
+          needPm2: opts.frameworkType === 'ssr',
+        });
+      } else if (opts.serverOs === ServerOs.MACOS) {
+        await this.sshRemotePrecheck(conn, opts.deploymentId, {
+          needNginx: false,
+          needPm2: opts.frameworkType === 'ssr',
+        });
+      }
+
+      await this.appendLogLine(opts.deploymentId, '[deploy] 远端阶段：开始 rsync 上传…');
+      await this.execLocal('rsync', [
+        '-avz', '--delete',
+        `${opts.localDir}/`,
+        `${username}@${host}:${opts.deployPath}/`,
+        '-e',
+        `ssh -p ${port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
+      ]);
+
       if (opts.frameworkType === 'ssr') {
         await this.appendLogLine(opts.deploymentId, '[deploy] SSR：开始生成 PM2 配置并启动/重载服务…');
         // 生成 ecosystem.config.js
