@@ -411,6 +411,8 @@ export class DeployApplicationService {
   async deployPreview(opts: { deploymentId: string; projectId: string; previewId: string; orgId: string }) {
     const { deploymentId, projectId, previewId, orgId: _orgId } = opts;
     let gitConn: { gitProvider: string; accessToken: string; baseUrl: string | null } | null = null;
+    /** SSR：已 tryAllocate 但未写入 Preview.allocatedPort 时，失败路径须释放 Redis 避免端口泄漏 */
+    let ssrPortRollback: { serverId: string; port: number; previewRowId: string } | null = null;
 
     try {
       await this.prisma.deployment.update({
@@ -500,6 +502,7 @@ export class DeployApplicationService {
         const p = await this.previewPorts.tryAllocate(server.id, preview.id, minP, maxP);
         if (p == null) throw new Error('预览端口池已满');
         newSsrPort = p;
+        ssrPortRollback = { serverId: server.id, port: p, previewRowId: preview.id };
         envVars['PORT'] = String(newSsrPort);
       }
 
@@ -560,15 +563,10 @@ export class DeployApplicationService {
               conn,
               `cat > ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)} << 'EOFCONFIG'\n${ecosystemJs}\nEOFCONFIG`,
             );
-            const pm2Check = `pm2 describe ${this.shellSingleQuote(pm2Name)} > /dev/null 2>&1`;
-            await this.sshExec(
-              conn,
-              `${pm2Check} && pm2 delete ${this.shellSingleQuote(pm2Name)} || true`,
-            );
-            await this.sshExec(
-              conn,
-              `pm2 start ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)}`,
-            );
+            const qPm2 = this.shellSingleQuote(pm2Name);
+            const qEco = this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`);
+            const pm2Switch = `(pm2 describe ${qPm2} >/dev/null 2>&1 && pm2 delete ${qPm2} || true); pm2 start ${qEco}`;
+            await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(pm2Switch)}`);
           }
 
           const nginxBody =
@@ -592,6 +590,7 @@ export class DeployApplicationService {
             where: { id: preview.id },
             data: { allocatedPort: newSsrPort },
           });
+          ssrPortRollback = null;
         }
       } finally {
         await this.redis.releaseLock(lockKey);
@@ -646,6 +645,15 @@ export class DeployApplicationService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Preview deploy failed for ${deploymentId}: ${err}`);
+      if (ssrPortRollback) {
+        await this.previewPorts
+          .releaseIfOwned(
+            ssrPortRollback.serverId,
+            ssrPortRollback.port,
+            ssrPortRollback.previewRowId,
+          )
+          .catch((e) => this.logger.warn(`SSR 预览新端口 Redis 回滚失败: ${e}`));
+      }
       try {
         await this.appendLogLine(deploymentId, `[preview-deploy] [error] ${message}`);
       } catch (logErr) {
