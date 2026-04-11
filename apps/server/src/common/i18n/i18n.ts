@@ -1,20 +1,6 @@
-import type { ErrorCode } from '@shipyard/shared';
+import { type ErrorCode, type SupportedLocale, fallbackLocaleChain } from '@shipyard/shared';
 
-export const supportedLocales = ['zh-CN', 'zh-TW', 'en', 'ja'] as const;
-export type SupportedLocale = (typeof supportedLocales)[number];
-
-export const fallbackChain: SupportedLocale[] = ['zh-CN', 'zh-TW', 'en', 'ja'];
-
-export function normalizeLocale(input: unknown): SupportedLocale {
-  const raw = typeof input === 'string' ? input.trim() : '';
-  const lower = raw.toLowerCase();
-  if (lower === 'zh' || lower.startsWith('zh-cn') || lower.startsWith('zh-hans')) return 'zh-CN';
-  if (lower.startsWith('zh-tw') || lower.startsWith('zh-hant') || lower.startsWith('zh-hk')) return 'zh-TW';
-  if (lower === 'en' || lower.startsWith('en-')) return 'en';
-  if (lower === 'ja' || lower.startsWith('ja-') || lower.startsWith('jp')) return 'ja';
-  if ((supportedLocales as readonly string[]).includes(raw)) return raw as SupportedLocale;
-  return 'zh-CN';
-}
+export type { SupportedLocale };
 
 type Dict = Record<SupportedLocale, string>;
 
@@ -42,10 +28,9 @@ const errorMessages: Record<ErrorCode, Dict> = {
 export function tError(code: ErrorCode, locale: SupportedLocale): string {
   const dict = errorMessages[code];
   if (!dict) return String(code);
-  for (const l of [locale, ...fallbackChain]) {
+  for (const l of [locale, ...fallbackLocaleChain]) {
     const msg = dict[l];
     if (msg) return msg;
   }
   return String(code);
 }
-
