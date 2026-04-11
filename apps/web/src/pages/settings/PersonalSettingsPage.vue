@@ -134,13 +134,13 @@ import {
 } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
-import { authApi } from '../../api/auth';
-import { usersApi } from '../../api/users';
+import { usePersonalProfileApi } from '@/composables/users/usePersonalProfileApi';
 import { useLocaleStore } from '../../stores/locale';
 import type { SupportedLocale } from '../../i18n';
 
 const message = useMessage();
 const auth = useAuthStore();
+const { uploadAvatar: uploadAvatarApi, changePassword: changePasswordApi } = usePersonalProfileApi();
 const router = useRouter();
 const dialog = useDialog();
 const { t } = useI18n();
@@ -200,7 +200,7 @@ async function handleBeforeUpload(options: { file: UploadFileInfo }) {
   }
   uploadingAvatar.value = true;
   try {
-    const { avatarUrl: newAvatarUrl } = await usersApi.uploadMyAvatar(raw);
+    const { avatarUrl: newAvatarUrl } = await uploadAvatarApi(raw);
     // 立即更新 UI（避免依赖 fetchMe 或浏览器缓存）
     if (auth.user) auth.user = { ...auth.user, avatarUrl: newAvatarUrl };
     avatarBust.value = Date.now();
@@ -247,7 +247,7 @@ async function handleChangePassword() {
   changingPassword.value = true;
   try {
     const emailToPrefill = auth.user?.email ?? '';
-    await authApi.changePassword(oldPassword, newPassword);
+    await changePasswordApi(oldPassword, newPassword);
     await auth.logout();
     showChangePassword.value = false;
 

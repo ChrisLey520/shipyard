@@ -192,7 +192,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed, watch } from 'vue';
+import { ref, h, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
@@ -205,9 +205,10 @@ import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
 import { getEnvironmentAccessUrls } from '@/api/environments';
+import { useQueryClient } from '@tanstack/vue-query';
+import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
+import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
 import {
-  getProject,
-  listDeployments,
   deleteDeployment as apiDeleteDeployment,
   bulkDeleteDeployments as apiBulkDeleteDeployments,
   clearDeployments as apiClearDeployments,
@@ -228,12 +229,19 @@ import {
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
+const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
 const slugPattern = /^[a-z0-9-]+$/;
-const project = ref<ProjectDetail | null>(null);
-const deployments = ref<DeploymentListItem[]>([]);
-const deploymentsLoading = ref(false);
+
+const projectDetailQuery = useProjectDetailQuery(orgSlug, projectSlug);
+const deploymentsQuery = useProjectDeploymentsQuery(orgSlug, projectSlug);
+const project = computed<ProjectDetail | null>(() => projectDetailQuery.data.value ?? null);
+const deployments = computed<DeploymentListItem[]>(() => deploymentsQuery.data.value ?? []);
+const deploymentsLoading = computed(
+  () => deploymentsQuery.isPending.value || deploymentsQuery.isFetching.value,
+);
+
 const dialog = useDialog();
 const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
@@ -330,7 +338,7 @@ function confirmDeleteDeployment(deploymentId: string) {
       await apiDeleteDeployment(orgSlug.value, projectSlug.value, deploymentId);
       message.success('已删除');
       clearSelection();
-      await loadDeployments();
+      await refetchDeployments();
       void loadEnvAccessUrls();
     },
   });
@@ -348,7 +356,7 @@ function confirmBulkDeleteDeployments() {
       const res = await apiBulkDeleteDeployments(orgSlug.value, projectSlug.value, ids);
       message.success(`已删除 ${res.deleted} 条`);
       clearSelection();
-      await loadDeployments();
+      await refetchDeployments();
       void loadEnvAccessUrls();
     },
   });
@@ -364,7 +372,7 @@ function confirmClearDeployments() {
       const res = await apiClearDeployments(orgSlug.value, projectSlug.value);
       message.success(`已清空 ${res.deleted} 条`);
       clearSelection();
-      await loadDeployments();
+      await refetchDeployments();
       void loadEnvAccessUrls();
     },
   });
@@ -374,7 +382,7 @@ async function triggerDeploy(environmentId: string) {
   try {
     await apiTriggerDeploy(orgSlug.value, projectSlug.value, { environmentId });
     message.success('部署已入队');
-    await loadDeployments();
+    await refetchDeployments();
     void loadEnvAccessUrls();
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
@@ -403,7 +411,8 @@ function goEnvDetail(envId: string) {
 async function onEnvSaved() {
   showEditEnv.value = false;
   editingEnvId.value = null;
-  project.value = await getProject(orgSlug.value, projectSlug.value);
+  await projectDetailQuery.refetch();
+  void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
   void loadEnvAccessUrls();
 }
 
@@ -435,7 +444,7 @@ async function rollback(deploymentId: string) {
   try {
     await rollbackDeployment(orgSlug.value, projectSlug.value, deploymentId);
     message.success('回滚已入队');
-    await loadDeployments();
+    await refetchDeployments();
   } catch {
     message.error('回滚失败');
   }
@@ -445,7 +454,7 @@ async function retryFailed(deploymentId: string) {
   try {
     const next = await retryDeployment(orgSlug.value, projectSlug.value, deploymentId);
     message.success('已重新入队');
-    await loadDeployments();
+    await refetchDeployments();
     if (next?.id) {
       await router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${next.id}`);
     }
@@ -556,10 +565,16 @@ async function saveProject(v: ProjectEditFormValues) {
 
     showEditProject.value = false;
     message.success('已保存');
+    void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
     if (v.slug !== slugBefore) {
+      void queryClient.invalidateQueries({ queryKey: ['projects', 'detail', orgSlug.value, slugBefore] });
+      void queryClient.invalidateQueries({ queryKey: ['projects', 'deployments', orgSlug.value, slugBefore] });
       await router.replace(`/orgs/${orgSlug.value}/projects/${v.slug}`);
+      await nextTick();
     }
-    project.value = await getProject(orgSlug.value, slugAfter);
+    await projectDetailQuery.refetch();
+    await refetchDeployments();
+    await loadBuildEnv();
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(e?.response?.data?.message ?? '保存失败');
@@ -577,57 +592,33 @@ function confirmDeleteProject() {
     onPositiveClick: async () => {
       await deleteProject(orgSlug.value, projectSlug.value);
       message.success('项目已移除');
+      void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
       void router.push(`/orgs/${orgSlug.value}/projects`);
     },
   });
 }
 
-async function loadDeployments() {
-  deploymentsLoading.value = true;
-  try {
-    deployments.value = await listDeployments(orgSlug.value, projectSlug.value);
-  } finally {
-    deploymentsLoading.value = false;
-  }
+async function refetchDeployments() {
+  await deploymentsQuery.refetch();
 }
 
-watch(projectSlug, async (slug, prev) => {
-  if (prev === undefined || slug === prev) return;
-  try {
-    project.value = await getProject(orgSlug.value, slug);
-    await loadDeployments();
-    await loadBuildEnv();
-    syncProjectTabFromRoute();
-  } catch {
-    message.error('加载项目失败');
-  }
-});
-
-watch(orgSlug, async (slug, prev) => {
-  if (prev === undefined || slug === prev) return;
-  try {
-    project.value = await getProject(slug, projectSlug.value);
-    await loadDeployments();
-    await loadBuildEnv();
-    syncProjectTabFromRoute();
-  } catch {
-    message.error('加载项目失败');
-  }
-});
+watch(
+  () => project.value?.id,
+  (id) => {
+    if (!id) return;
+    void loadBuildEnv();
+    void loadEnvAccessUrls();
+  },
+  { immediate: true },
+);
 
 watch(
   () => route.query.tab,
   () => syncProjectTabFromRoute(),
 );
 
-onMounted(async () => {
+onMounted(() => {
   syncProjectTabFromRoute();
-  [project.value] = await Promise.all([
-    getProject(orgSlug.value, projectSlug.value),
-    loadDeployments(),
-  ]);
-  await loadBuildEnv();
-  await loadEnvAccessUrls();
 });
 </script>
 

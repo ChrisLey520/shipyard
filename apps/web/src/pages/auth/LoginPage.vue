@@ -87,11 +87,11 @@
 import { nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { NCard, NForm, NFormItem, NInput, NButton, NDivider, useMessage } from 'naive-ui';
-import { useAuthStore } from '../../stores/auth';
+import { useEmailLogin } from '@/composables/auth/useEmailLogin';
 
 const router = useRouter();
 const route = useRoute();
-const auth = useAuthStore();
+const { loginWithEmailPassword } = useEmailLogin();
 const message = useMessage();
 const loading = ref(false);
 
@@ -116,7 +116,7 @@ async function handleSubmit() {
   }
   loading.value = true;
   try {
-    await auth.login(form.value.email, form.value.password);
+    await loginWithEmailPassword(form.value.email, form.value.password);
     const redirect = (route.query['redirect'] as string) ?? '/orgs';
     void router.push(redirect);
   } catch (err: unknown) {

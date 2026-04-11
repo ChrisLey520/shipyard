@@ -29,14 +29,14 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NPageHeader, NCard, NForm, NFormItem, NInput, NInputNumber, NButton, useMessage } from 'naive-ui';
 import { useOrgStore } from '../../stores/org';
-import { getOrg, updateOrg } from './api';
+import { useOrgSettings } from '@/composables/orgs/useOrgSettings';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const orgStore = useOrgStore();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
-const saving = ref(false);
+const { org, saveOrg, saving } = useOrgSettings(orgSlug);
 const form = ref({ name: '', slug: '', buildConcurrency: 2, artifactRetention: 10 });
 
 const slugPattern = /^[a-z0-9-]+$/;
@@ -50,10 +50,9 @@ async function save() {
     message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
     return;
   }
-  saving.value = true;
   const slugBefore = orgSlug.value;
   try {
-    await updateOrg(slugBefore, form.value);
+    await saveOrg(form.value);
     await orgStore.fetchOrgs();
     if (form.value.slug !== slugBefore) {
       orgStore.setCurrentOrg(form.value.slug);
@@ -63,20 +62,18 @@ async function save() {
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(e?.response?.data?.message ?? '保存失败');
-  } finally {
-    saving.value = false;
   }
 }
 
 watch(
-  orgSlug,
-  async (slug) => {
-    const org = await getOrg(slug);
+  () => org.value,
+  (o) => {
+    if (!o) return;
     form.value = {
-      name: org.name,
-      slug: org.slug,
-      buildConcurrency: org.buildConcurrency,
-      artifactRetention: org.artifactRetention,
+      name: o.name,
+      slug: o.slug,
+      buildConcurrency: o.buildConcurrency,
+      artifactRetention: o.artifactRetention,
     };
   },
   { immediate: true },

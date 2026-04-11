@@ -17,8 +17,9 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NCard, NForm, NFormItem, NInput, NButton, useMessage } from 'naive-ui';
-import { authApi } from '../../api/auth';
+import { usePasswordResetFlow } from '@/composables/auth/usePasswordResetFlow';
 
+const { confirmResetPassword } = usePasswordResetFlow();
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
@@ -33,7 +34,7 @@ async function handleSubmit() {
   }
   loading.value = true;
   try {
-    await authApi.resetPassword(token, password.value);
+    await confirmResetPassword(token, password.value);
     message.success('密码重置成功，请登录');
     void router.push('/login');
   } catch {

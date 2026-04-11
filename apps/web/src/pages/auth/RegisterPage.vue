@@ -80,10 +80,10 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NCard, NForm, NFormItem, NInput, NButton, NDivider, useMessage } from 'naive-ui';
-import { useAuthStore } from '../../stores/auth';
+import { useAuthRegistration } from '@/composables/auth/useAuthRegistration';
 
 const router = useRouter();
-const auth = useAuthStore();
+const { registerAccount } = useAuthRegistration();
 const message = useMessage();
 const loading = ref(false);
 const form = ref({ name: '', email: '', password: '' });
@@ -99,7 +99,7 @@ async function handleSubmit() {
   }
   loading.value = true;
   try {
-    await auth.register(form.value.name, form.value.email, form.value.password);
+    await registerAccount(form.value.name, form.value.email, form.value.password);
     void router.push('/orgs');
   } catch (err: unknown) {
     const axiosErr = err as { response?: { data?: { message?: string } } };

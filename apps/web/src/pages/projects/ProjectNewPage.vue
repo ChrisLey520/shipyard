@@ -170,6 +170,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
+import { useMutation, useQueryClient } from '@tanstack/vue-query';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
@@ -186,9 +187,17 @@ import {
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
+const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const step = ref(1);
-const creating = ref(false);
+
+const createProjectMutation = useMutation({
+  mutationFn: (payload: Record<string, unknown>) => createProject(orgSlug.value, payload),
+  onSuccess: () => {
+    void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
+  },
+});
+const creating = computed(() => createProjectMutation.isPending.value);
 const loadingRepos = ref(false);
 const repoOptions = ref<Array<{ label: string; value: string }>>([]);
 const loadingAccounts = ref(false);
@@ -265,9 +274,8 @@ function autoSlug() {
 }
 
 async function handleCreate() {
-  creating.value = true;
   try {
-    await createProject(orgSlug.value, {
+    await createProjectMutation.mutateAsync({
       ...form.value,
       repoFullName: form.value.repoFullName ?? '',
     });
@@ -276,8 +284,6 @@ async function handleCreate() {
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(e?.response?.data?.message ?? '创建失败');
-  } finally {
-    creating.value = false;
   }
 }
 

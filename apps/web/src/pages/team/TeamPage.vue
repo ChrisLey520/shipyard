@@ -40,21 +40,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, watch } from 'vue';
+import { ref, h, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NDataTable, NButton, NTag, NModal, NForm, NFormItem,
   NInput, NSelect, NSpace, useMessage, type DataTableColumns,
 } from 'naive-ui';
-import { inviteMember, listMembers, removeMember as apiRemoveMember, type TeamMember } from './api';
+import { useOrgTeam, type TeamMember } from '@/composables/team/useOrgTeam';
 
 const route = useRoute();
 const message = useMessage();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
-const members = ref<TeamMember[]>([]);
-const loading = ref(false);
+const { members, loading, inviteMember: sendInvite, inviting, removeMember: removeMemberRequest } =
+  useOrgTeam(orgSlug);
 const showInvite = ref(false);
-const inviting = ref(false);
 const inviteForm = ref({ email: '', role: 'developer' });
 
 const roleOptions = [
@@ -77,41 +76,24 @@ const columns: DataTableColumns<TeamMember> = [
   {
     title: '操作', key: 'actions', width: 80,
     render: (r) => r.role !== 'owner'
-      ? h(NButton, { size: 'small', type: 'error', onClick: () => removeMember(r.userId) }, { default: () => '移除' })
+      ? h(NButton, { size: 'small', type: 'error', onClick: () => void removeMember(r.userId) }, { default: () => '移除' })
       : h('span', '—'),
   },
 ];
 
 async function handleInvite() {
-  inviting.value = true;
   try {
-    await inviteMember(orgSlug.value, inviteForm.value);
+    await sendInvite(inviteForm.value);
     message.success('邀请已发送');
     showInvite.value = false;
   } catch (err: unknown) {
     const e = err as { response?: { data?: { message?: string } } };
     message.error(e?.response?.data?.message ?? '邀请失败');
-  } finally {
-    inviting.value = false;
   }
 }
 
 async function removeMember(userId: string) {
-  await apiRemoveMember(orgSlug.value, userId);
+  await removeMemberRequest(userId);
   message.success('成员已移除');
-  await load();
 }
-
-async function load() {
-  loading.value = true;
-  try {
-    members.value = await listMembers(orgSlug.value);
-  } finally {
-    loading.value = false;
-  }
-}
-
-watch(orgSlug, () => {
-  void load();
-}, { immediate: true });
 </script>
