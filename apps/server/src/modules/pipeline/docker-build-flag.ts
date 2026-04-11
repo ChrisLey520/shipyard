@@ -1,12 +1,17 @@
 import type { Logger } from '@nestjs/common';
+import { shouldRunBuildInDocker } from './docker-build.executor';
 
-/** 预留：在 rootless 容器内执行构建（v0.3.1+）；当前未改变执行路径 */
 export const SHIPYARD_BUILD_USE_DOCKER = process.env['SHIPYARD_BUILD_USE_DOCKER'] === 'true';
 
-export function warnIfDockerBuildFlagWithoutExecutor(logger: Logger): void {
-  if (SHIPYARD_BUILD_USE_DOCKER) {
+export function logDockerBuildModeOnStartup(logger: Logger): void {
+  if (!SHIPYARD_BUILD_USE_DOCKER) return;
+  if (shouldRunBuildInDocker()) {
+    logger.log(
+      '已启用 SHIPYARD_BUILD_USE_DOCKER=true：install/lint/test/build 将在 Linux 上通过 Docker 容器执行（git clone 仍在宿主）。',
+    );
+  } else {
     logger.warn(
-      '已设置 SHIPYARD_BUILD_USE_DOCKER=true：rootless 容器内构建尚在路线图中，当前仍使用本机 child_process；详见 README「Docker 构建隔离」。',
+      `[docker-build] SHIPYARD_BUILD_USE_DOCKER=true 仅在 Linux 上生效；当前为 ${process.platform}，构建将仍使用本机 child_process 直至换用 Linux Worker。`,
     );
   }
 }

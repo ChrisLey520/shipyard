@@ -394,12 +394,15 @@ export class DeployApplicationService {
       await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(script)}`);
     } catch (e) {
       const tail = this.formatDeployFailureMessage(e);
-      throw new Error(
-        `[precheck] 远端环境检测未通过（需 bash、rsync` +
-          (opts.needNginx ? '、nginx' : '') +
-          (opts.needPm2 ? '、node、pm2；若使用 nvm 请在目标用户登录 shell 中默认加载 node' : '') +
-          `）。详情: ${tail}`,
-      );
+      let hint = `[precheck] 远端环境检测未通过（需 bash、rsync` +
+        (opts.needNginx ? '、nginx' : '') +
+        (opts.needPm2 ? '、node、pm2' : '') +
+        `）。详情: ${tail}`;
+      if (opts.needPm2 && tail.includes('missing: node')) {
+        hint +=
+          '。nvm 常把 node 写在 ~/.bashrc，SSH 非登录 shell 可能未加载；请用 `bash -lc "command -v node"` 在远端自测，或将 node 装到全局 PATH；详见 README「运维与 nvm」。';
+      }
+      throw new Error(hint);
     }
     await this.appendLogLine(
       deploymentId,
@@ -435,23 +438,68 @@ export class DeployApplicationService {
     await this.appendLogLine(deploymentId, '[preview-deploy] nginx 片段已原子更新并重载');
   }
 
+  /** Linux 常规站点：sites-available 原子写入后与 sites-enabled 软链 */
+  private async sshWriteLinuxSiteNginxAtomic(
+    conn: SshClient,
+    slug: string,
+    nginxConf: string,
+    deploymentId: string,
+  ): Promise<void> {
+    const tag = `SYXLNX_${randomBytes(8).toString('hex')}`;
+    if (nginxConf.includes(tag)) {
+      throw new Error('Nginx 配置与内部分隔符冲突，请调整域名后重试');
+    }
+    const conf = `/etc/nginx/sites-available/${slug}.conf`;
+    const enabled = `/etc/nginx/sites-enabled/${slug}.conf`;
+    const qFinal = this.shellSingleQuote(conf);
+    const qEn = this.shellSingleQuote(enabled);
+    const tmpQuoted = this.shellSingleQuote(`${conf}.tmp.shipyard$$`);
+    const inner = [
+      'set -euo pipefail',
+      'mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled',
+      `tmp=${tmpQuoted}`,
+      `cat > "$tmp" <<'${tag}'`,
+      nginxConf,
+      tag,
+      `mv -f "$tmp" ${qFinal}`,
+      `ln -sf ${qFinal} ${qEn}`,
+      'nginx -t && nginx -s reload',
+    ].join('\n');
+    await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
+    await this.appendLogLine(deploymentId, '[deploy] Linux 站点 Nginx 已原子更新并重载');
+  }
+
+  /** 预览 SSR 健康路径：须以 / 开头，防注入仅允许常见 path 字符 */
+  private normalizePreviewHealthCheckPath(raw: string | null | undefined): string {
+    const s = (raw ?? '/').trim() || '/';
+    if (!s.startsWith('/')) return `/${s}`;
+    if (!/^[/a-zA-Z0-9._~-]+$/.test(s)) {
+      throw new Error('previewHealthCheckPath 仅允许字母数字及 / . _ - ~');
+    }
+    return s;
+  }
+
   /** 在远端对 SSR 候选端口做 HTTP 探活（与 Nginx 切换前门禁一致） */
   private async sshPreviewSsrHealthCheck(
     conn: SshClient,
     port: number,
     deploymentId: string,
+    healthPath: string,
   ): Promise<void> {
     const max = 5;
     const sleepSec = 2;
-    const inner = `for i in $(seq 1 ${max}); do curl -fsS --max-time 5 "http://127.0.0.1:${port}/" >/dev/null 2>&1 && exit 0; sleep ${sleepSec}; done; exit 1`;
+    const inner = `for i in $(seq 1 ${max}); do curl -fsS --max-time 5 "http://127.0.0.1:${port}${healthPath}" >/dev/null 2>&1 && exit 0; sleep ${sleepSec}; done; exit 1`;
     try {
       await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
     } catch {
       throw new Error(
-        `SSR 候选实例健康检查未通过（http://127.0.0.1:${port}/ ，已重试 ${max} 次）`,
+        `SSR 候选实例健康检查未通过（http://127.0.0.1:${port}${healthPath} ，已重试 ${max} 次）`,
       );
     }
-    await this.appendLogLine(deploymentId, `[preview-deploy] health_ok localhost:${port}`);
+    await this.appendLogLine(
+      deploymentId,
+      `[preview-deploy] health_ok localhost:${port}${healthPath}`,
+    );
   }
 
   private shellSingleQuote(s: string): string {
@@ -720,8 +768,17 @@ export class DeployApplicationService {
             const pm2Cand = `(pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true); pm2 start ${qEco}`;
             await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(pm2Cand)}`);
 
+            const previewHealthPath = this.normalizePreviewHealthCheckPath(
+              pipelineConfig.previewHealthCheckPath,
+            );
+            if (previewHealthPath !== '/') {
+              await this.appendLogLine(
+                deploymentId,
+                `[preview-deploy] 使用自定义健康路径: ${previewHealthPath}`,
+              );
+            }
             try {
-              await this.sshPreviewSsrHealthCheck(conn, newSsrPort, deploymentId);
+              await this.sshPreviewSsrHealthCheck(conn, newSsrPort, deploymentId, previewHealthPath);
             } catch (hcErr) {
               await this.sshExec(
                 conn,
@@ -1000,12 +1057,7 @@ export class DeployApplicationService {
           );
         } else {
           const slug = opts.projectSlug;
-          await this.sshExec(
-            conn,
-            `mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled && ` +
-              `cat > /etc/nginx/sites-available/${slug}.conf <<'EOFNGINX'\n${nginxConf}\nEOFNGINX\n` +
-              `ln -sf /etc/nginx/sites-available/${slug}.conf /etc/nginx/sites-enabled/${slug}.conf && nginx -s reload`,
-          );
+          await this.sshWriteLinuxSiteNginxAtomic(conn, slug, nginxConf, opts.deploymentId);
         }
       }
 

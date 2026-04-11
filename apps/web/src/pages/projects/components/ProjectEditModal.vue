@@ -41,6 +41,12 @@
         <n-form-item v-if="form.frameworkType === 'ssr'" label="SSR 入口">
           <n-input v-model:value="form.ssrEntryPoint" placeholder="dist/index.js" />
         </n-form-item>
+        <n-form-item v-if="form.frameworkType === 'ssr'" label="预览健康路径">
+          <n-input v-model:value="form.previewHealthCheckPath" placeholder="/ 或 /health" />
+          <n-text depth="3" style="display: block; margin-top: 6px; font-size: 12px">
+            PR 预览 SSR 蓝绿切换前远端 curl 使用的路径；留空等同 /
+          </n-text>
+        </n-form-item>
         <n-form-item label="Lint 命令">
           <n-input v-model:value="form.lintCommand" placeholder="可选，如 pnpm lint" />
         </n-form-item>
@@ -98,6 +104,7 @@ import {
   NSpace,
   NButton,
   NDivider,
+  NText,
 } from 'naive-ui';
 
 export type ProjectEditFormValues = {
@@ -113,6 +120,8 @@ export type ProjectEditFormValues = {
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string;
+  /** PR 预览 SSR 健康检查 path，空则 / */
+  previewHealthCheckPath: string;
   previewEnabled: boolean;
   previewServerId: string | null;
   previewBaseDomain: string;
@@ -150,6 +159,7 @@ const form = reactive<ProjectEditFormValues>({
   cacheEnabled: true,
   timeoutSeconds: 900,
   ssrEntryPoint: 'dist/index.js',
+  previewHealthCheckPath: '',
   previewEnabled: false,
   previewServerId: null,
   previewBaseDomain: '',
@@ -175,6 +185,7 @@ watch(
     form.cacheEnabled = v.cacheEnabled ?? true;
     form.timeoutSeconds = typeof v.timeoutSeconds === 'number' ? v.timeoutSeconds : 900;
     form.ssrEntryPoint = v.ssrEntryPoint ?? 'dist/index.js';
+    form.previewHealthCheckPath = v.previewHealthCheckPath ?? '';
     form.previewEnabled = v.previewEnabled ?? false;
     form.previewServerId = v.previewServerId ?? null;
     form.previewBaseDomain = v.previewBaseDomain ?? '';

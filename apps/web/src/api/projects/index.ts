@@ -35,6 +35,7 @@ export interface ProjectDetail {
     cacheEnabled: boolean;
     timeoutSeconds: number;
     ssrEntryPoint: string | null;
+    previewHealthCheckPath: string | null;
     updatedAt: string;
   };
   _count?: { deployments: number; environments: number };
@@ -172,6 +173,7 @@ export type UpdatePipelineConfigPayload = Partial<{
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  previewHealthCheckPath: string | null;
 }>;
 
 export async function updatePipelineConfig(

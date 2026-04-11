@@ -17,7 +17,15 @@ import { NotificationEnqueueApplicationService } from '../notifications/applicat
 import { ArtifactRetentionApplicationService } from '../artifacts/application/artifact-retention.application.service';
 import { GitPrCommentApplicationService } from '../git/application/git-pr-comment.application.service';
 import type { BuildJobData } from './pipeline.service';
-import { warnIfDockerBuildFlagWithoutExecutor } from './docker-build-flag';
+import { logDockerBuildModeOnStartup } from './docker-build-flag';
+import {
+  argvToShellCommand,
+  DEFAULT_BUILD_DOCKER_IMAGE,
+  probeDockerAvailable,
+  runInBuildContainer,
+  shouldRunBuildInDocker,
+} from './docker-build.executor';
+import { evictDepsCacheLru, resolveCacheMaxBytes } from './build-deps-cache';
 
 // 安全的构建环境变量白名单
 const SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP'];
@@ -61,7 +69,7 @@ export class BuildWorkerService implements OnModuleInit {
     });
 
     this.logger.log(`BuildWorker initialized for ${orgs.length} organizations`);
-    warnIfDockerBuildFlagWithoutExecutor(this.logger);
+    logDockerBuildModeOnStartup(this.logger);
   }
 
   private startWorkerForOrg(orgId: string, concurrency: number) {
@@ -131,6 +139,17 @@ export class BuildWorkerService implements OnModuleInit {
       }
       mkdirSync(tmpDir, { recursive: true });
 
+      const useDocker = shouldRunBuildInDocker();
+      if (useDocker) {
+        const dockerOk = await probeDockerAvailable();
+        if (!dockerOk) {
+          throw new Error(
+            '[docker-build] 无法连接 Docker daemon（`docker info` 失败）。请安装 Docker 并保证 Worker 进程用户有权访问，或设置 SHIPYARD_BUILD_USE_DOCKER=false。',
+          );
+        }
+      }
+      const dockerImage = DEFAULT_BUILD_DOCKER_IMAGE;
+
       // 获取构建环境变量（注入构建）
       // 合并策略：项目级构建变量作为默认值，环境变量同名覆盖（更符合“按环境覆盖”）
       const projectBuildEnv = await this.getDecryptedProjectBuildEnvVars(projectId);
@@ -139,17 +158,48 @@ export class BuildWorkerService implements OnModuleInit {
 
       let logSeq = 0;
 
-      const runCmd = async (cmd: string, args: string[], cwd: string, label: string) => {
+      const runCmd = async (
+        cmd: string,
+        args: string[],
+        cwd: string,
+        label: string,
+        opts?: { hostOnly?: boolean },
+      ) => {
         await this.appendLog(deploymentId, logSeq++, `[${label}] $ ${cmd} ${args.join(' ')}`);
 
-        // 只传入白名单环境变量 + 构建变量
         const safeEnv: Record<string, string> = {};
         for (const key of SAFE_ENV_KEYS) {
           const val = process.env[key];
           if (val !== undefined) safeEnv[key] = val;
         }
-        // 注入项目环境变量
         Object.assign(safeEnv, envVars);
+
+        const timeoutMs = pipelineConfig.timeoutSeconds * 1000;
+        const appendLine = (line: string) => {
+          void this.appendLog(deploymentId, logSeq++, line);
+        };
+
+        const inDocker = useDocker && !opts?.hostOnly;
+        if (inDocker) {
+          if (path.resolve(cwd) !== path.resolve(tmpDir)) {
+            throw new Error(`[docker-build] 当前仅支持在仓库根目录执行命令，收到 cwd=${cwd}`);
+          }
+          const shellCommand = argvToShellCommand(cmd, args);
+          await this.appendLog(
+            deploymentId,
+            logSeq++,
+            `[${label}] [docker-build] 镜像 ${dockerImage} 内执行…`,
+          );
+          await runInBuildContainer({
+            tmpDir,
+            image: dockerImage,
+            shellCommand,
+            env: safeEnv,
+            timeoutMs,
+            onLine: appendLine,
+          });
+          return;
+        }
 
         await new Promise<void>((resolve, reject) => {
           const child = spawn(cmd, args, {
@@ -168,13 +218,12 @@ export class BuildWorkerService implements OnModuleInit {
           child.stdout?.on('data', onData);
           child.stderr?.on('data', onData);
 
-          // 超时处理
           const timeout = setTimeout(
             () => {
               child.kill('SIGTERM');
               reject(new Error(`构建超时（${pipelineConfig.timeoutSeconds}s）`));
             },
-            pipelineConfig.timeoutSeconds * 1000,
+            timeoutMs,
           );
 
           child.on('close', (code) => {
@@ -193,9 +242,12 @@ export class BuildWorkerService implements OnModuleInit {
           ['clone', '--depth', '1', '--single-branch', '--branch', depMeta.branch.trim(), cloneUrl, tmpDir],
           '/tmp',
           'clone',
+          { hostOnly: true },
         );
       } else {
-        await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone');
+        await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone', {
+          hostOnly: true,
+        });
       }
 
       const envFilePath = path.join(tmpDir, '.env');
@@ -238,6 +290,12 @@ export class BuildWorkerService implements OnModuleInit {
         }
       } catch (e) {
         this.logger.warn(`写入依赖缓存失败 org=${orgId} fp=${fp.slice(0, 8)}: ${e}`);
+      }
+      try {
+        const root = this.buildDepsCacheRoot();
+        evictDepsCacheLru(root, resolveCacheMaxBytes(), this.logger);
+      } catch (e) {
+        this.logger.warn(`依赖缓存 LRU 淘汰异常: ${e}`);
       }
 
       // lint（可选）
@@ -416,15 +474,28 @@ export class BuildWorkerService implements OnModuleInit {
     return raw && raw.length > 0 ? raw : path.join(os.tmpdir(), 'shipyard-build-deps-cache');
   }
 
+  private nodeMajorFromProcess(): string {
+    const m = /^v(\d+)/.exec(process.version);
+    return m ? m[1]! : process.version;
+  }
+
   private async lockfileFingerprint(tmpDir: string, pm: string): Promise<string> {
     const lockFile =
       pm === 'pnpm' ? 'pnpm-lock.yaml' : pm === 'yarn' ? 'yarn.lock' : 'package-lock.json';
+    let lockPart: Buffer | string;
     try {
-      const buf = await readFile(path.join(tmpDir, lockFile));
-      return createHash('sha256').update(buf).digest('hex').slice(0, 48);
+      lockPart = await readFile(path.join(tmpDir, lockFile));
     } catch {
-      return createHash('sha256').update(`no-lock:${pm}`).digest('hex').slice(0, 48);
+      lockPart = `no-lock:${pm}`;
     }
+    let meta = `node:${this.nodeMajorFromProcess()}`;
+    try {
+      const nvm = (await readFile(path.join(tmpDir, '.nvmrc'), 'utf8')).trim();
+      if (nvm) meta += `|nvmrc:${createHash('sha256').update(nvm).digest('hex').slice(0, 12)}`;
+    } catch {
+      /* 无 .nvmrc */
+    }
+    return createHash('sha256').update(lockPart).update('\n').update(meta).digest('hex').slice(0, 48);
   }
 
   private async detectPackageManager(dir: string): Promise<string> {

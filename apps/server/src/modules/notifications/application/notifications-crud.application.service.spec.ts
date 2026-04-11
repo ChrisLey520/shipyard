@@ -113,6 +113,35 @@ describe('NotificationsCrudApplicationService', () => {
     expect(call.data.config).toEqual({ url: 'https://ex.com', secret: 'ENC(x)' });
   });
 
+  it('create：企业微信 channel 加密 secret 并校验 url', async () => {
+    findFirstProject.mockResolvedValue({ id: 'p1' });
+    const now = new Date();
+    createNotif.mockResolvedValue({
+      id: 'n-wx',
+      projectId: 'p1',
+      channel: NotificationChannel.WECOM,
+      config: { url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test', secret: 'ENC(wxsec)' },
+      events: [NotificationEvent.BUILD_SUCCESS],
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await service.create('org-1', 'slug-x', {
+      channel: NotificationChannel.WECOM,
+      events: [NotificationEvent.BUILD_SUCCESS],
+      config: { url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test', secret: 'wxsec' },
+    });
+
+    expect(encrypt).toHaveBeenCalledWith('wxsec');
+    expect(createNotif).toHaveBeenCalled();
+    const call = createNotif.mock.calls[0]![0] as {
+      data: { config: Record<string, unknown> };
+    };
+    expect(String(call.data.config.url)).toContain('weixin.qq.com');
+    expect(call.data.config.secret).toBe('ENC(wxsec)');
+  });
+
   it('update：通知不存在则 404', async () => {
     findFirstProject.mockResolvedValue({ id: 'p1' });
     findFirstNotif.mockResolvedValue(null);

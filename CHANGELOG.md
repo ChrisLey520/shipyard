@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-11
+
+### Added
+
+- **Build (Docker)**：Linux 上 `SHIPYARD_BUILD_USE_DOCKER=true` 时，在容器内执行安装/校验/测试/构建（`SHIPYARD_BUILD_DOCKER_IMAGE`，默认 `node:20-bookworm`）；非 Linux 记录告警并沿用 `child_process`。
+- **Build cache**：`SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` / `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB` 控制依赖缓存总上限，超出后按指纹目录 **LRU（mtime）** 淘汰；缓存指纹纳入 **Node 主版本** 与可选 **`.nvmrc`** 内容哈希。
+- **Deploy**：SSR 预览远端健康检查路径可由项目 **`previewHealthCheckPath`** 配置；常规 Linux 站点 Nginx 配置采用 **临时文件 + 原子替换**。
+- **Deploy**：`[precheck]` 在缺少 `node` 时补充 **nvm / login shell / PATH** 指引（不强制安装 nvm）。
+- **Notifications**：**企业微信** 机器人 Webhook（`NotificationChannel.WECOM`，markdown 载荷）。
+
+### Changed
+
+- **Behavior**：`SHIPYARD_BUILD_USE_DOCKER` 在 Linux 上由「仅告警」改为真实容器执行路径（见上文）。
+
+### Documentation
+
+- README / README-EN：Docker 支持矩阵、构建缓存与运维变量、自托管 Git 文档链接列。
+
+[0.4.0]: https://github.com/ChrisLey520/shipyard/releases
+
 ## [0.3.0] - 2026-04-11
 
 ### Added

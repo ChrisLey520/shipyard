@@ -105,6 +105,7 @@ const editInitial = ref<ProjectEditFormValues>({
   previewEnabled: false,
   previewServerId: null,
   previewBaseDomain: '',
+  previewHealthCheckPath: '',
 });
 
 async function openEdit(p: ProjectListItem) {
@@ -138,6 +139,7 @@ async function openEdit(p: ProjectListItem) {
       previewEnabled: d.previewEnabled ?? false,
       previewServerId: d.previewServerId ?? null,
       previewBaseDomain: d.previewBaseDomain ?? '',
+      previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
     };
     showEdit.value = true;
   } catch {
@@ -210,6 +212,10 @@ async function saveEdit(v: ProjectEditFormValues) {
         lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
         testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
         ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
+        previewHealthCheckPath:
+          v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
+            ? v.previewHealthCheckPath.trim()
+            : null,
       });
     }
 

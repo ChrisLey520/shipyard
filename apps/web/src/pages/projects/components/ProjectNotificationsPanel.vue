@@ -155,6 +155,7 @@ const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   [NotificationChannel.FEISHU]: '飞书',
   [NotificationChannel.DINGTALK]: '钉钉',
   [NotificationChannel.SLACK]: 'Slack',
+  [NotificationChannel.WECOM]: '企业微信',
 };
 
 const channelOptions = Object.values(NotificationChannel).map((v) => ({
@@ -186,13 +187,19 @@ const form = ref({
 });
 
 const isUrlChannel = computed(() =>
-  [NotificationChannel.WEBHOOK, NotificationChannel.FEISHU, NotificationChannel.DINGTALK, NotificationChannel.SLACK].includes(
-    form.value.channel,
-  ),
+  [
+    NotificationChannel.WEBHOOK,
+    NotificationChannel.FEISHU,
+    NotificationChannel.DINGTALK,
+    NotificationChannel.SLACK,
+    NotificationChannel.WECOM,
+  ].includes(form.value.channel),
 );
 
 const secretLabel = computed(() =>
-  form.value.channel === NotificationChannel.WEBHOOK ? 'Secret（可选）' : '签名 Secret（可选）',
+  form.value.channel === NotificationChannel.WEBHOOK || form.value.channel === NotificationChannel.WECOM
+    ? 'Secret（可选）'
+    : '签名 Secret（可选）',
 );
 
 const secretPlaceholder = computed(() =>
@@ -266,7 +273,8 @@ function buildConfig(): Record<string, unknown> {
     ch === NotificationChannel.WEBHOOK ||
     ch === NotificationChannel.FEISHU ||
     ch === NotificationChannel.DINGTALK ||
-    ch === NotificationChannel.SLACK
+    ch === NotificationChannel.SLACK ||
+    ch === NotificationChannel.WECOM
   ) {
     const o: Record<string, unknown> = { url: form.value.url.trim() };
     if (form.value.secret.trim()) {

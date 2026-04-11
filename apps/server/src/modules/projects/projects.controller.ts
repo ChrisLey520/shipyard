@@ -86,6 +86,7 @@ export class ProjectsController {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string;
+      previewHealthCheckPath?: string | null;
     },
   ) {
     return this.projects.updatePipelineConfig(orgId, projectSlug, body);

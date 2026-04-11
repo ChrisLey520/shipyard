@@ -168,6 +168,8 @@ model PipelineConfig {
   cacheEnabled   Boolean  @default(true)
   timeoutSeconds Int      @default(900)
   ssrEntryPoint  String?
+  /// PR 预览 SSR 蓝绿前远端 curl 使用的路径，如 /health；空则 /
+  previewHealthCheckPath String?
   updatedAt      DateTime @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)

@@ -526,6 +526,7 @@ const editProjectInitial = ref<ProjectEditFormValues>({
   cacheEnabled: true,
   timeoutSeconds: 900,
   ssrEntryPoint: 'dist/index.js',
+  previewHealthCheckPath: '',
   previewEnabled: false,
   previewServerId: null,
   previewBaseDomain: '',
@@ -560,6 +561,7 @@ async function openEditProject() {
     cacheEnabled: pc?.cacheEnabled ?? true,
     timeoutSeconds: pc?.timeoutSeconds ?? 900,
     ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
     previewEnabled: p?.previewEnabled ?? false,
     previewServerId: p?.previewServerId ?? null,
     previewBaseDomain: p?.previewBaseDomain ?? '',
@@ -615,6 +617,10 @@ async function saveProject(v: ProjectEditFormValues) {
         lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
         testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
         ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
+        previewHealthCheckPath:
+          v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
+            ? v.previewHealthCheckPath.trim()
+            : null,
       });
     }
 

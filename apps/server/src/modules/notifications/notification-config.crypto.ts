@@ -9,6 +9,7 @@ export const NOTIFICATION_SENSITIVE_KEYS: Record<NotificationChannel, string[]> 
   [NotificationChannel.FEISHU]: ['secret'],
   [NotificationChannel.DINGTALK]: ['secret'],
   [NotificationChannel.SLACK]: ['secret'],
+  [NotificationChannel.WECOM]: ['secret'],
 };
 
 const KEEP_SENTINEL = '__keep__';
@@ -24,7 +25,8 @@ export function assertValidNotificationConfig(channel: string, config: Record<st
     case NotificationChannel.WEBHOOK:
     case NotificationChannel.FEISHU:
     case NotificationChannel.DINGTALK:
-    case NotificationChannel.SLACK: {
+    case NotificationChannel.SLACK:
+    case NotificationChannel.WECOM: {
       const url = c['url'];
       if (typeof url !== 'string' || !url.trim()) {
         throw new BadRequestException('config.url 为必填非空字符串');

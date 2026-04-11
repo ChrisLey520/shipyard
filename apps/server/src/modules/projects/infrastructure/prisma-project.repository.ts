@@ -151,6 +151,7 @@ export class PrismaProjectRepository {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
+      previewHealthCheckPath?: string | null;
     },
   ) {
     return this.prisma.pipelineConfig.update({

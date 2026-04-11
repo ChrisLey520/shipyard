@@ -59,6 +59,15 @@ cp .env.example .env
 - `API_PUBLIC_URL`（可选）：与 `SERVER_PUBLIC_URL` 不一致时的 OAuth 回调基址
 - **Git OAuth**（可选）：`GIT_OAUTH_*` 系列，见根目录 `.env.example`
 - `ARTIFACT_STORE_PATH`：构建产物目录
+- **构建依赖缓存**：`SHIPYARD_BUILD_DEPS_CACHE_PATH`、`SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` 或 `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB`（见 `.env.example`）
+- **Docker 构建**：`SHIPYARD_BUILD_USE_DOCKER`、`SHIPYARD_BUILD_DOCKER_IMAGE`（仅 Linux Worker 生效，详见下文「Docker 构建支持矩阵」）
+
+## 运维与 nvm（SSH 部署目标机）
+
+Shipyard 通过 SSH 在远端执行 `[precheck]` 与部署命令时，默认多为 **非登录、非交互 shell**，不会自动执行 `~/.bashrc` 里由 nvm 写入的 `PATH`。
+
+- **不要求**在目标机安装 nvm；若使用 nvm，请保证 **`node` 在 Shipyard 实际用到的 shell 的 PATH 中**（例如将 nvm 初始化写入 `~/.bash_profile` / `~/.profile`，或安装系统级 Node）。
+- **自测**：在目标机执行 `bash -lc 'command -v node && node -v'`，结果应与 Shipyard 预检期望一致。
 
 ## Git 集成（Webhook、OAuth、Commit Status）
 
@@ -190,7 +199,7 @@ pnpm -r build
 - 数据表 `Notification`（按 `projectId` 存 `channel`、`config`、`events[]`、`enabled`）；BullMQ 队列 `notify-{orgId}`，由 Worker 进程消费。
 - **REST**：`GET/POST/PATCH/DELETE …/orgs/:orgSlug/projects/:projectSlug/notifications`（JWT + 角色：`VIEWER` 可读，`DEVELOPER` 可写）；**管理端**：项目详情 Tab「通知」。
 - **事件入队**：构建/部署/审批等路径调用 `NotificationEnqueueApplicationService` 写入队列（如 `attempts: 3`、指数退避）；负载含 `message`、`detailUrl`、`deploymentId`、`projectSlug`、`orgSlug`、`event` 等。
-- **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack（机器人 Webhook JSON）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。
+- **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack/**企业微信**（机器人 Webhook JSON；企业微信为 `markdown` 载荷）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。
 - **敏感字段**：`config` 内 `secret`、`smtpPass` 等使用 `CryptoService` 加密落库；API 响应脱敏（如 `secretConfigured` / `smtpPassConfigured`）。
 - **SSRF 与 URL 主机**：允许配置**字面 IP** 的 `http(s)` URL，对该地址直接做阻断列表校验；若为**域名**，则对该主机名解析得到的**全部**结果逐一校验，任一对私网/保留段即拒绝。
 - **IM `secret`**：`secret` 加密存储；**钉钉**为毫秒时间戳 + HMAC 加签 query；**飞书**为秒时间戳 + 同结构加签 query（见 `buildFeishuSignedWebhookUrl`）；**Slack** 原生 Webhook 以 URL 为凭据，可选 `secret` 会作为 `Authorization: Bearer` 发出，便于你在网关侧校验（Slack 公网端点一般忽略该头）。
@@ -200,19 +209,27 @@ pnpm -r build
 
 **仍待增强**
 
-- 通知渠道与事件矩阵可继续扩充（如企业微信等）。
+- 通知渠道与事件矩阵可继续扩充（通用模板、签名校验等）。
 
 ### 3）构建与部署可靠性加固
 
-- **BuildWorker**：按 **组织 + 包管理器 + lockfile 内容 SHA256 前缀** 维护可复用的 `node_modules` 缓存（`cache_hit` / `cache_miss` 日志）；缓存根目录可用环境变量 `SHIPYARD_BUILD_DEPS_CACHE_PATH` 指定（默认系统临时目录下 `shipyard-build-deps-cache`）。构建 workdir 仍为每次 `build-<deploymentId>`，结束后 `finally` 清理，与缓存目录分离。
-- **DeployWorker**：SSH 连通后先做 **`[precheck]`**（Linux：`bash`/`rsync`/按条件 `nginx` 与 SSR 时 `node`+`pm2`；macOS 至少 `bash`/`rsync`，SSR 时检查 `pm2`/`node`）；失败日志带安装提示。SSH/rsync 失败仍附带 `code`/`errno`（若有）。
+- **BuildWorker**：按 **组织 + 包管理器 + lockfile 内容 SHA256 前缀 + Node 主版本（及可选 `.nvmrc`）** 维护可复用的 `node_modules` 缓存（`cache_hit` / `cache_miss` 日志）；缓存根目录 `SHIPYARD_BUILD_DEPS_CACHE_PATH`（默认系统临时目录下 `shipyard-build-deps-cache`）；总占用上限 `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` 或 `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB`（默认约 5GiB），超出后按指纹目录 **LRU（mtime）** 淘汰。构建 workdir 仍为每次 `build-<deploymentId>`，结束后 `finally` 清理。
+- **Docker 构建（opt-in）**：`SHIPYARD_BUILD_USE_DOCKER=true` 且 **Worker 为 Linux** 时，install / lint / test / build 在 **`docker run`** 容器内执行（工作目录挂载到容器 `/workspace`）；镜像 `SHIPYARD_BUILD_DOCKER_IMAGE`（默认 `node:20-bookworm`）。**git clone 仍在宿主**执行。宿主机需可用 `docker` CLI 与镜像拉取权限。非 Linux 平台开启该开关时 **记录告警并回退本机 child_process**。
+- **DeployWorker**：SSH 连通后 **`[precheck]`**（Linux：`bash`/`rsync`/按条件 `nginx` 与 SSR 时 `node`+`pm2`；macOS 至少 `bash`/`rsync`，SSR 时检查 `pm2`/`node`）。若缺少 `node`，日志中会提示检查 **login shell、PATH、nvm**（不强制安装 nvm）。**SSR 预览**健康检查 HTTP 路径可在项目 Pipeline 中配置 **`previewHealthCheckPath`**（默认 `/`）。常规 **Linux 站点** Nginx 配置写入采用 **临时文件 + 原子 `rename`**，与预览片段策略一致。SSH/rsync 失败仍附带 `code`/`errno`（若有）。
 - **产物清理**：已在构建成功后按 `artifactRetention` 自动执行（见 §2）。
-- **Docker 构建隔离（Phase 2）**：环境变量 `SHIPYARD_BUILD_USE_DOCKER=true` 为预留开关；当前 **仅打日志提醒**，执行路径仍为 `child_process`（rootless + seccomp 等在后续小版本落地）。
+
+#### Docker 构建支持矩阵（简要）
+
+| Worker 环境 | `SHIPYARD_BUILD_USE_DOCKER=true` 行为 |
+|-------------|--------------------------------------|
+| **Linux**（含多数生产 Worker） | 使用 `docker run` 在容器内执行构建相关命令（需已安装 Docker CLI 且 daemon 可用） |
+| **macOS / Windows** | **不支持**容器路径：启动时 **warn**，构建仍用本机 `child_process` |
+| **Linux 无 Docker / `docker` 调用失败** | 构建步骤 **失败**（与显式开启的预期一致） |
 
 ### 自托管 Git 实例兼容（简表）
 
-| 平台 | 建议自测项 | 说明 |
-|------|------------|------|
-| GitLab | Webhook `merge_requests_events`、MR API 评论 | 自建版本与 gitlab.com 字段可能略有差异 |
-| Gitea | `pull_request` 事件、PR 评论 API | 需在 `GitConnection.baseUrl` 填实例根 URL |
-| Gitee | `merge_request_hooks` | 企业版与公有云文档路径请以实例文档为准 |
+| 平台 | 建议自测项 | 说明 | 参考文档 |
+|------|------------|------|----------|
+| GitLab | Webhook `merge_requests_events`、MR API 评论 | 自建版本与 gitlab.com 字段可能略有差异 | [Webhooks · GitLab Docs](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html) |
+| Gitea | `pull_request` 事件、PR 评论 API | 需在 `GitConnection.baseUrl` 填实例根 URL | [Webhooks · Gitea Docs](https://docs.gitea.com/usage/webhooks) |
+| Gitee | `merge_request_hooks` | 企业版与公有云文档路径请以实例文档为准 | [WebHook 说明 · Gitee 帮助](https://gitee.com/help/articles/4313) |

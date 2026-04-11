@@ -53,6 +53,9 @@ export class NotifyWorkerApplicationService {
           case NotificationChannel.SLACK:
             await this.sendSlack(plain as { url: string; secret?: string }, text);
             break;
+          case NotificationChannel.WECOM:
+            await this.sendWecom(plain as { url: string }, text);
+            break;
           case NotificationChannel.EMAIL:
             await this.sendEmail(
               plain as {
@@ -157,6 +160,15 @@ export class NotifyWorkerApplicationService {
 
   private async sendSlack(config: { url: string; secret?: string }, text: string) {
     await this.postJson(config.url, { text }, buildSlackOptionalHeaders(config.secret));
+  }
+
+  /** 企业微信群机器人：https://developer.work.weixin.qq.com/document/path/91770 */
+  private async sendWecom(config: { url: string }, text: string) {
+    const content = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await this.postJson(config.url, {
+      msgtype: 'markdown',
+      markdown: { content: `**Shipyard**\n${content}` },
+    });
   }
 
   private async sendEmail(

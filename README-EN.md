@@ -31,8 +31,18 @@ Key variables:
 - `REDIS_URL` — Redis connection string
 - `JWT_SECRET` — JWT signing secret (must change in production)
 - `ENCRYPTION_KEY` — master key for AES-256-GCM encryption (must change in production)
-- `APP_URL` — web URL (used in email links, etc.)
+- `APP_URL` — web URL (used in email links, commit status `target_url`, etc.)
+- `SERVER_PUBLIC_URL` — public API base URL for webhooks and OAuth `redirect_uri`
 - `ARTIFACT_STORE_PATH` — artifact directory path
+- **Build deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_PATH`, `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` or `SHIPYARD_BUILD_DEPS_CACHE_MAX_MB` (see `.env.example`)
+- **Docker builds**: `SHIPYARD_BUILD_USE_DOCKER`, `SHIPYARD_BUILD_DOCKER_IMAGE` (Linux workers only; see matrix below)
+
+## Operations: nvm on SSH deploy targets
+
+Shipyard runs `[precheck]` and deploy steps over SSH using a **non-login, non-interactive** shell by default, so `~/.bashrc` (where nvm often injects `PATH`) may not run.
+
+- **nvm is not required**; if you use it, ensure **`node` is on the PATH** for the shell Shipyard actually uses (e.g. initialize nvm in `~/.bash_profile` / `~/.profile`, or install a system-wide Node).
+- **Self-check** on the target: `bash -lc 'command -v node && node -v'` should match what precheck expects.
 
 ## Local development (recommended)
 
@@ -90,11 +100,11 @@ pnpm -r build
 - **Auth**: register/login, JWT access/refresh, forgot/reset password
 - **Multi-tenant orgs**: org list/create, member invite/remove, RBAC
 - **Projects**: CRUD, pipeline config, GitConnection (encrypted PAT)
-- **Pipeline**: BullMQ per-org queue, `child_process` build isolation, `.tar.gz` artifacts, Redis Pub/Sub + Socket.io log streaming
+- **Pipeline**: BullMQ per-org queue; default `child_process` build isolation, optional **Docker** on Linux (`SHIPYARD_BUILD_USE_DOCKER`); lockfile + org + pm + **Node major** (+ optional `.nvmrc`) keyed `node_modules` cache with **LRU eviction** by total bytes; `.tar.gz` artifacts; Redis Pub/Sub + Socket.io log streaming
 - **Deploy**: SSH deploy (rsync + nginx/pm2 logic), deploy lock, health check + auto rollback
 - **Approvals**: protected env approvals list + approve/reject (approve enqueues deploy job)
 - **Web UI**: login/register, dashboard, projects/envs/servers/team/approvals, deployment logs (xterm)
-- **PR Preview (multi-provider)**: GitHub `pull_request`, GitLab merge request hooks, Gitee `merge_request_hooks`, Gitea `pull_request`; Linux SSH deploy; Redis port pool; Nginx snippets under `/etc/nginx/shipyard-previews.d/` with **atomic write** (`mv`); **SSR blue/green** with alternating PM2 slots (`-bg0`/`-bg1`), candidate health check on the server (`curl` to localhost), then Nginx cutover and teardown of the old slot / legacy process name; old port released after success; failed deploy rolls back the new port lease in Redis; PR comments as in the Chinese README; fork PRs skipped when head/base repos differ
+- **PR Preview (multi-provider)**: GitHub `pull_request`, GitLab merge request hooks, Gitee `merge_request_hooks`, Gitea `pull_request`; Linux SSH deploy; Redis port pool; Nginx snippets under `/etc/nginx/shipyard-previews.d/` with **atomic write** (`mv`); **SSR blue/green** with alternating PM2 slots (`-bg0`/`-bg1`), configurable **`previewHealthCheckPath`** for the candidate HTTP check, then Nginx cutover and teardown of the old slot / legacy process name; old port released after success; failed deploy rolls back the new port lease in Redis; PR comments as in the Chinese README; fork PRs skipped when head/base repos differ; **Linux production site** Nginx configs use the same **temp file + atomic rename** pattern where applicable
 
 ## Next phase roadmap
 
@@ -112,24 +122,34 @@ The following items are the **next phase** priorities (ordered by “works end-t
 - **Instance compatibility**: self-hosted GitLab / Gitea / Gitee versions may differ from public-cloud API docs for hook PATCH fields or comment endpoints—verify against your instance’s official webhook and REST docs before production.
 - Optional product policy: fork PR previews and stronger isolation (beyond “skip fork” today).
 
-### 3) Notification system (foundation vs completion)
+### 3) Notification system
 
-**Already in code**
+- Per-project **REST CRUD** and admin UI tab; BullMQ `notify-{orgId}` worker.
+- Channels: `webhook`, `email` (Nodemailer), Feishu, DingTalk, Slack, **WeCom (WeChat Work)** robot webhooks (markdown payload), with encrypted secrets where applicable.
+- Outbound HTTP(S) uses **`assertSafeOutboundHttpUrl`**: resolve **all** A/AAAA records and block private/reserved ranges (`isBlockedOutboundIp`).
+- Triggers from build/deploy/approval flows enqueue notification jobs (retries + backoff).
 
-- `Notification` rows per `projectId` (`channel`, `config` JSON, `events[]`, `enabled`); BullMQ queue `notify-{orgId}` with a worker consumer.
-- Outbound **`webhook` only** today (POST JSON); `email` / `feishu` / `dingtalk` / `slack` are still stubs in the worker.
-- **Basic SSRF guard** for webhooks: `dns.lookup` then block common private IPv4, `::1`, and `fe80` link-local—**not** yet the full IPv6 / all A/AAAA validation described below.
-- **No** admin/REST CRUD for notification configs; **no** automatic enqueue from build/deploy/approval flows—so nothing sends by default unless jobs are injected manually.
+**Optional follow-ups**: more channels, richer templates, signing variants.
 
-**Still to do**
+### 4) Build, cache & deploy hardening
 
-- **CRUD** (API + UI per project) and real senders for Webhook / Email (Nodemailer) / IM (Feishu/DingTalk/Slack), aligned with `NotificationChannel`.
-- **Triggers**: enqueue on build/deploy outcomes and approval pending/approved/rejected (e.g. a shared `enqueueNotify` helper).
-- **SSRF hardening**: full IPv4/IPv6 coverage + validate **every** resolved A/AAAA record for the target host.
+- **Deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` / `_MAX_MB` caps total cache size; **LRU eviction** by fingerprint directory mtime when over budget; `cache_hit` / `cache_miss` logging.
+- **Docker (opt-in)**: on **Linux**, `SHIPYARD_BUILD_USE_DOCKER=true` runs install/lint/test/build inside `docker run` with the repo mounted at `/workspace` (`SHIPYARD_BUILD_DOCKER_IMAGE`, default `node:20-bookworm`). **Git clone stays on the host.** On **macOS/Windows**, enabling the flag logs a **warning** and keeps **`child_process`**. Requires a working `docker` CLI + daemon on Linux workers.
+- **Deploy `[precheck]`**: after SSH, checks `bash`/`rsync` and conditional `nginx`, `node`/`pm2`; if `node` is missing, logs stronger hints for **login shell, PATH, and nvm** (nvm is not required).
+- **Artifact cleanup**: `Organization.artifactRetention` (count-based).
 
-### 4) Build & deploy reliability hardening
+#### Docker build support matrix
 
-- BuildWorker: per-org **lockfile-fingerprint `node_modules` cache** (`SHIPYARD_BUILD_DEPS_CACHE_PATH`); workdir still one clean dir per deployment
-- DeployWorker: **`[precheck]`** after SSH (bash/rsync; nginx and node/pm2 when needed) with actionable errors; SSH/rsync failures still surface `code`/`errno` when present
-- Artifact cleanup: `Organization.artifactRetention` (count-based)
-- Docker build isolation (Phase 2): `SHIPYARD_BUILD_USE_DOCKER=true` logs a warning only; execution still uses `child_process` until a later release
+| Worker | `SHIPYARD_BUILD_USE_DOCKER=true` |
+|--------|----------------------------------|
+| **Linux** | Runs build steps in Docker (`docker run`) |
+| **macOS / Windows** | **Not supported**: warns, falls back to host `child_process` |
+| **Linux without Docker** | Build steps **fail** if Docker cannot run |
+
+### Self-hosted Git compatibility (summary)
+
+| Provider | Notes | Reference |
+|----------|-------|-----------|
+| GitLab | Self-managed fields may differ from gitlab.com | [Webhook events](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html) |
+| Gitea | Set `GitConnection.baseUrl` to the instance root | [Webhooks](https://docs.gitea.com/usage/webhooks) |
+| Gitee | Enterprise vs public docs may differ | [WebHook help (CN)](https://gitee.com/help/articles/4313) |

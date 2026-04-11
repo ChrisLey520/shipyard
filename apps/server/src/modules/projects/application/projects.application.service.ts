@@ -221,9 +221,20 @@ export class ProjectsApplicationService {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
+      previewHealthCheckPath?: string | null;
     },
   ) {
     const project = await this.getProject(orgId, projectSlug);
+    if (data.previewHealthCheckPath != null && data.previewHealthCheckPath.trim() !== '') {
+      const p = data.previewHealthCheckPath.trim();
+      const withSlash = p.startsWith('/') ? p : `/${p}`;
+      if (!/^[/a-zA-Z0-9._~-]+$/.test(withSlash)) {
+        throw new BadRequestException('previewHealthCheckPath 仅允许字母数字及 / . _ - ~');
+      }
+      data = { ...data, previewHealthCheckPath: withSlash };
+    } else if (data.previewHealthCheckPath === '' || data.previewHealthCheckPath === null) {
+      data = { ...data, previewHealthCheckPath: null };
+    }
     return this.repo.updatePipelineConfigByProjectId(project.id, data);
   }
 
