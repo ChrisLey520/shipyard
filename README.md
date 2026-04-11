@@ -160,13 +160,17 @@ pnpm -r build
 
 ### 1）PR Preview（预览部署）
 
-**已实现（M1 / GitHub）**
+**已实现（多平台 MR/PR）**
 
-- GitHub `pull_request`（opened / synchronize / closed）：构建、Linux 预览部署、关闭时清理；Webhook 注册含 `pull_request`，已存在 Hook 会自动 PATCH 补齐事件。
+- **GitHub**：`pull_request`（opened / synchronize / closed 等）；Webhook 注册含 `pull_request`，已存在 Hook 会自动 PATCH 补齐事件。
+- **GitLab**：`Merge Request Hook`（`object_kind=merge_request`）；项目 Hook 开启或 PATCH 补齐 `merge_requests_events`。
+- **Gitee**：`merge_request_hooks`；创建或 PATCH Hook 时开启 `merge_requests_events`。
+- **Gitea**：`pull_request`；仓库 Hook 的 `events` 含 `push` 与 `pull_request`，已存在 Hook 会 PATCH 补齐。
+- 上述平台统一行为：同仓库 MR/PR 触发构建与 Linux 预览部署、关闭/合并时清理（含队列 job 取消与远端 teardown 幂等）、**Fork 来源与目标不一致时跳过**。
 - 预览 URL：`pr-{prNumber}-{projectId前8位}.{previewBaseDomain}`（项目在控制台配置「预览父域」，例如 `preview.example.com`）。
-- SSR：Redis 端口池 + 每 PR 独立 PM2 名 + Nginx 按预览写入 `/etc/nginx/shipyard-previews.d/`；静态站点：`releases/<deploymentId>` + `current` 软链。
-- GitHub PR 评论：同一条评论更新成功/失败（需 Token 具备 issues 写权限）。
-- Fork PR：当前版本跳过（仅同仓库 PR）。
+- **SSR**：Redis 端口池；每 PR 固定 PM2 应用名；每次部署**新占端口**，单次 SSH 内 `pm2 delete`（若存在）后 `pm2 start`，Nginx 指新端口并重载；成功后释放旧端口占用；**部署失败且尚未写入 DB 时会回滚本次新端口的 Redis 占用**（非「双进程并行 + 原子切流」的完整蓝绿）。
+- **静态站点**：`releases/<deploymentId>` + `current` 软链，Nginx `root` 指向 `current`。
+- **预览评论**（成功/失败同一条更新）：GitHub（issues comments）、GitLab（MR notes）、Gitee（pull comments）、Gitea（PR 走 issues comments API，需配置实例 **baseUrl**）；Token 需具备对应 API 写权限。
 
 **运维需一次性配置**
 
@@ -175,9 +179,10 @@ pnpm -r build
 - Nginx 主配置 `http` 块内增加：`include /etc/nginx/shipyard-previews.d/*.conf;`
 - 防火墙：放行 SSR 所用端口区间（默认 40000–41000，可在「服务器」上配置 `previewPortMin` / `previewPortMax`）。
 
-**仍待增强**
+**仍待增强（可选）**
 
-- 蓝绿完整策略（多槽位原子切换）、GitLab/Gitee/Gitea 的 MR Webhook 与评论 API 对齐。
+- **完整蓝绿**：例如候选 PM2 进程名、新旧实例并行监听、健康检查通过后再摘旧进程、Nginx 配置原子切换（`rename`/双文件）等，以进一步压缩切换空窗并降低异常时无进程风险。
+- **实例兼容**：自托管 GitLab / Gitea / Gitee 版本差异可能导致 Hook PATCH 或评论 REST 路径、字段与公有云文档不一致，部署前请对照各实例官方 Webhook 与 REST API 文档做一次核对。
 
 ### 2）通知系统完善（配置 + 触发点）
 
