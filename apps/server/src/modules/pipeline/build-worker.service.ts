@@ -7,7 +7,6 @@ import { RedisService } from '../../common/redis/redis.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { GitAccessTokenService } from '../git/git-access-token.service';
 import { GitCommitStatusService } from '../git/git-commit-status.service';
-import { spawn } from 'child_process';
 import { mkdirSync, rmSync, existsSync, cpSync } from 'fs';
 import { writeFile, readdir, readFile } from 'fs/promises';
 import * as path from 'path';
@@ -21,10 +20,11 @@ import { logDockerBuildModeOnStartup } from './docker-build-flag';
 import {
   argvToShellCommand,
   DEFAULT_BUILD_DOCKER_IMAGE,
+  DockerBuildExecutor,
   probeDockerAvailable,
-  runInBuildContainer,
   shouldRunBuildInDocker,
 } from './docker-build.executor';
+import { ProcessBuildExecutor } from './process-build.executor';
 import { resolveCacheMaxBytes, runDepsCacheEvictionPipeline } from './build-deps-cache';
 
 // 安全的构建环境变量白名单
@@ -158,6 +158,9 @@ export class BuildWorkerService implements OnModuleInit {
 
       let logSeq = 0;
 
+      const processExecutor = new ProcessBuildExecutor();
+      const dockerExecutor = new DockerBuildExecutor();
+
       const runCmd = async (
         cmd: string,
         args: string[],
@@ -185,7 +188,7 @@ export class BuildWorkerService implements OnModuleInit {
             throw new Error(`[docker-build] 当前仅支持在仓库根目录执行命令，收到 cwd=${cwd}`);
           }
           const shellCommand = argvToShellCommand(cmd, args);
-          await runInBuildContainer({
+          await dockerExecutor.run({
             tmpDir,
             image: dockerImage,
             shellCommand,
@@ -196,36 +199,14 @@ export class BuildWorkerService implements OnModuleInit {
           return;
         }
 
-        await new Promise<void>((resolve, reject) => {
-          const child = spawn(cmd, args, {
-            cwd,
-            env: safeEnv,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          });
-
-          const onData = (chunk: Buffer) => {
-            const lines = chunk.toString().split('\n').filter(Boolean);
-            for (const line of lines) {
-              void this.appendLog(deploymentId, logSeq++, line);
-            }
-          };
-
-          child.stdout?.on('data', onData);
-          child.stderr?.on('data', onData);
-
-          const timeout = setTimeout(
-            () => {
-              child.kill('SIGTERM');
-              reject(new Error(`构建超时（${pipelineConfig.timeoutSeconds}s）`));
-            },
-            timeoutMs,
-          );
-
-          child.on('close', (code) => {
-            clearTimeout(timeout);
-            if (code === 0) resolve();
-            else reject(new Error(`命令退出码 ${code}`));
-          });
+        await processExecutor.run({
+          cmd,
+          args,
+          cwd,
+          env: safeEnv,
+          timeoutMs,
+          timeoutLabelSeconds: pipelineConfig.timeoutSeconds,
+          onLine: appendLine,
         });
       };
 
@@ -288,7 +269,7 @@ export class BuildWorkerService implements OnModuleInit {
       }
       try {
         const root = this.buildDepsCacheRoot();
-        runDepsCacheEvictionPipeline(root, orgId, resolveCacheMaxBytes(), this.logger);
+        await runDepsCacheEvictionPipeline(root, orgId, resolveCacheMaxBytes(), this.logger);
       } catch (e) {
         this.logger.warn(`依赖缓存淘汰异常: ${e}`);
       }

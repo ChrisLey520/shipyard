@@ -54,6 +54,7 @@ export class NotificationEnqueueApplicationService {
           id: true,
           slug: true,
           organizationId: true,
+          notificationMessageTemplate: true,
           organization: { select: { slug: true } },
         },
       });
@@ -84,8 +85,13 @@ export class NotificationEnqueueApplicationService {
         detailUrl: detailUrl || undefined,
         deploymentId: opts?.deploymentId,
         approvalId: opts?.approvalId,
+        message,
+        body: message,
       };
-      const renderedMessage = renderNotificationPlaceholders(message, templateVars);
+      const customTemplate = project.notificationMessageTemplate?.trim();
+      const pattern =
+        customTemplate && customTemplate.length > 0 ? customTemplate : message;
+      const renderedMessage = renderNotificationPlaceholders(pattern, templateVars);
 
       const payload: NotificationEnqueuePayload = {
         message: renderedMessage,

@@ -199,6 +199,7 @@ pnpm -r build
 - 数据表 `Notification`（按 `projectId` 存 `channel`、`config`、`events[]`、`enabled`）；BullMQ 队列 `notify-{orgId}`，由 Worker 进程消费。
 - **REST**：`GET/POST/PATCH/DELETE …/orgs/:orgSlug/projects/:projectSlug/notifications`（JWT + 角色：`VIEWER` 可读，`DEVELOPER` 可写）；**管理端**：项目详情 Tab「通知」。
 - **事件入队**：构建/部署/审批等路径调用 `NotificationEnqueueApplicationService` 写入队列（如 `attempts: 3`、指数退避）；负载含 `message`、`detailUrl`、`deploymentId`、`projectSlug`、`orgSlug`、`event` 等。
+- **项目级消息模板（v0.6+）**：`Project.notificationMessageTemplate` 可选；在「通知」Tab 顶部编辑。若填写，则以该字符串为骨架再做占位符替换，并可用 `{{message}}` / `{{body}}` 嵌入系统默认那句全文。
 - **出站**：`webhook`（原样 POST JSON payload）、`email`（Nodemailer，SMTP `connectionTimeout` / `socketTimeout` 约 10s）、飞书/钉钉/Slack/**企业微信**（机器人 Webhook JSON；企业微信为 `markdown` 载荷）。HTTP(S) 出站前经 `assertSafeOutboundHttpUrl`：`dns.lookup`（`all: true`）得到全部解析地址，并结合 `@shipyard/shared` 的 `isBlockedOutboundIp`（IPv4/IPv6 私网与保留段等）。入队前 **`message` 支持占位符** `{{projectSlug}}`、`{{orgSlug}}`、`{{event}}`、`{{detailUrl}}`、`{{deploymentId}}`、`{{approvalId}}`（未设置的变量保留原文）。
 - **敏感字段**：`config` 内 `secret`、`smtpPass` 等使用 `CryptoService` 加密落库；API 响应脱敏（如 `secretConfigured` / `smtpPassConfigured`）。
 - **SSRF 与 URL 主机**：允许配置**字面 IP** 的 `http(s)` URL，对该地址直接做阻断列表校验；若为**域名**，则对该主机名解析得到的**全部**结果逐一校验，任一对私网/保留段即拒绝。
@@ -230,9 +231,15 @@ pnpm -r build
 
 **Docker 资源与安全（v0.5+）**：`docker run` 默认 **`--network=bridge`**（保证 registry 访问）、**不**加 `--privileged`**。可通过 `SHIPYARD_BUILD_DOCKER_CPUS`、`SHIPYARD_BUILD_DOCKER_MEMORY` 限制 CPU/内存；`SHIPYARD_BUILD_DOCKER_NETWORK` 可选 `bridge`/`host`/`none`/`container:<name>`；仅在确有需要时设 `SHIPYARD_BUILD_DOCKER_PRIVILEGED=true`（高危）。构建日志会打印一行 `[docker-build] run opts: …` 摘要。
 
+**Podman（v0.6+，仅文档）**：Shipyard Worker 调用的是宿主上的 **`docker` CLI**（`docker run` / `docker info`）。在 Linux 上若使用 [Podman](https://podman.io/) 的 **Docker 兼容别名**（如 `docker` → `podman`），需自行保证 **`docker info` / `docker run` 语义与 Docker 足够接近**（根挂载、网络、卷行为可能与 Docker 有差异）。**官方仍以 Docker 为对照测试目标**；Podman 环境请充分自测后再用于生产构建。
+
 **依赖缓存淘汰顺序（v0.5+）**：若配置 `SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`，在每次写入缓存后 **先** 按指纹目录 mtime 删除过期项（日志 `cache_evict_ttl`），**再** 若配置 `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB`（或 `_MAX_BYTES`）则对该 **组织** 子树做 LRU，**最后** 对全局总占用做 LRU（日志 `cache_evict` / `cache_evict_org`）。
 
+**依赖缓存并发（v0.6+）**：多个 Worker 进程或 **同一进程内** 多并发构建 Job 若共享 **同一** `SHIPYARD_BUILD_DEPS_CACHE_PATH`，对 **淘汰路径**（删除指纹目录）在缓存根下使用 `.shipyard-deps-evict.lock` **跨进程文件锁**串行化，降低并发 `rmSync` 竞态；向 workdir **复制** `node_modules` 仍可与淘汰以外的步骤并行。若长时间无法获取锁，当次淘汰会跳过并记录 `evict_lock_acquire_failed`。
+
 ### 自托管 Git 实例兼容（简表）
+
+**拆分说明**：**CI 多 URL 只读探测** 与 **实例 API 版本自检脚本** 分文档维护，见 **[docs/self-hosted-git.md](docs/self-hosted-git.md)**（含 `GIT_SMOKE_URLS`、`GIT_SMOKE_BASE_URL` 与 `scripts/probe-git-api-version.mjs`）。
 
 | 平台 | 建议自测项 | 说明 | 参考文档 | 版本 / 已知问题 |
 |------|------------|------|----------|----------------|

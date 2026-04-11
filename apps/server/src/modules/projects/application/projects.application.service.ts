@@ -101,6 +101,8 @@ export class ProjectsApplicationService {
     return this.repo.findProjectCreatedPayload(project.id);
   }
 
+  private static readonly NOTIFICATION_TEMPLATE_MAX = 16_000;
+
   async updateProject(
     orgId: string,
     projectSlug: string,
@@ -111,6 +113,7 @@ export class ProjectsApplicationService {
       previewEnabled?: boolean;
       previewServerId?: string | null;
       previewBaseDomain?: string | null;
+      notificationMessageTemplate?: string | null;
     },
   ) {
     const project = await this.getProject(orgId, projectSlug);
@@ -121,6 +124,7 @@ export class ProjectsApplicationService {
       previewEnabled?: boolean;
       previewServerId?: string | null;
       previewBaseDomain?: string | null;
+      notificationMessageTemplate?: string | null;
     } = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.frameworkType !== undefined) patch.frameworkType = data.frameworkType;
@@ -153,6 +157,20 @@ export class ProjectsApplicationService {
         });
         if (!srv) throw new NotFoundException('预览服务器不存在或不属于本组织');
         patch.previewServerId = data.previewServerId;
+      }
+    }
+    if (data.notificationMessageTemplate !== undefined) {
+      const raw = data.notificationMessageTemplate;
+      if (raw === null || raw.trim() === '') {
+        patch.notificationMessageTemplate = null;
+      } else {
+        const t = raw.trim();
+        if (t.length > ProjectsApplicationService.NOTIFICATION_TEMPLATE_MAX) {
+          throw new BadRequestException(
+            `通知消息模板过长（上限 ${ProjectsApplicationService.NOTIFICATION_TEMPLATE_MAX} 字符）`,
+          );
+        }
+        patch.notificationMessageTemplate = t;
       }
     }
     if (Object.keys(patch).length === 0) return project;

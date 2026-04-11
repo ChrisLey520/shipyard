@@ -1,5 +1,5 @@
 /**
- * 通知消息中的占位符，如 {{projectSlug}}、{{event}}；未知键保留原样
+ * 通知消息中的占位符，如 {{projectSlug}}、{{event}}、{{message}}（与 {{body}} 同义，为系统默认文案）；未知键保留原样
  */
 export function renderNotificationPlaceholders(
   template: string,

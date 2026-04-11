@@ -111,6 +111,7 @@ export class PrismaProjectRepository {
       previewEnabled?: boolean;
       previewServerId?: string | null;
       previewBaseDomain?: string | null;
+      notificationMessageTemplate?: string | null;
     },
   ) {
     return this.prisma.project.update({ where: { id: projectId }, data });

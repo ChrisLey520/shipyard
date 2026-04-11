@@ -1,6 +1,6 @@
 {
   "name": "@shipyard/server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "prisma generate && ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/main.ts",
@@ -42,6 +42,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "proper-lockfile": "^4.1.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.5",
@@ -58,6 +59,7 @@
     "@types/nodemailer": "^6.4.15",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/ssh2": "^1.15.1",
     "@types/supertest": "^7.2.0",
     "@types/uuid": "^10.0.0",

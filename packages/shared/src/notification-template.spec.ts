@@ -14,4 +14,14 @@ describe('renderNotificationPlaceholders', () => {
   it('缺省变量保留原文', () => {
     expect(renderNotificationPlaceholders('{{missing}} ok', { projectSlug: 'x' })).toBe('{{missing}} ok');
   });
+
+  it('可嵌入系统默认文案 {{message}} / {{body}}', () => {
+    expect(
+      renderNotificationPlaceholders('[{{event}}] {{message}}', {
+        event: 'BUILD_FAILED',
+        message: '部署挂了',
+        body: '部署挂了',
+      }),
+    ).toBe('[BUILD_FAILED] 部署挂了');
+  });
 });

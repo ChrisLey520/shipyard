@@ -25,19 +25,40 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
-  # 可选：在仓库 Secrets 中配置 GIT_SMOKE_BASE_URL（只读 HEAD，如自建 GitLab /version），未配置则跳过
+  # 可选：Secrets GIT_SMOKE_URLS（多行 URL）或 GIT_SMOKE_BASE_URL（单 URL），未配置则跳过；见 docs/self-hosted-git.md
   git-smoke:
     runs-on: ubuntu-latest
     steps:
       - name: Git 只读 smoke（可选）
         env:
           GIT_SMOKE_BASE_URL: ${{ secrets.GIT_SMOKE_BASE_URL }}
+          GIT_SMOKE_URLS: ${{ secrets.GIT_SMOKE_URLS }}
         run: |
-          if [ -z "$GIT_SMOKE_BASE_URL" ]; then
-            echo "GIT_SMOKE_BASE_URL 未配置，跳过"
+          set -e
+          urls_file="$(mktemp)"
+          if [ -n "${GIT_SMOKE_URLS:-}" ]; then
+            printf '%s\n' "$GIT_SMOKE_URLS" >"$urls_file"
+          elif [ -n "${GIT_SMOKE_BASE_URL:-}" ]; then
+            printf '%s\n' "$GIT_SMOKE_BASE_URL" >"$urls_file"
+          fi
+          if [ ! -s "$urls_file" ]; then
+            echo "GIT_SMOKE_URLS / GIT_SMOKE_BASE_URL 均未配置，跳过"
+            rm -f "$urls_file"
             exit 0
           fi
-          curl -sfI --max-time 15 "$GIT_SMOKE_BASE_URL" | head -n 1
+          ok=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            u="$(echo "$line" | tr -d '\r' | xargs)"
+            [ -z "$u" ] && continue
+            echo "probe: $u"
+            curl -sfI --max-time 15 "$u" | head -n 1
+            ok=1
+          done <"$urls_file"
+          rm -f "$urls_file"
+          if [ "$ok" -eq 0 ]; then
+            echo "无有效 URL 行"
+            exit 1
+          fi
 
   e2e:
     runs-on: ubuntu-latest

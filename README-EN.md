@@ -129,14 +129,15 @@ The following items are the **next phase** priorities (ordered by “works end-t
 - Channels: `webhook`, `email` (Nodemailer), Feishu, DingTalk, Slack, **WeCom (WeChat Work)** robot webhooks (markdown payload), with encrypted secrets where applicable.
 - Outbound HTTP(S) uses **`assertSafeOutboundHttpUrl`**: resolve **all** A/AAAA records and block private/reserved ranges (`isBlockedOutboundIp`).
 - Triggers from build/deploy/approval flows enqueue notification jobs (retries + backoff).
-- **`message` placeholders** before enqueue: `{{projectSlug}}`, `{{orgSlug}}`, `{{event}}`, `{{detailUrl}}`, `{{deploymentId}}`, `{{approvalId}}` (`renderNotificationPlaceholders` in `@shipyard/shared`); unknown keys stay literal.
+- **`message` placeholders** before enqueue: `{{projectSlug}}`, `{{orgSlug}}`, `{{event}}`, `{{detailUrl}}`, `{{deploymentId}}`, `{{approvalId}}`, plus `{{message}}` / `{{body}}` for the system default sentence (`renderNotificationPlaceholders` in `@shipyard/shared`); unknown keys stay literal. **Optional per-project template** (`notificationMessageTemplate`, Web **Notifications** tab) wraps the rendered line when set.
 
 **Optional follow-ups**: more channels, signing variants.
 
 ### 4) Build, cache & deploy hardening
 
-- **Deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` / `_MAX_MB` caps total cache size; optional **`SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`** (TTL, `cache_evict_ttl` logs); optional **per-org** cap `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB` / `_ORG_MAX_BYTES` (`cache_evict_org`); **eviction order**: TTL → org LRU → global LRU; `cache_hit` / `cache_miss` logging.
+- **Deps cache**: `SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES` / `_MAX_MB` caps total cache size; optional **`SHIPYARD_BUILD_DEPS_CACHE_MAX_AGE_DAYS`** (TTL, `cache_evict_ttl` logs); optional **per-org** cap `SHIPYARD_BUILD_DEPS_CACHE_ORG_MAX_MB` / `_ORG_MAX_BYTES` (`cache_evict_org`); **eviction order**: TTL → org LRU → global LRU; `cache_hit` / `cache_miss` logging. **v0.6+**: eviction (`rmSync` of fingerprint dirs) is serialized per cache root with a **cross-process lock file** `.shipyard-deps-evict.lock`; copying `node_modules` to/from the cache stays outside that lock. If the lock cannot be acquired, eviction is skipped for that run and `evict_lock_acquire_failed` is logged.
 - **Docker (opt-in)**: on **Linux**, `SHIPYARD_BUILD_USE_DOCKER=true` runs install/lint/test/build inside `docker run` with the repo mounted at `/workspace` (`SHIPYARD_BUILD_DOCKER_IMAGE`, default `node:20-bookworm`). Explicit **`--network=bridge`** by default, optional **`--cpus` / `--memory`**, **no** `--privileged` unless `SHIPYARD_BUILD_DOCKER_PRIVILEGED=true`. Logs a `[docker-build] run opts: …` line. **Git clone stays on the host.** On **macOS/Windows**, enabling the flag logs a **warning** and keeps **`child_process`**. Requires a working `docker` CLI + daemon on Linux workers.
+- **Podman (v0.6+, docs only)**: the Worker shells out to the host **`docker` CLI**. If you alias `docker` to **Podman**, you must validate `docker info` / `docker run` behavior yourself (bind mounts, networking, and volume semantics may differ). **Docker is the tested reference**; treat Podman as best-effort.
 - **Deploy `[precheck]`**: after SSH, checks `bash`/`rsync` and conditional `nginx`, `node`/`pm2`; if `node` is missing, logs stronger hints for **login shell, PATH, and nvm** (nvm is not required).
 - **Artifact cleanup**: `Organization.artifactRetention` (count-based).
 
@@ -151,6 +152,8 @@ The following items are the **next phase** priorities (ordered by “works end-t
 **Rootless Docker & volumes**: with [Rootless mode](https://docs.docker.com/engine/security/rootless/), run the Worker as the same user that owns the daemon (e.g. `export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock` or `docker context use rootless`). The build workdir is a host path under `/tmp/build-<deploymentId>` bind-mounted to `/workspace`. The **deps cache root** (`SHIPYARD_BUILD_DEPS_CACHE_PATH` or the default under the system temp dir) is read/written on the host by the Worker (it stays in sync with container `node_modules` via the mounted repo tree; you do not need a second mount of the cache root into the container). Ensure those paths are writable and have enough disk.
 
 ### Self-hosted Git compatibility (summary)
+
+See **[docs/self-hosted-git.md](docs/self-hosted-git.md)** for **CI smoke (multi-URL)** vs **API version probing** (split concerns, including `GIT_SMOKE_URLS` and `scripts/probe-git-api-version.mjs`).
 
 | Provider | Notes | Reference | Version / issues |
 |----------|-------|-----------|-------------------|

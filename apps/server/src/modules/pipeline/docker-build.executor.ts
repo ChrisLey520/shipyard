@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
+import type { ContainerBuildRunOpts } from './container-build-runner.types';
 
 export const DEFAULT_BUILD_DOCKER_IMAGE =
   process.env['SHIPYARD_BUILD_DOCKER_IMAGE']?.trim() || 'node:20-bookworm';
@@ -94,14 +95,7 @@ export function buildDockerResourceArgs(): { args: string[]; summary: Record<str
 /**
  * 在容器内执行单条 shell 命令（工作目录 /workspace，与宿主 tmpDir 挂载一致）。
  */
-export async function runInBuildContainer(opts: {
-  tmpDir: string;
-  image: string;
-  shellCommand: string;
-  env: Record<string, string>;
-  timeoutMs: number;
-  onLine: (line: string) => void;
-}): Promise<void> {
+export async function runInBuildContainer(opts: ContainerBuildRunOpts): Promise<void> {
   const envArgs: string[] = [];
   for (const [k, v] of Object.entries(opts.env)) {
     envArgs.push('-e', `${k}=${v}`);
@@ -172,4 +166,11 @@ export async function probeDockerAvailable(): Promise<boolean> {
     child.on('close', (c) => resolve(c === 0));
     child.on('error', () => resolve(false));
   });
+}
+
+/** Docker 容器内构建执行器（与 {@link ProcessBuildExecutor} 对偶）。 */
+export class DockerBuildExecutor {
+  run(opts: ContainerBuildRunOpts): Promise<void> {
+    return runInBuildContainer(opts);
+  }
 }

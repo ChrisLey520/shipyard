@@ -138,6 +138,8 @@ model Project {
   previewServerId   String?
   /// 通配父域，例如 preview.example.com → FQDN 为 pr-{n}-{id8}.preview.example.com
   previewBaseDomain String?
+  /// 可选：通知入队前消息模板；可用 {{message}} / {{body}} 嵌入系统默认文案，及其它既有占位符
+  notificationMessageTemplate String? @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

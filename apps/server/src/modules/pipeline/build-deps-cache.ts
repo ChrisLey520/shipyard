@@ -1,6 +1,7 @@
-import { readdirSync, statSync, rmSync, existsSync } from 'fs';
+import { readdirSync, statSync, rmSync, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import type { Logger } from '@nestjs/common';
+import lockfile from 'proper-lockfile';
 
 /** 默认缓存上限 5GiB（可通过 SHIPYARD_BUILD_DEPS_CACHE_MAX_BYTES 覆盖） */
 export const DEFAULT_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
@@ -199,8 +200,9 @@ export function evictOrgDepsCacheLru(
 
 /**
  * 写入缓存后的统一淘汰：**先 TTL**，再 **单组织 LRU**，最后 **全局 LRU**（与 v0.5 需求规格一致）。
+ * 由 {@link runDepsCacheEvictionPipeline} 在持跨进程锁时调用；单测可直接调用以跳过文件锁。
  */
-export function runDepsCacheEvictionPipeline(
+export function runDepsCacheEvictionPipelineSync(
   cacheRoot: string,
   orgId: string,
   globalMaxBytes: number,
@@ -226,5 +228,47 @@ export function runDepsCacheEvictionPipeline(
     evictDepsCacheLru(cacheRoot, globalMaxBytes, logger);
   } catch (e) {
     logger.warn(`[build-cache] 依赖缓存 LRU 淘汰异常: ${e}`);
+  }
+}
+
+const EVICT_LOCK_STALE_MS = 120_000;
+
+/**
+ * 对 **同一 cacheRoot** 的淘汰串行化（跨进程文件锁，仅包裹淘汰路径）。
+ */
+export async function runDepsCacheEvictionPipeline(
+  cacheRoot: string,
+  orgId: string,
+  globalMaxBytes: number,
+  logger: Logger,
+): Promise<void> {
+  try {
+    mkdirSync(cacheRoot, { recursive: true });
+  } catch (e) {
+    logger.warn(`[build-cache] 无法创建缓存根目录 ${cacheRoot}: ${e}`);
+    return;
+  }
+
+  const lockPath = path.join(cacheRoot, '.shipyard-deps-evict.lock');
+  const release = await lockfile
+    .lock(lockPath, {
+      stale: EVICT_LOCK_STALE_MS,
+      retries: {
+        retries: 20,
+        factor: 1.15,
+        minTimeout: 50,
+        maxTimeout: 4000,
+      },
+    })
+    .catch((e: unknown) => {
+      logger.warn(`[build-cache] evict_lock_acquire_failed: ${e}`);
+      return null;
+    });
+  if (!release) return;
+
+  try {
+    runDepsCacheEvictionPipelineSync(cacheRoot, orgId, globalMaxBytes, logger);
+  } finally {
+    await release();
   }
 }

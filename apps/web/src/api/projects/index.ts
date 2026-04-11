@@ -43,6 +43,8 @@ export interface ProjectDetail {
   previewServerId?: string | null;
   previewBaseDomain?: string | null;
   previewServer?: { id: string; name: string; host: string; os: string } | null;
+  /** 可选：通知入队消息模板；空则用各事件默认文案 */
+  notificationMessageTemplate?: string | null;
   environments: {
     id: string;
     name: string;
@@ -63,6 +65,7 @@ export type UpdateProjectPayload = {
   previewEnabled?: boolean;
   previewServerId?: string | null;
   previewBaseDomain?: string | null;
+  notificationMessageTemplate?: string | null;
 };
 
 export interface DeploymentListItem {

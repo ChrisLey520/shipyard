@@ -1,5 +1,25 @@
 <template>
   <div class="mt-2 flex flex-col gap-4">
+    <n-card title="通知消息模板（项目级）" size="small">
+      <n-text depth="3" class="mb-2 block text-sm">
+        留空则使用各事件的系统默认文案。填写后整段作为骨架，仍走占位符渲染；可用
+        {{ '{{projectSlug}}' }}、{{ '{{orgSlug}}' }}、{{ '{{event}}' }}、{{ '{{detailUrl}}' }}、{{ '{{deploymentId}}' }}、{{ '{{approvalId}}' }}，以及
+        {{ '{{message}}' }}（或 {{ '{{body}}' }}，表示系统默认那句全文）。
+      </n-text>
+      <n-input
+        v-model:value="msgTemplateDraft"
+        type="textarea"
+        :rows="4"
+        :placeholder="templatePlaceholder"
+      />
+      <div class="mt-3 flex flex-wrap justify-end gap-2">
+        <n-button size="small" @click="resetTemplateDraft">还原</n-button>
+        <n-button type="primary" size="small" :loading="savingTemplate" @click="saveTemplate">
+          保存模板
+        </n-button>
+      </div>
+    </n-card>
+
     <div class="flex flex-wrap items-center justify-between gap-3">
       <n-text depth="3" class="text-sm">
         构建/部署/审批事件将按下方配置入队并由 Worker 发送；敏感字段仅保存密文，列表中不展示。
@@ -100,6 +120,7 @@
 import { computed, h, ref, watch } from 'vue';
 import {
   NButton,
+  NCard,
   NDataTable,
   NForm,
   NFormItem,
@@ -122,6 +143,8 @@ import {
   updateProjectNotification,
   type ProjectNotificationRow,
 } from '@/api/projects/notifications';
+import { updateProject } from '@/api/projects';
+import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectNotificationsQuery } from '@/composables/projects/useProjectNotificationsQuery';
 
 const props = defineProps<{
@@ -129,12 +152,16 @@ const props = defineProps<{
   projectSlug: string;
 }>();
 
+/** 占位符示例（避免在属性里写 `{{` 被 Vue 当成插值） */
+const templatePlaceholder = '示例：[{{orgSlug}}/{{projectSlug}}] {{event}}：{{message}}';
+
 const message = useMessage();
 const dialog = useDialog();
 const queryClient = useQueryClient();
 
 const orgSlugRef = computed(() => props.orgSlug);
 const projectSlugRef = computed(() => props.projectSlug);
+const detailQ = useProjectDetailQuery(orgSlugRef, projectSlugRef);
 const q = useProjectNotificationsQuery(orgSlugRef, projectSlugRef);
 const rows = computed(() => q.data.value ?? []);
 const loading = computed(() => q.isPending.value || q.isFetching.value);
@@ -167,6 +194,40 @@ const eventOptions = Object.values(NotificationEvent).map((v) => ({
   label: EVENT_LABELS[v],
   value: v,
 }));
+
+const msgTemplateDraft = ref('');
+const savingTemplate = ref(false);
+
+watch(
+  () => detailQ.data.value?.notificationMessageTemplate,
+  (t) => {
+    msgTemplateDraft.value = t ?? '';
+  },
+  { immediate: true },
+);
+
+function resetTemplateDraft() {
+  msgTemplateDraft.value = detailQ.data.value?.notificationMessageTemplate ?? '';
+}
+
+async function saveTemplate() {
+  const v = msgTemplateDraft.value.trim();
+  savingTemplate.value = true;
+  try {
+    await updateProject(props.orgSlug, props.projectSlug, {
+      notificationMessageTemplate: v === '' ? null : v,
+    });
+    message.success('已保存');
+    await queryClient.invalidateQueries({
+      queryKey: ['projects', 'detail', props.orgSlug, props.projectSlug],
+    });
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    message.error(e?.response?.data?.message ?? '保存失败');
+  } finally {
+    savingTemplate.value = false;
+  }
+}
 
 const modalShow = ref(false);
 const editingId = ref<string | null>(null);

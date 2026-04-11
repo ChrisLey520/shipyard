@@ -110,3 +110,7 @@ flowchart TB
 | `v05-doc-selfhosted` | 自托管矩阵列 | P1 |
 | `v05-readme-changelog` | CHANGELOG + README | P0 |
 | `v05-spi-executor` | Build SPI | Stretch |
+
+---
+
+**下一版本**：见 [shipyard-v0.6-路线图.plan.md](./shipyard-v0.6-路线图.plan.md)（[需求规格](./shipyard-v0.6-需求规格.md)）。

@@ -59,6 +59,7 @@ export class ProjectsController {
       previewEnabled?: boolean;
       previewServerId?: string | null;
       previewBaseDomain?: string | null;
+      notificationMessageTemplate?: string | null;
     },
   ) {
     return this.projects.updateProject(orgId, projectSlug, body);

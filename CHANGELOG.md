@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-11
+
+### Added
+
+- **Build**：`ProcessBuildExecutor` / `DockerBuildExecutor` 与共享类型（`container-build-runner.types.ts`、`process-build.executor.ts`），`BuildWorker` 通过二者编排宿主与容器内命令；Vitest 覆盖进程执行器边界。
+- **Build cache**：依赖缓存淘汰管道 `runDepsCacheEvictionPipeline` 在缓存根下使用 **`.shipyard-deps-evict.lock`**（`proper-lockfile`）**跨进程串行化** 仅 **淘汰路径**；同步体 `runDepsCacheEvictionPipelineSync` 供持锁场景或单测；锁获取失败时跳过当次淘汰并记录 `evict_lock_acquire_failed`。
+- **Notifications**：项目级可选 **`notificationMessageTemplate`**（Prisma + `PATCH /projects` + Web「通知」页）；入队时若配置则作为消息骨架，占位符含 **`{{message}}` / `{{body}}`**（系统默认文案）及既有字段。
+- **CI**：`git-smoke` 支持 **`GIT_SMOKE_URLS`**（多行 URL，优先于 `GIT_SMOKE_BASE_URL`）。
+- **Docs / scripts**：[`docs/self-hosted-git.md`](docs/self-hosted-git.md) 拆分 CI 探测与 API 版本说明；[`scripts/probe-git-api-version.mjs`](scripts/probe-git-api-version.mjs) 匿名探测 GitLab/Gitea version 端点。
+
+### Documentation
+
+- README / README-EN：多 Worker / 并发 Job 与共享缓存根时的淘汰锁说明；**Podman** 与 `docker` CLI 兼容说明（非一等支持）；自托管 Git 链至 `docs/self-hosted-git.md`。
+
+[0.6.0]: https://github.com/ChrisLey520/shipyard/releases
+
 ## [0.5.0] - 2026-04-12
 
 ### Added
