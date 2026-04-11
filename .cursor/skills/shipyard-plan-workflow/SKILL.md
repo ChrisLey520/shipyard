@@ -11,6 +11,7 @@ description: >-
 ## 文档落盘位置（必须）
 
 - **统一目录**：本仓库所有版本规划、需求规格、审阅用计划书，一律放在 **`.cursor/plans/`**（项目根下 `.cursor` 内，与 Cursor 配置共存、可入库共享）。
+- **勿用全局计划目录作为唯一来源**：Cursor 可能在本机 `~/.cursor/plans/` 生成计划副本；Shipyard 以 **仓库内 `.cursor/plans/`** 为规范与协作事实来源；若发现重复，应合并后删除全局副本或明确标注「非入库草稿」。
 - **推荐命名**（与现有惯例一致）：
   - 需求规格：`shipyard-vX.Y-需求规格.md`
   - 路线图（含 YAML 待办可与 Cursor 对齐）：`shipyard-vX.Y-路线图.plan.md`
