@@ -22,6 +22,7 @@ export class PrismaProjectRepository {
       include: {
         gitConnection: { select: { id: true, gitProvider: true, gitUsername: true, createdAt: true, updatedAt: true } },
         pipelineConfig: true,
+        previewServer: { select: { id: true, name: true, host: true, os: true } },
         environments: {
           include: { server: { select: { id: true, name: true, host: true, os: true } } },
         },
@@ -103,7 +104,14 @@ export class PrismaProjectRepository {
 
   updateProjectById(
     projectId: string,
-    data: { name?: string; frameworkType?: string; slug?: string },
+    data: {
+      name?: string;
+      frameworkType?: string;
+      slug?: string;
+      previewEnabled?: boolean;
+      previewServerId?: string | null;
+      previewBaseDomain?: string | null;
+    },
   ) {
     return this.prisma.project.update({ where: { id: projectId }, data });
   }
@@ -121,7 +129,13 @@ export class PrismaProjectRepository {
   findGitConnectionWebhookMeta(projectId: string) {
     return this.prisma.gitConnection.findUnique({
       where: { projectId },
-      select: { gitProvider: true, accessToken: true, baseUrl: true, remoteWebhookId: true },
+      select: {
+        gitProvider: true,
+        accessToken: true,
+        baseUrl: true,
+        remoteWebhookId: true,
+        webhookSecret: true,
+      },
     });
   }
 

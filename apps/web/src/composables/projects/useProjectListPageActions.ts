@@ -4,6 +4,7 @@ import {
   getProject,
   updatePipelineConfig,
   updateProject,
+  type UpdateProjectPayload,
 } from '@/api/projects';
 
 export type { ProjectDetail, ProjectListItem } from '@/api/projects';
@@ -17,10 +18,8 @@ export function useProjectListPageActions(orgSlug: MaybeRefOrGetter<string>) {
 
     deleteProject: (projectSlug: string) => deleteProject(org.value, projectSlug),
 
-    updateProject: (
-      currentSlug: string,
-      body: { name?: string; frameworkType?: string; slug?: string },
-    ) => updateProject(org.value, currentSlug, body),
+    updateProject: (currentSlug: string, body: UpdateProjectPayload) =>
+      updateProject(org.value, currentSlug, body),
 
     updatePipelineConfig: (
       projectSlugForPath: string,

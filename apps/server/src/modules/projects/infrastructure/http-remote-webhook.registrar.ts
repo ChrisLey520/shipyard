@@ -57,10 +57,34 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
     const listRes = await fetch(githubRepoHooksUrl(owner, repo), {
       headers: this.githubAuthHeader(opts.accessToken),
     });
+    const desiredEvents = ['push', 'pull_request'];
+
     if (listRes.ok) {
-      const hooks = (await listRes.json()) as Array<{ id?: number; config?: { url?: string } }>;
+      const hooks = (await listRes.json()) as Array<{
+        id?: number;
+        config?: { url?: string };
+        events?: string[];
+      }>;
       const existing = hooks.find((h) => h.config?.url?.includes(pMark));
       if (existing?.id != null) {
+        const ev = existing.events ?? [];
+        const missing = desiredEvents.filter((e) => !ev.includes(e));
+        if (missing.length > 0) {
+          const patchRes = await fetch(githubRepoHookItemUrl(owner, repo, String(existing.id)), {
+            method: 'PATCH',
+            headers: {
+              ...this.githubAuthHeader(opts.accessToken),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              events: Array.from(new Set([...ev, ...desiredEvents])),
+            }),
+          });
+          if (!patchRes.ok) {
+            const text = await patchRes.text().catch(() => '');
+            this.logger.warn(`GitHub Webhook 更新 events 失败 HTTP ${patchRes.status}: ${text}`);
+          }
+        }
         return { remoteWebhookId: String(existing.id) };
       }
     }
@@ -74,7 +98,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       body: JSON.stringify({
         name: 'web',
         active: true,
-        events: ['push'],
+        events: desiredEvents,
         config: {
           url: callbackUrl,
           content_type: 'json',

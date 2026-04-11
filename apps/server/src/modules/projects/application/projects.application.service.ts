@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { PrismaService } from '../../../common/prisma/prisma.service';
 import { createHmac, randomBytes } from 'crypto';
 import { unlink } from 'fs/promises';
 import { assertValidProjectSlug, ProjectSlugRuleError } from '../domain/project-slug.rules';
@@ -23,6 +24,7 @@ export class ProjectsApplicationService {
 
   constructor(
     @Inject(PROJECT_REPOSITORY) private readonly repo: PrismaProjectRepository,
+    private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     @Inject(REMOTE_WEBHOOK_REGISTRAR) private readonly webhooks: RemoteWebhookRegistrar,
   ) {}
@@ -102,10 +104,24 @@ export class ProjectsApplicationService {
   async updateProject(
     orgId: string,
     projectSlug: string,
-    data: { name?: string; frameworkType?: string; slug?: string },
+    data: {
+      name?: string;
+      frameworkType?: string;
+      slug?: string;
+      previewEnabled?: boolean;
+      previewServerId?: string | null;
+      previewBaseDomain?: string | null;
+    },
   ) {
     const project = await this.getProject(orgId, projectSlug);
-    const patch: { name?: string; frameworkType?: string; slug?: string } = {};
+    const patch: {
+      name?: string;
+      frameworkType?: string;
+      slug?: string;
+      previewEnabled?: boolean;
+      previewServerId?: string | null;
+      previewBaseDomain?: string | null;
+    } = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.frameworkType !== undefined) patch.frameworkType = data.frameworkType;
     if (data.slug !== undefined) {
@@ -124,8 +140,50 @@ export class ProjectsApplicationService {
       }
       patch.slug = next;
     }
+    if (data.previewEnabled !== undefined) patch.previewEnabled = data.previewEnabled;
+    if (data.previewBaseDomain !== undefined) {
+      patch.previewBaseDomain = data.previewBaseDomain?.trim() || null;
+    }
+    if (data.previewServerId !== undefined) {
+      if (data.previewServerId === null) {
+        patch.previewServerId = null;
+      } else {
+        const srv = await this.prisma.server.findFirst({
+          where: { id: data.previewServerId, organizationId: orgId },
+        });
+        if (!srv) throw new NotFoundException('预览服务器不存在或不属于本组织');
+        patch.previewServerId = data.previewServerId;
+      }
+    }
     if (Object.keys(patch).length === 0) return project;
-    return this.repo.updateProjectById(project.id, patch);
+
+    const updated = await this.repo.updateProjectById(project.id, patch);
+
+    const previewTouched =
+      data.previewEnabled !== undefined ||
+      data.previewServerId !== undefined ||
+      data.previewBaseDomain !== undefined;
+    if (previewTouched) {
+      const meta = await this.repo.findGitConnectionWebhookMeta(project.id);
+      if (meta?.remoteWebhookId && meta.gitProvider === 'github') {
+        try {
+          const token = this.crypto.decrypt(meta.accessToken);
+          const webhookSecret = this.crypto.decrypt(meta.webhookSecret);
+          await this.webhooks.registerForProvider({
+            projectId: project.id,
+            gitProvider: meta.gitProvider,
+            repoFullName: project.repoFullName,
+            accessToken: token,
+            baseUrl: meta.baseUrl ?? null,
+            webhookSecret,
+          });
+        } catch (err) {
+          this.logger.warn(`预览设置变更后 Webhook 修复失败: ${err}`);
+        }
+      }
+    }
+
+    return updated;
   }
 
   async deleteProject(orgId: string, projectSlug: string) {

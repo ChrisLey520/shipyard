@@ -24,7 +24,7 @@
       @update:value="onProjectTabChange"
     >
       <n-tab-pane name="overview" tab="概览">
-        <n-grid :cols="3" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
+        <n-grid :cols="2" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
           <n-grid-item class="overview-top-grid-item">
             <n-card title="项目信息" size="small" class="overview-top-card">
               <n-descriptions label-placement="left" :column="1" size="small">
@@ -53,6 +53,22 @@
                 <n-descriptions-item label="安装">{{ project?.pipelineConfig?.installCommand ?? '—' }}</n-descriptions-item>
                 <n-descriptions-item label="构建">{{ project?.pipelineConfig?.buildCommand ?? '—' }}</n-descriptions-item>
                 <n-descriptions-item label="输出">{{ project?.pipelineConfig?.outputDir ?? '—' }}</n-descriptions-item>
+              </n-descriptions>
+            </n-card>
+          </n-grid-item>
+
+          <n-grid-item v-if="project?.gitConnection?.gitProvider === 'github'" class="overview-top-grid-item">
+            <n-card title="PR 预览" size="small" class="overview-top-card">
+              <n-descriptions label-placement="left" :column="1" size="small">
+                <n-descriptions-item label="状态">
+                  {{ project?.previewEnabled ? '已启用' : '未启用' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="服务器">
+                  {{ project?.previewServer?.name ?? '—' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="父域">
+                  {{ project?.previewBaseDomain ?? '—' }}
+                </n-descriptions-item>
               </n-descriptions>
             </n-card>
           </n-grid-item>
@@ -177,6 +193,7 @@
       v-model:show="showEditProject"
       :saving="savingProject"
       :initial="editProjectInitial"
+      :server-options="previewServerOptions"
       @save="saveProject"
     />
 
@@ -218,6 +235,7 @@ import {
   type DeploymentListItem,
   type ProjectDetail,
 } from '@/composables/projects/useProjectDetailActions';
+import { listServers } from '@/api/servers';
 
 const route = useRoute();
 const router = useRouter();
@@ -268,8 +286,13 @@ const buildEnvColumns: DataTableColumns<ProjectBuildEnvVar> = [
 ];
 
 const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
-  success: 'success', failed: 'error', building: 'warning',
-  deploying: 'info', queued: 'default', pending_approval: 'warning',
+  success: 'success',
+  failed: 'error',
+  building: 'warning',
+  deploying: 'info',
+  queued: 'default',
+  pending_approval: 'warning',
+  cancelled: 'default',
 };
 
 const { t } = useI18n();
@@ -481,6 +504,7 @@ async function deleteBuildEnv(varId: string) {
 
 const showEditProject = ref(false);
 const savingProject = ref(false);
+const previewServerOptions = ref<{ label: string; value: string }[]>([]);
 const editProjectInitial = ref<ProjectEditFormValues>({
   name: '',
   slug: '',
@@ -494,14 +518,31 @@ const editProjectInitial = ref<ProjectEditFormValues>({
   cacheEnabled: true,
   timeoutSeconds: 900,
   ssrEntryPoint: 'dist/index.js',
+  previewEnabled: false,
+  previewServerId: null,
+  previewBaseDomain: '',
 });
 
-function openEditProject() {
+async function loadPreviewServerOptions() {
+  try {
+    const list = await listServers(orgSlug.value);
+    previewServerOptions.value = list.map((s) => ({
+      label: `${s.name} (${s.host})`,
+      value: s.id,
+    }));
+  } catch {
+    previewServerOptions.value = [];
+  }
+}
+
+async function openEditProject() {
+  await loadPreviewServerOptions();
   const pc = project.value?.pipelineConfig;
+  const p = project.value;
   editProjectInitial.value = {
-    name: project.value?.name ?? '',
-    slug: project.value?.slug ?? '',
-    frameworkType: project.value?.frameworkType ?? 'static',
+    name: p?.name ?? '',
+    slug: p?.slug ?? '',
+    frameworkType: p?.frameworkType ?? 'static',
     installCommand: pc?.installCommand ?? 'pnpm install',
     buildCommand: pc?.buildCommand ?? 'pnpm build',
     lintCommand: pc?.lintCommand ?? '',
@@ -511,6 +552,9 @@ function openEditProject() {
     cacheEnabled: pc?.cacheEnabled ?? true,
     timeoutSeconds: pc?.timeoutSeconds ?? 900,
     ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    previewEnabled: p?.previewEnabled ?? false,
+    previewServerId: p?.previewServerId ?? null,
+    previewBaseDomain: p?.previewBaseDomain ?? '',
   };
   showEditProject.value = true;
 }
@@ -529,6 +573,16 @@ async function saveProject(v: ProjectEditFormValues) {
     message.error('构建超时至少 60 秒');
     return;
   }
+  if (v.previewEnabled) {
+    if (!v.previewServerId) {
+      message.error('启用 PR 预览时请选择一个预览服务器');
+      return;
+    }
+    if (!v.previewBaseDomain.trim()) {
+      message.error('请填写预览父域（如 preview.example.com）');
+      return;
+    }
+  }
   savingProject.value = true;
   const slugBefore = projectSlug.value;
   try {
@@ -536,6 +590,9 @@ async function saveProject(v: ProjectEditFormValues) {
       name: v.name,
       slug: v.slug,
       frameworkType: v.frameworkType,
+      previewEnabled: v.previewEnabled,
+      previewServerId: v.previewEnabled ? v.previewServerId : null,
+      previewBaseDomain: v.previewEnabled ? v.previewBaseDomain.trim() : null,
     });
     const slugAfter = v.slug;
 

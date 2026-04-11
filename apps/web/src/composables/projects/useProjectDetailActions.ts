@@ -13,6 +13,7 @@ import {
   updatePipelineConfig,
   updateProject,
   upsertProjectBuildEnv,
+  type UpdateProjectPayload,
 } from '@/api/projects';
 
 export type { DeploymentListItem, ProjectBuildEnvVar, ProjectDetail } from '@/api/projects';
@@ -45,10 +46,8 @@ export function useProjectDetailActions(
     retryDeployment: (deploymentId: string) =>
       retryDeployment(org.value, slug.value, deploymentId),
 
-    updateProject: (
-      currentSlug: string,
-      body: { name?: string; frameworkType?: string; slug?: string },
-    ) => updateProject(org.value, currentSlug, body),
+    updateProject: (currentSlug: string, body: UpdateProjectPayload) =>
+      updateProject(org.value, currentSlug, body),
 
     updatePipelineConfig: (
       projectSlugForPath: string,

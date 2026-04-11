@@ -132,11 +132,18 @@ model Project {
   frameworkType  String
   repoFullName   String
   gitConnectionId String? @unique
+  /// PR 预览：总开关
+  previewEnabled    Boolean  @default(false)
+  /// 预览部署目标 SSH 服务器（与 Environment.server 同源）
+  previewServerId   String?
+  /// 通配父域，例如 preview.example.com → FQDN 为 pr-{n}-{id8}.preview.example.com
+  previewBaseDomain String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   gitConnection  GitConnection?  @relation("ProjectGitConnection")
+  previewServer  Server?         @relation("ProjectPreviewServer", fields: [previewServerId], references: [id], onDelete: SetNull)
   pipelineConfig PipelineConfig?
   buildEnvVars   ProjectBuildEnvVariable[]
   environments   Environment[]
@@ -146,6 +153,7 @@ model Project {
 
   @@unique([organizationId, slug])
   @@index([organizationId])
+  @@index([previewServerId])
 }
 
 model PipelineConfig {
@@ -234,11 +242,16 @@ model Server {
   user           String
   privateKey     String
   os             String   @default("linux")
+  /// PR 预览端口池下界（含）；为空时用应用内默认 40000
+  previewPortMin Int?
+  /// PR 预览端口池上界（含）；为空时用应用内默认 41000
+  previewPortMax Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   environments Environment[]
+  previewProjects Project[] @relation("ProjectPreviewServer")
 
   @@index([organizationId])
 }

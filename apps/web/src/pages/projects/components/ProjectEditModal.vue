@@ -53,6 +53,27 @@
         <n-form-item label="依赖缓存">
           <n-switch v-model:value="form.cacheEnabled" />
         </n-form-item>
+
+        <n-divider title-placement="left">PR 预览（GitHub pull_request）</n-divider>
+        <n-form-item label="启用 PR 预览">
+          <n-switch v-model:value="form.previewEnabled" />
+        </n-form-item>
+        <template v-if="form.previewEnabled">
+          <n-form-item label="预览服务器">
+            <n-select
+              v-model:value="form.previewServerId"
+              :options="serverOptions ?? []"
+              clearable
+              placeholder="选择用于 SSH 部署预览的 Linux 服务器"
+            />
+          </n-form-item>
+          <n-form-item label="预览父域">
+            <n-input v-model:value="form.previewBaseDomain" placeholder="如 preview.example.com" />
+            <n-text depth="3" style="display: block; margin-top: 6px; font-size: 12px">
+              访问地址形如 pr-编号-项目id前8位.该父域；需泛解析 *.父域 与 Nginx include（见 README）。
+            </n-text>
+          </n-form-item>
+        </template>
       </n-form>
     </div>
     <template #footer>
@@ -92,12 +113,16 @@ export type ProjectEditFormValues = {
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string;
+  previewEnabled: boolean;
+  previewServerId: string | null;
+  previewBaseDomain: string;
 };
 
 const props = defineProps<{
   show: boolean;
   saving: boolean;
   initial: ProjectEditFormValues;
+  serverOptions?: { label: string; value: string }[];
 }>();
 
 const emit = defineEmits<{
@@ -125,6 +150,9 @@ const form = reactive<ProjectEditFormValues>({
   cacheEnabled: true,
   timeoutSeconds: 900,
   ssrEntryPoint: 'dist/index.js',
+  previewEnabled: false,
+  previewServerId: null,
+  previewBaseDomain: '',
 });
 
 function snapshotForm(): ProjectEditFormValues {
@@ -147,6 +175,9 @@ watch(
     form.cacheEnabled = v.cacheEnabled ?? true;
     form.timeoutSeconds = typeof v.timeoutSeconds === 'number' ? v.timeoutSeconds : 900;
     form.ssrEntryPoint = v.ssrEntryPoint ?? 'dist/index.js';
+    form.previewEnabled = v.previewEnabled ?? false;
+    form.previewServerId = v.previewServerId ?? null;
+    form.previewBaseDomain = v.previewBaseDomain ?? '';
   },
   { immediate: true, deep: true },
 );

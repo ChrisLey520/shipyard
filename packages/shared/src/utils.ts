@@ -141,6 +141,16 @@ export function buildPreviewSubdomain(prNumber: number, projectId: string): stri
 }
 
 /**
+ * PR 预览完整主机名（不含协议）
+ * @param previewBaseDomain 例如 preview.example.com
+ */
+export function buildPreviewFqdn(prNumber: number, projectId: string, previewBaseDomain: string): string {
+  const sub = buildPreviewSubdomain(prNumber, projectId);
+  const base = previewBaseDomain.trim().replace(/^\.+/, '').replace(/\.+$/, '');
+  return `${sub}.${base}`;
+}
+
+/**
  * 构造 Git clone HTTPS URL（根据 provider 拼接凭证）
  */
 export function buildCloneUrl(

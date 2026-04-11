@@ -8,6 +8,7 @@ import { GitOAuthStartController } from './git-oauth-start.controller';
 import { GitOAuthCallbackController } from './git-oauth-callback.controller';
 import { GitAccessTokenService } from './git-access-token.service';
 import { GitCommitStatusService } from './git-commit-status.service';
+import { GitPrCommentApplicationService } from './application/git-pr-comment.application.service';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { CryptoModule } from '../../common/crypto/crypto.module';
 import { RedisModule } from '../../common/redis/redis.module';
@@ -26,8 +27,15 @@ import { RedisModule } from '../../common/redis/redis.module';
     GitOAuthService,
     GitAccessTokenService,
     GitCommitStatusService,
+    GitPrCommentApplicationService,
   ],
-  exports: [GitService, GitAccountsService, GitAccessTokenService, GitCommitStatusService],
+  exports: [
+    GitService,
+    GitAccountsService,
+    GitAccessTokenService,
+    GitCommitStatusService,
+    GitPrCommentApplicationService,
+  ],
 })
 export class GitModule {}
 

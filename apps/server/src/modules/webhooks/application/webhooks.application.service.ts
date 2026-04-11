@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GitProvider } from '@shipyard/shared';
+import { DeployService } from '../../deploy/deploy.service';
 import { validate as isUuid } from 'uuid';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
@@ -11,6 +12,7 @@ import {
   verifyGithubWebhookSignature,
   parseGithubWebhookEvent,
   parseGithubPushPayload,
+  parseGithubPullRequestPayload,
 } from '../adapters/github-webhook.adapter';
 import {
   gitlabWebhookIdempotencyKey,
@@ -49,6 +51,7 @@ export class WebhooksApplicationService {
     private readonly crypto: CryptoService,
     private readonly redis: RedisService,
     private readonly pipeline: PipelineService,
+    private readonly deployService: DeployService,
   ) {}
 
   protected ok(status: number, body: Record<string, unknown>): WebhookHttpResponse {
@@ -116,6 +119,19 @@ export class WebhooksApplicationService {
     } catch (e) {
       this.logger.error(`Redis idempotency failed: ${e}`);
       return this.err(503, 'service_unavailable');
+    }
+
+    if (provider === GitProvider.GITHUB) {
+      const ghEvent = parseGithubWebhookEvent(headers);
+      if (ghEvent === 'ping') {
+        return this.ok(200, { handled: false });
+      }
+      if (ghEvent === 'pull_request') {
+        if (!gitConn.project) {
+          return this.err(404, 'not_found');
+        }
+        return this.handleGithubPullRequest(projectId, gitConn as typeof gitConn & { project: NonNullable<typeof gitConn.project> }, payload);
+      }
     }
 
     if (this.isNonPushPing(provider, headers, payload)) {
@@ -235,7 +251,10 @@ export class WebhooksApplicationService {
     switch (provider) {
       case GitProvider.GITHUB: {
         const ev = parseGithubWebhookEvent(headers);
-        return ev === 'ping' || (ev !== '' && ev !== 'push');
+        return (
+          ev === 'ping' ||
+          (ev !== '' && ev !== 'push' && ev !== 'pull_request')
+        );
       }
       case GitProvider.GITLAB: {
         const ev = parseGitlabWebhookEvent(headers);
@@ -252,6 +271,74 @@ export class WebhooksApplicationService {
         return _exhaustive;
       }
     }
+  }
+
+  private async handleGithubPullRequest(
+    projectId: string,
+    gitConn: {
+      gitProvider: string;
+      project: {
+        id: string;
+        slug: string;
+        repoFullName: string;
+        previewEnabled: boolean;
+        previewServerId: string | null;
+        previewBaseDomain: string | null;
+        organization: { id: string };
+      };
+    },
+    payload: Record<string, unknown>,
+  ): Promise<WebhookHttpResponse> {
+    const parsed = parseGithubPullRequestPayload(payload);
+    if (!parsed) {
+      return this.ok(200, { skipped: true, reason: 'invalid_pr_payload' });
+    }
+
+    const project = gitConn.project;
+    if (!project.previewEnabled) {
+      return this.ok(200, { handled: false, reason: 'preview_disabled' });
+    }
+    if (!project.previewServerId || !project.previewBaseDomain?.trim()) {
+      return this.ok(200, { handled: false, reason: 'preview_not_configured' });
+    }
+
+    const expectedBase = normalizeRepoKey(project.repoFullName);
+    if (normalizeRepoKey(parsed.baseRepoFullName) !== expectedBase) {
+      return this.err(422, 'repository_mismatch');
+    }
+
+    if (normalizeRepoKey(parsed.headRepoFullName) !== normalizeRepoKey(parsed.baseRepoFullName)) {
+      return this.ok(200, { handled: false, reason: 'fork_pr_skipped' });
+    }
+
+    const orgId = project.organization.id;
+
+    if (parsed.action === 'closed' || parsed.prState === 'closed') {
+      void this.deployService
+        .teardownPreviewForPr(orgId, projectId, parsed.prNumber)
+        .catch((e) => this.logger.error(`Preview teardown failed: ${e}`));
+      return this.ok(200, { preview: 'teardown_started' });
+    }
+
+    if (parsed.action !== 'opened' && parsed.action !== 'synchronize') {
+      return this.ok(200, { handled: false, reason: 'pr_action_ignored' });
+    }
+
+    const { deployment, previewId, deduped } = await this.pipeline.enqueuePrPreviewBuild(orgId, projectId, {
+      prNumber: parsed.prNumber,
+      headSha: parsed.headSha,
+      headBranch: parsed.headBranch,
+      commitMessage: parsed.commitMessage || '(no title)',
+      commitAuthor: parsed.commitAuthor || 'unknown',
+      previewBaseDomain: project.previewBaseDomain!.trim(),
+      gitProvider: gitConn.gitProvider,
+    });
+
+    if (deduped) {
+      return this.ok(200, { deduped: true, deploymentId: deployment.id, previewId });
+    }
+    this.logger.log(`Queued PR preview build for ${project.slug} PR#${parsed.prNumber}`);
+    return this.ok(200, { queued: 1, deploymentId: deployment.id, previewId });
   }
 
   private parsePush(provider: WebhooksGitProvider, payload: Record<string, unknown>): ParsedPushPayload | null {

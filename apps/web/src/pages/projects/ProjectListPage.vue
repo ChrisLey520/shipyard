@@ -40,6 +40,7 @@
       v-model:show="showEdit"
       :saving="saving"
       :initial="editInitial"
+      :server-options="previewServerOptions"
       @save="saveEdit"
     />
   </div>
@@ -71,6 +72,7 @@ import {
 import { useProjectListQuery } from '@/composables/projects/useProjectListQuery';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
+import { listServers } from '@/api/servers';
 
 const route = useRoute();
 const router = useRouter();
@@ -86,6 +88,7 @@ const showEdit = ref(false);
 const saving = ref(false);
 const editing = ref<ProjectListItem | null>(null);
 const editingDetail = ref<ProjectDetail | null>(null);
+const previewServerOptions = ref<{ label: string; value: string }[]>([]);
 const editInitial = ref<ProjectEditFormValues>({
   name: '',
   slug: '',
@@ -99,17 +102,30 @@ const editInitial = ref<ProjectEditFormValues>({
   cacheEnabled: true,
   timeoutSeconds: 900,
   ssrEntryPoint: 'dist/index.js',
+  previewEnabled: false,
+  previewServerId: null,
+  previewBaseDomain: '',
 });
 
 async function openEdit(p: ProjectListItem) {
   editing.value = p;
   try {
+    try {
+      const srv = await listServers(orgSlug.value);
+      previewServerOptions.value = srv.map((s) => ({
+        label: `${s.name} (${s.host})`,
+        value: s.id,
+      }));
+    } catch {
+      previewServerOptions.value = [];
+    }
     editingDetail.value = await listActions.fetchProjectDetail(p.slug);
     const pc = editingDetail.value.pipelineConfig;
+    const d = editingDetail.value;
     editInitial.value = {
-      name: editingDetail.value.name,
-      slug: editingDetail.value.slug,
-      frameworkType: editingDetail.value.frameworkType,
+      name: d.name,
+      slug: d.slug,
+      frameworkType: d.frameworkType,
       installCommand: pc?.installCommand ?? 'pnpm install',
       buildCommand: pc?.buildCommand ?? 'pnpm build',
       lintCommand: pc?.lintCommand ?? '',
@@ -119,6 +135,9 @@ async function openEdit(p: ProjectListItem) {
       cacheEnabled: pc?.cacheEnabled ?? true,
       timeoutSeconds: pc?.timeoutSeconds ?? 900,
       ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+      previewEnabled: d.previewEnabled ?? false,
+      previewServerId: d.previewServerId ?? null,
+      previewBaseDomain: d.previewBaseDomain ?? '',
     };
     showEdit.value = true;
   } catch {
@@ -157,6 +176,16 @@ async function saveEdit(v: ProjectEditFormValues) {
     message.error('构建超时至少 60 秒');
     return;
   }
+  if (v.previewEnabled) {
+    if (!v.previewServerId) {
+      message.error('启用 PR 预览时请选择一个预览服务器');
+      return;
+    }
+    if (!v.previewBaseDomain.trim()) {
+      message.error('请填写预览父域（如 preview.example.com）');
+      return;
+    }
+  }
   saving.value = true;
   const slugBefore = editing.value.slug;
   try {
@@ -164,6 +193,9 @@ async function saveEdit(v: ProjectEditFormValues) {
       name: v.name,
       slug: v.slug,
       frameworkType: v.frameworkType,
+      previewEnabled: v.previewEnabled,
+      previewServerId: v.previewEnabled ? v.previewServerId : null,
+      previewBaseDomain: v.previewEnabled ? v.previewBaseDomain.trim() : null,
     });
     const slugAfter = v.slug;
 

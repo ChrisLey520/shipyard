@@ -8,6 +8,9 @@ export interface ServerItem {
   port: number;
   user: string;
   os: ServerOs;
+  previewPortMin?: number | null;
+  previewPortMax?: number | null;
+  createdAt?: string;
 }
 
 export async function listServers(orgSlug: string) {

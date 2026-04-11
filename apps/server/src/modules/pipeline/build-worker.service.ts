@@ -10,7 +10,8 @@ import { mkdirSync, rmSync, existsSync } from 'fs';
 import { writeFile, readdir } from 'fs/promises';
 import * as path from 'path';
 import * as tar from 'tar';
-import { buildCloneUrl } from '@shipyard/shared';
+import { buildCloneUrl, GitProvider } from '@shipyard/shared';
+import { GitPrCommentApplicationService } from '../git/application/git-pr-comment.application.service';
 import type { BuildJobData } from './pipeline.service';
 
 // 安全的构建环境变量白名单
@@ -28,6 +29,7 @@ export class BuildWorkerService implements OnModuleInit {
     private readonly crypto: CryptoService,
     private readonly gitTokens: GitAccessTokenService,
     private readonly commitStatus: GitCommitStatusService,
+    private readonly gitPrComment: GitPrCommentApplicationService,
   ) {}
 
   async onModuleInit() {
@@ -80,10 +82,15 @@ export class BuildWorkerService implements OnModuleInit {
   }
 
   private async processBuild(data: BuildJobData) {
-    const { deploymentId, projectId, environmentId, orgId } = data;
+    const { deploymentId, projectId, environmentId, orgId, previewId } = data;
     const tmpDir = path.join('/tmp', `build-${deploymentId}`);
 
     try {
+      const depMeta = await this.prisma.deployment.findUnique({
+        where: { id: deploymentId },
+        select: { branch: true, trigger: true },
+      });
+
       // 标记构建开始
       await this.prisma.deployment.update({
         where: { id: deploymentId },
@@ -172,7 +179,16 @@ export class BuildWorkerService implements OnModuleInit {
 
       // Git clone（须在空目录执行；.env 需在 clone 之后写入，否则目标目录非空会报 fatal: ... already exists）
       await this.appendLog(deploymentId, logSeq++, '[clone] 开始拉取代码…');
-      await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone');
+      if (depMeta?.trigger === 'pr_preview' && depMeta.branch?.trim()) {
+        await runCmd(
+          'git',
+          ['clone', '--depth', '1', '--single-branch', '--branch', depMeta.branch.trim(), cloneUrl, tmpDir],
+          '/tmp',
+          'clone',
+        );
+      } else {
+        await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone');
+      }
 
       const envFilePath = path.join(tmpDir, '.env');
       const envContent = Object.entries(envVars)
@@ -273,6 +289,14 @@ export class BuildWorkerService implements OnModuleInit {
       // 自动入 DeployQueue（如果有 environmentId）
       if (environmentId) {
         await this.enqueueDeployment(orgId, deploymentId, projectId, environmentId);
+      } else {
+        const pvId =
+          previewId ??
+          (await this.prisma.preview.findUnique({ where: { deploymentId }, select: { id: true } }))
+            ?.id;
+        if (pvId) {
+          await this.enqueuePreviewDeployment(orgId, deploymentId, projectId, pvId);
+        }
       }
 
       await this.appendLog(deploymentId, logSeq++, '[done] 构建成功 ✓');
@@ -289,6 +313,34 @@ export class BuildWorkerService implements OnModuleInit {
         'failure',
         'Shipyard build failed',
       );
+
+      const pv = await this.prisma.preview.findFirst({ where: { deploymentId } });
+      if (pv) {
+        const [p, gc] = await Promise.all([
+          this.prisma.project.findUnique({
+            where: { id: projectId },
+            select: { repoFullName: true },
+          }),
+          this.prisma.gitConnection.findUnique({
+            where: { projectId },
+            select: { gitProvider: true },
+          }),
+        ]);
+        if (gc?.gitProvider === GitProvider.GITHUB && p?.repoFullName) {
+          const accessToken = await this.gitTokens.getAccessTokenForProject(projectId);
+          const body = `❌ **Shipyard Preview** build failed for **#${pv.prNumber}**.\n\n\`\`\`\n${message}\n\`\`\``;
+          const commentId = await this.gitPrComment.upsertGithubIssueComment({
+            repoFullName: p.repoFullName,
+            prNumber: pv.prNumber,
+            accessToken,
+            body,
+            existingCommentId: pv.commentId,
+          });
+          if (commentId) {
+            await this.prisma.preview.update({ where: { id: pv.id }, data: { commentId } });
+          }
+        }
+      }
     } finally {
       // 清理临时目录（含 .env）
       if (existsSync(tmpDir)) {
@@ -335,6 +387,20 @@ export class BuildWorkerService implements OnModuleInit {
       select: { startedAt: true },
     });
     return d?.startedAt?.getTime() ?? Date.now();
+  }
+
+  private async enqueuePreviewDeployment(
+    orgId: string,
+    deploymentId: string,
+    projectId: string,
+    previewRowId: string,
+  ) {
+    const queue = this.deployQueues.get(orgId) ?? new Queue(`deploy-${orgId}`, { connection: this.redis.getClient() });
+    await queue.add(
+      'deploy',
+      { deploymentId, projectId, previewId: previewRowId, orgId },
+      { jobId: `deploy-${deploymentId}` },
+    );
   }
 
   private async enqueueDeployment(

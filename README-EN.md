@@ -94,6 +94,7 @@ pnpm -r build
 - **Deploy**: SSH deploy (rsync + nginx/pm2 logic), deploy lock, health check + auto rollback
 - **Approvals**: protected env approvals list + approve/reject (approve enqueues deploy job)
 - **Web UI**: login/register, dashboard, projects/envs/servers/team/approvals, deployment logs (xterm)
+- **PR Preview (GitHub M1)**: `pull_request` webhooks, preview deploy to Linux over SSH, Redis port pool, per-preview Nginx snippets under `/etc/nginx/shipyard-previews.d/`, GitHub PR comments; fork PRs skipped
 
 ## Next phase roadmap
 
@@ -106,14 +107,11 @@ The following items are the **next phase** priorities (ordered by “works end-t
 - **Commit status writeback**: update commit status for build start/success/failure (GitHub/GitLab/Gitee/Gitea)
 - **Phase 2 OAuth (optional)**: OAuth flow (encrypted access/refresh/tokenExpiresAt + auto refresh)
 
-### 2) PR Preview deployments
+### 2) PR Preview (follow-ups)
 
-- Handle PR opened/synchronize/closed events (build + deploy + cleanup)
-- Preview URL: `pr-{prNumber}-{projectIdFirst8}.preview.<domain>`
-- SSR port pool allocation/release (concurrency-safe)
-- Nginx include snippet generation + reload (dynamic routing)
-- Create/update PR comment (store `Preview.commentId` to avoid duplicate comments)
-- Blue/green switch (SSR: PM2 + Nginx traffic switch; static: directory switch)
+- GitLab / Gitee / Gitea merge-request webhooks and PR/MR comments
+- Full blue/green (SSR traffic switch + static multi-slot)
+- Optional: fork PR policy and stronger isolation
 
 ### 3) Notification system completion (config + triggers)
 

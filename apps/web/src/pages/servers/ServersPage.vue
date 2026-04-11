@@ -35,6 +35,13 @@
             编辑时不填私钥表示不更新
           </n-text>
         </n-form-item>
+        <n-divider title-placement="left">PR 预览端口池（可选）</n-divider>
+        <n-form-item label="端口下限">
+          <n-input-number v-model:value="form.previewPortMin" :min="1024" :max="65535" clearable class="w-full" placeholder="默认 40000" />
+        </n-form-item>
+        <n-form-item label="端口上限">
+          <n-input-number v-model:value="form.previewPortMax" :min="1024" :max="65535" clearable class="w-full" placeholder="默认 41000" />
+        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -53,7 +60,7 @@ import { ref, h, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NDataTable, NButton, NModal, NForm, NFormItem,
-  NInput, NInputNumber, NSelect, NSpace, NText, useMessage, type DataTableColumns,
+  NInput, NInputNumber, NSelect, NSpace, NText, NDivider, useMessage, type DataTableColumns,
 } from 'naive-ui';
 import { ServerOs, SERVER_OS_LABELS, isServerOs, serverOsLabel } from '@shipyard/shared';
 import { useOrgServersActions, type ServerItem } from '@/composables/servers/useOrgServersActions';
@@ -74,6 +81,8 @@ const form = ref({
   port: 22,
   user: 'root',
   privateKey: '',
+  previewPortMin: null as number | null,
+  previewPortMax: null as number | null,
 });
 
 const osOptions = computed(() =>
@@ -113,14 +122,32 @@ async function removeServer(serverId: string) {
 
 function openAdd() {
   editingServerId.value = null;
-  form.value = { name: '', os: ServerOs.LINUX, host: '', port: 22, user: 'root', privateKey: '' };
+  form.value = {
+    name: '',
+    os: ServerOs.LINUX,
+    host: '',
+    port: 22,
+    user: 'root',
+    privateKey: '',
+    previewPortMin: null,
+    previewPortMax: null,
+  };
   showAdd.value = true;
 }
 
 function openEdit(row: ServerItem) {
   editingServerId.value = row.id;
   const os = isServerOs(row.os) ? row.os : ServerOs.LINUX;
-  form.value = { name: row.name, os, host: row.host, port: row.port, user: row.user, privateKey: '' };
+  form.value = {
+    name: row.name,
+    os,
+    host: row.host,
+    port: row.port,
+    user: row.user,
+    privateKey: '',
+    previewPortMin: row.previewPortMin ?? null,
+    previewPortMax: row.previewPortMax ?? null,
+  };
   showAdd.value = true;
 }
 
@@ -135,6 +162,8 @@ async function handleSave() {
         port: form.value.port,
         user: form.value.user,
         ...(form.value.privateKey ? { privateKey: form.value.privateKey } : {}),
+        previewPortMin: form.value.previewPortMin,
+        previewPortMax: form.value.previewPortMax,
       });
       message.success('服务器已更新');
     } else {

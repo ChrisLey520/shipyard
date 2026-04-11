@@ -40,14 +40,33 @@ export class ServersApplicationService {
   async listServers(orgId: string) {
     return this.prisma.server.findMany({
       where: { organizationId: orgId },
-      select: { id: true, name: true, host: true, port: true, user: true, os: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        host: true,
+        port: true,
+        user: true,
+        os: true,
+        previewPortMin: true,
+        previewPortMax: true,
+        createdAt: true,
+      },
     });
   }
 
   async updateServer(
     orgId: string,
     serverId: string,
-    data: { name?: string; host?: string; port?: number; user?: string; privateKey?: string; os?: unknown },
+    data: {
+      name?: string;
+      host?: string;
+      port?: number;
+      user?: string;
+      privateKey?: string;
+      os?: unknown;
+      previewPortMin?: number | null;
+      previewPortMax?: number | null;
+    },
   ) {
     await this.getServer(orgId, serverId);
     return this.prisma.server.update({
@@ -59,8 +78,20 @@ export class ServersApplicationService {
         user: data.user ?? undefined,
         privateKey: data.privateKey ? this.crypto.encrypt(data.privateKey) : undefined,
         os: data.os !== undefined ? parseServerOs(data.os) : undefined,
+        previewPortMin: data.previewPortMin === undefined ? undefined : data.previewPortMin,
+        previewPortMax: data.previewPortMax === undefined ? undefined : data.previewPortMax,
       },
-      select: { id: true, name: true, host: true, port: true, user: true, os: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        host: true,
+        port: true,
+        user: true,
+        os: true,
+        previewPortMin: true,
+        previewPortMax: true,
+        createdAt: true,
+      },
     });
   }
 

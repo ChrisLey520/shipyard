@@ -2,16 +2,20 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   ServerOs,
+  GitProvider,
   resolveDeployAccessHost,
   buildNginxServerNameList,
   isLoopbackHostLabel,
   buildPm2StaticSiteRootUrl,
   normalizeHttpRootUrlWithSlash,
+  shortId,
 } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedisService } from '../../../common/redis/redis.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { GitCommitStatusService } from '../../git/git-commit-status.service';
+import { GitPrCommentApplicationService } from '../../git/application/git-pr-comment.application.service';
+import { PreviewPortPoolService } from './preview-port-pool.service';
 import { Client as SshClient } from 'ssh2';
 import * as path from 'path';
 import { spawn } from 'child_process';
@@ -22,8 +26,11 @@ import * as tar from 'tar';
 export interface DeployJobData {
   deploymentId: string;
   projectId: string;
-  environmentId: string;
   orgId: string;
+  /** 常规环境部署 */
+  environmentId?: string;
+  /** PR 预览部署（与 environmentId 互斥） */
+  previewId?: string;
   /** 自动回滚部署时跳过健康检查，避免级联失败 */
   skipHealthCheck?: boolean;
 }
@@ -37,6 +44,8 @@ export class DeployApplicationService {
     private readonly redis: RedisService,
     private readonly crypto: CryptoService,
     private readonly commitStatus: GitCommitStatusService,
+    private readonly previewPorts: PreviewPortPoolService,
+    private readonly gitPrComment: GitPrCommentApplicationService,
   ) {}
 
   /** 成功收尾时在日志中提示如何访问（与前端详情卡片字段对齐） */
@@ -120,7 +129,17 @@ export class DeployApplicationService {
   }
 
   async deploy(data: DeployJobData) {
-    const { deploymentId, projectId, environmentId } = data;
+    if (data.previewId) {
+      return this.deployPreview({
+        deploymentId: data.deploymentId,
+        projectId: data.projectId,
+        previewId: data.previewId,
+        orgId: data.orgId,
+      });
+    }
+    const environmentId = data.environmentId;
+    if (!environmentId) throw new Error('缺少 environmentId');
+    const { deploymentId, projectId } = data;
     const skipHealthCheck = data.skipHealthCheck === true;
     let macStaticPort: number | undefined;
 
@@ -297,6 +316,333 @@ export class DeployApplicationService {
         'Shipyard deployment failed',
       );
     }
+  }
+
+  private static readonly PREVIEW_NGINX_DIR = '/etc/nginx/shipyard-previews.d';
+  private static readonly PREVIEW_WWW_ROOT = '/var/www/shipyard-previews';
+
+  private previewPm2AppName(projectSlug: string, prNumber: number): string {
+    return `sh-preview-${this.sanitizePm2Segment(projectSlug)}-pr-${prNumber}`;
+  }
+
+  private shellSingleQuote(s: string): string {
+    return `'${s.replace(/'/g, `'\"'\"'`)}'`;
+  }
+
+  /** PR 关闭时清理远端资源与数据库（幂等） */
+  async teardownPreviewForPr(_orgId: string, projectId: string, prNumber: number): Promise<void> {
+    const preview = await this.prisma.preview.findUnique({
+      where: { projectId_prNumber: { projectId, prNumber } },
+      include: { project: { include: { previewServer: true } } },
+    });
+    if (!preview?.project.previewServer) return;
+
+    const project = preview.project;
+    const server = preview.project.previewServer;
+    if (server.os !== ServerOs.LINUX) {
+      await this.prisma.preview.delete({ where: { id: preview.id } }).catch(() => undefined);
+      return;
+    }
+
+    const privateKey = this.crypto.decrypt(server.privateKey);
+    const sshKeyPath = path.join('/tmp', `shipyard-preview-teardown-${preview.id}.pem`);
+    const deployBase = `${DeployApplicationService.PREVIEW_WWW_ROOT}/${project.slug}/pr-${preview.prNumber}-${shortId(projectId)}`;
+    const pm2Name = this.previewPm2AppName(project.slug, preview.prNumber);
+    const nginxPath = `${DeployApplicationService.PREVIEW_NGINX_DIR}/shipyard-preview-${preview.id}.conf`;
+
+    try {
+      await writeFile(sshKeyPath, privateKey, { encoding: 'utf8', mode: 0o600 });
+      const conn = await this.createSshClient({
+        host: server.host,
+        port: server.port,
+        username: server.user,
+        privateKey,
+      });
+      try {
+        const inner = [
+          `pm2 describe ${this.shellSingleQuote(pm2Name)} >/dev/null 2>&1 && pm2 delete ${this.shellSingleQuote(pm2Name)} || true`,
+          `rm -f ${this.shellSingleQuote(nginxPath)}`,
+          `(nginx -t && nginx -s reload) || true`,
+          `rm -rf ${this.shellSingleQuote(deployBase)}`,
+        ].join('; ');
+        await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
+      } finally {
+        conn.end();
+      }
+    } catch (e) {
+      this.logger.warn(`Preview teardown SSH failed project=${projectId} pr=${prNumber}: ${e}`);
+    } finally {
+      await unlink(sshKeyPath).catch(() => undefined);
+    }
+
+    if (preview.allocatedPort != null) {
+      await this.previewPorts.releaseIfOwned(server.id, preview.allocatedPort, preview.id);
+    }
+    await this.prisma.preview.delete({ where: { id: preview.id } }).catch(() => undefined);
+  }
+
+  async deployPreview(opts: { deploymentId: string; projectId: string; previewId: string; orgId: string }) {
+    const { deploymentId, projectId, previewId, orgId: _orgId } = opts;
+    let gitConn: { gitProvider: string; accessToken: string } | null = null;
+
+    try {
+      await this.prisma.deployment.update({
+        where: { id: deploymentId },
+        data: { status: 'deploying' },
+      });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'pending',
+        'Shipyard preview deployment in progress',
+      );
+      await this.appendLogLine(deploymentId, '[preview-deploy] 开始 PR 预览部署…');
+
+      gitConn = await this.prisma.gitConnection.findUnique({
+        where: { projectId },
+        select: { gitProvider: true, accessToken: true },
+      });
+
+      const preview = await this.prisma.preview.findUniqueOrThrow({
+        where: { id: previewId },
+        include: { project: { include: { previewServer: true, pipelineConfig: true } } },
+      });
+
+      if (preview.deploymentId !== deploymentId) {
+        await this.appendLogLine(
+          deploymentId,
+          '[preview-deploy] 已跳过：该构建已被更新的 PR commit 取代',
+        );
+        await this.prisma.deployment.update({
+          where: { id: deploymentId },
+          data: { status: 'cancelled', completedAt: new Date() },
+        });
+        return;
+      }
+
+      const project = preview.project;
+      const baseDomain = project.previewBaseDomain?.trim();
+      const server = project.previewServer;
+      if (!server || !baseDomain) {
+        throw new Error('预览未配置 previewServer 或 previewBaseDomain');
+      }
+      if (server.os !== ServerOs.LINUX) {
+        throw new Error('PR 预览部署当前仅支持 Linux 目标服务器');
+      }
+
+      const deployment = await this.prisma.deployment.findUniqueOrThrow({
+        where: { id: deploymentId },
+        include: { artifact: true },
+      });
+      const pipelineConfig = project.pipelineConfig;
+      if (!deployment.artifact) throw new Error('构建产物不存在');
+      if (!pipelineConfig) throw new Error('缺少流水线配置');
+
+      const previewHost = (() => {
+        try {
+          return new URL(preview.url).hostname;
+        } catch {
+          return preview.url.replace(/^https?:\/\//, '').split('/')[0] ?? '';
+        }
+      })();
+      if (!previewHost) throw new Error('预览 URL 无效');
+
+      const deployBase = `${DeployApplicationService.PREVIEW_WWW_ROOT}/${project.slug}/pr-${preview.prNumber}-${shortId(projectId)}`;
+      const releaseDir = `${deployBase}/releases/${deploymentId}`;
+      const nginxSnippet = `${DeployApplicationService.PREVIEW_NGINX_DIR}/shipyard-preview-${previewId}.conf`;
+
+      const privateKey = this.crypto.decrypt(server.privateKey);
+      const envVars = await this.getDecryptedProjectBuildEnvVars(projectId);
+
+      const isSsr = project.frameworkType === 'ssr';
+      let allocatedPort = preview.allocatedPort ?? undefined;
+      const minP = server.previewPortMin ?? 40_000;
+      const maxP = server.previewPortMax ?? 41_000;
+
+      if (isSsr) {
+        if (allocatedPort != null) {
+          const client = this.redis.getClient();
+          const k = `shipyard:preview-port:${server.id}:${allocatedPort}`;
+          const v = await client.get(k);
+          if (v !== preview.id) {
+            allocatedPort = undefined;
+          }
+        }
+        if (allocatedPort == null) {
+          const p = await this.previewPorts.tryAllocate(server.id, preview.id, minP, maxP);
+          if (p == null) throw new Error('预览端口池已满');
+          allocatedPort = p;
+          await this.prisma.preview.update({
+            where: { id: preview.id },
+            data: { allocatedPort: p },
+          });
+        }
+        envVars['PORT'] = String(allocatedPort);
+      }
+
+      const tmpExtractDir = path.join('/tmp', `preview-deploy-${deploymentId}`);
+      mkdirSync(tmpExtractDir, { recursive: true });
+      await tar.extract({ file: deployment.artifact.storagePath, cwd: tmpExtractDir });
+
+      const sshKeyPath = path.join('/tmp', `shipyard-preview-deploy-${deploymentId}.pem`);
+      await writeFile(sshKeyPath, privateKey, { encoding: 'utf8', mode: 0o600 });
+
+      const lockKey = `deploy-lock:preview:${preview.projectId}:${preview.prNumber}`;
+      await this.appendLogLine(deploymentId, '[preview-deploy] 获取预览部署锁…');
+      const locked = await this.redis.acquireLock(lockKey, 900);
+      if (!locked) throw new Error('该 PR 预览正在部署中');
+
+      try {
+        await this.appendLogLine(
+          deploymentId,
+          `[preview-deploy] rsync → ${server.user}@${server.host}:${releaseDir}`,
+        );
+        await this.execLocal('rsync', [
+          '-avz',
+          `${tmpExtractDir}/`,
+          `${server.user}@${server.host}:${releaseDir}/`,
+          '-e',
+          `ssh -p ${server.port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
+        ]);
+
+        const conn = await this.createSshClient({
+          host: server.host,
+          port: server.port,
+          username: server.user,
+          privateKey,
+        });
+        try {
+          await this.sshExec(
+            conn,
+            `bash -lc ${this.shellSingleQuote(`mkdir -p "${deployBase}/releases" && ln -sfn "releases/${deploymentId}" "${deployBase}/current"`)}`,
+          );
+
+          const pm2Name = this.previewPm2AppName(project.slug, preview.prNumber);
+          const entry = pipelineConfig.ssrEntryPoint ?? 'dist/index.js';
+
+          if (isSsr) {
+            const envStr = Object.entries(envVars)
+              .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+              .join(',\n');
+            const cwd = `${deployBase}/current`;
+            const ecosystemJs = `module.exports = {
+  apps: [{
+    name: ${JSON.stringify(pm2Name)},
+    script: ${JSON.stringify(entry)},
+    cwd: ${JSON.stringify(cwd)},
+    env: {\n${envStr}\n    }
+  }]
+};`;
+            await this.sshExec(
+              conn,
+              `cat > ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)} << 'EOFCONFIG'\n${ecosystemJs}\nEOFCONFIG`,
+            );
+            const pm2Check = `pm2 describe ${this.shellSingleQuote(pm2Name)} > /dev/null 2>&1`;
+            await this.sshExec(
+              conn,
+              `${pm2Check} && pm2 reload ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)} --update-env || pm2 start ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)}`,
+            );
+          }
+
+          const nginxBody =
+            project.frameworkType === 'ssr'
+              ? this.generateSsrNginxConf(previewHost, '127.0.0.1', allocatedPort!)
+              : this.generateStaticNginxConf(previewHost, `${deployBase}/current`);
+
+          await this.sshExec(
+            conn,
+            `mkdir -p ${this.shellSingleQuote(DeployApplicationService.PREVIEW_NGINX_DIR)} && cat > ${this.shellSingleQuote(nginxSnippet)} <<'EOFNGINX'\n${nginxBody}\nEOFNGINX\nnginx -t && nginx -s reload`,
+          );
+        } finally {
+          conn.end();
+        }
+      } finally {
+        await this.redis.releaseLock(lockKey);
+        await unlink(sshKeyPath).catch(() => undefined);
+        rmSync(tmpExtractDir, { recursive: true, force: true });
+      }
+
+      const now = new Date();
+      const startedAt = deployment.startedAt?.getTime() ?? now.getTime();
+      await this.prisma.deployment.update({
+        where: { id: deploymentId },
+        data: {
+          status: 'success',
+          completedAt: now,
+          durationMs: now.getTime() - startedAt,
+        },
+      });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'success',
+        'Preview deployment succeeded',
+      );
+      await this.appendLogLine(deploymentId, `[preview-deploy] 预览地址: ${preview.url}`);
+      await this.appendLogLine(deploymentId, '[preview-deploy] 部署成功 ✓');
+
+      if (gitConn?.gitProvider === GitProvider.GITHUB) {
+        const token = this.crypto.decrypt(gitConn.accessToken);
+        const body = `🚀 **Shipyard Preview** deployed for **#${preview.prNumber}**.\n\n🔗 ${preview.url}`;
+        const commentId = await this.gitPrComment.upsertGithubIssueComment({
+          repoFullName: project.repoFullName,
+          prNumber: preview.prNumber,
+          accessToken: token,
+          body,
+          existingCommentId: preview.commentId,
+        });
+        if (commentId) {
+          await this.prisma.preview.update({
+            where: { id: preview.id },
+            data: { commentId },
+          });
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Preview deploy failed for ${deploymentId}: ${err}`);
+      try {
+        await this.appendLogLine(deploymentId, `[preview-deploy] [error] ${message}`);
+      } catch (logErr) {
+        this.logger.error(`Failed to append preview deploy log: ${logErr}`);
+      }
+      await this.prisma.deployment.update({
+        where: { id: deploymentId },
+        data: { status: 'failed', completedAt: new Date() },
+      });
+      void this.commitStatus.reportForDeployment(
+        deploymentId,
+        'deploy',
+        'failure',
+        'Preview deployment failed',
+      );
+
+      const pv = await this.prisma.preview.findUnique({ where: { id: previewId } });
+      if (pv && gitConn?.gitProvider === GitProvider.GITHUB) {
+        const token = this.crypto.decrypt(gitConn.accessToken);
+        const body = `❌ **Shipyard Preview** deploy failed for **#${pv.prNumber}**.\n\n\`\`\`\n${message}\n\`\`\``;
+        const commentId = await this.gitPrComment.upsertGithubIssueComment({
+          repoFullName: (await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } }))
+            .repoFullName,
+          prNumber: pv.prNumber,
+          accessToken: token,
+          body,
+          existingCommentId: pv.commentId,
+        });
+        if (commentId) {
+          await this.prisma.preview.update({ where: { id: pv.id }, data: { commentId } });
+        }
+      }
+    }
+  }
+
+  private async getDecryptedProjectBuildEnvVars(projectId: string): Promise<Record<string, string>> {
+    const vars = await this.prisma.projectBuildEnvVariable.findMany({ where: { projectId } });
+    const result: Record<string, string> = {};
+    for (const v of vars) {
+      result[v.key] = this.crypto.decrypt(v.value);
+    }
+    return result;
   }
 
   private async appendRemoteStdoutToDeployLog(deploymentId: string, out: string): Promise<void> {
@@ -685,7 +1031,9 @@ server.listen(PORT, '0.0.0.0', () => {
   }
 
   private async triggerAutoRollback(data: DeployJobData) {
-    const { deploymentId, projectId, environmentId, orgId } = data;
+    const environmentId = data.environmentId;
+    if (!environmentId) return;
+    const { deploymentId, projectId, orgId } = data;
     this.logger.warn(`Health check failed for ${deploymentId}, triggering auto-rollback`);
 
     // 找到上一个成功的部署（非当前）

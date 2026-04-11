@@ -51,7 +51,15 @@ export class ProjectsController {
   update(
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
-    @Body() body: { name?: string; frameworkType?: string; slug?: string },
+    @Body()
+    body: {
+      name?: string;
+      frameworkType?: string;
+      slug?: string;
+      previewEnabled?: boolean;
+      previewServerId?: string | null;
+      previewBaseDomain?: string | null;
+    },
   ) {
     return this.projects.updateProject(orgId, projectSlug, body);
   }

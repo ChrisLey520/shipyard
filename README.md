@@ -66,6 +66,7 @@ cp .env.example .env
 
 ### Webhook（推送自动构建）
 
+- **GitHub**：注册 `push` 与 **`pull_request`**（PR 预览）；若远端已有同 URL Hook 但缺少 `pull_request`，保存预览相关设置或重新注册时会 **PATCH 补齐**。
 - 在 Shipyard **创建项目** 且已配置 **`SERVER_PUBLIC_URL`** 时，会尝试在远端仓库 **自动注册** Webhook；删除项目时 **自动注销**。
 - 回调地址形如：`{SERVER_PUBLIC_URL}/api/webhooks/{github|gitlab|gitee|gitea}?p=<Project.id>`，其中 **`p` 为项目 UUID**，用于同仓多项目路由，请勿手动改成无 `p` 的 URL。
 - **`SERVER_PUBLIC_URL` 必须是 Git 平台能访问到的 API 根地址**（含协议与端口），与前端 `APP_URL`（如 `http://localhost:5173`）通常不同。
@@ -159,12 +160,24 @@ pnpm -r build
 
 ### 1）PR Preview（预览部署）
 
-- PR opened/synchronize/closed 事件触发构建与清理
-- 预览 URL 生成：`pr-{prNumber}-{projectId前8位}.preview.<domain>`
-- SSR 端口池分配与回收（并发安全）
-- Nginx include 片段生成与 reload（动态路由）
-- PR 评论创建/更新（记录 `Preview.commentId`，避免重复评论）
-- 蓝绿切换（SSR：PM2 进程 + Nginx 切流；静态：目录切换）
+**已实现（M1 / GitHub）**
+
+- GitHub `pull_request`（opened / synchronize / closed）：构建、Linux 预览部署、关闭时清理；Webhook 注册含 `pull_request`，已存在 Hook 会自动 PATCH 补齐事件。
+- 预览 URL：`pr-{prNumber}-{projectId前8位}.{previewBaseDomain}`（项目在控制台配置「预览父域」，例如 `preview.example.com`）。
+- SSR：Redis 端口池 + 每 PR 独立 PM2 名 + Nginx 按预览写入 `/etc/nginx/shipyard-previews.d/`；静态站点：`releases/<deploymentId>` + `current` 软链。
+- GitHub PR 评论：同一条评论更新成功/失败（需 Token 具备 issues 写权限）。
+- Fork PR：当前版本跳过（仅同仓库 PR）。
+
+**运维需一次性配置**
+
+- DNS：`*.preview.example.com`（与所填父域一致）解析到入口或预览机。
+- TLS：若需 HTTPS，多为泛域名证书（如 DNS-01 / acme.sh）；当前自动下发的 Nginx 片段为 **listen 80**，可在片段外统一终止 TLS 或由运维改写。
+- Nginx 主配置 `http` 块内增加：`include /etc/nginx/shipyard-previews.d/*.conf;`
+- 防火墙：放行 SSR 所用端口区间（默认 40000–41000，可在「服务器」上配置 `previewPortMin` / `previewPortMax`）。
+
+**仍待增强**
+
+- 蓝绿完整策略（多槽位原子切换）、GitLab/Gitee/Gitea 的 MR Webhook 与评论 API 对齐。
 
 ### 2）通知系统完善（配置 + 触发点）
 

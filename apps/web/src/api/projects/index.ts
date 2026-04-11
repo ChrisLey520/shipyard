@@ -38,6 +38,10 @@ export interface ProjectDetail {
     updatedAt: string;
   };
   _count?: { deployments: number; environments: number };
+  previewEnabled?: boolean;
+  previewServerId?: string | null;
+  previewBaseDomain?: string | null;
+  previewServer?: { id: string; name: string; host: string; os: string } | null;
   environments: {
     id: string;
     name: string;
@@ -50,6 +54,15 @@ export interface ProjectDetail {
     server: { id: string; name: string; host: string; os: string };
   }[];
 }
+
+export type UpdateProjectPayload = {
+  name?: string;
+  frameworkType?: string;
+  slug?: string;
+  previewEnabled?: boolean;
+  previewServerId?: string | null;
+  previewBaseDomain?: string | null;
+};
 
 export interface DeploymentListItem {
   id: string;
@@ -144,7 +157,7 @@ export async function getProject(orgSlug: string, projectSlug: string) {
 export async function updateProject(
   orgSlug: string,
   projectSlug: string,
-  payload: { name?: string; frameworkType?: string; slug?: string },
+  payload: UpdateProjectPayload,
 ) {
   return http.patch(`/orgs/${orgSlug}/projects/${projectSlug}`, payload).then((r) => r.data);
 }
