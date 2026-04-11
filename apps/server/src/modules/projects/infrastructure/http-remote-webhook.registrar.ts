@@ -157,9 +157,39 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       headers: { 'PRIVATE-TOKEN': opts.accessToken, Accept: 'application/json' },
     });
     if (listRes.ok) {
-      const hooks = (await listRes.json()) as Array<{ id?: number; url?: string }>;
+      const hooks = (await listRes.json()) as Array<{
+        id?: number;
+        url?: string;
+        push_events?: boolean;
+        merge_requests_events?: boolean;
+      }>;
       const existing = hooks.find((h) => h.url?.includes(pMark));
-      if (existing?.id != null) return { remoteWebhookId: String(existing.id) };
+      if (existing?.id != null) {
+        if (!existing.merge_requests_events) {
+          const putRes = await fetch(
+            gitlabApiV4ProjectHookItemUrl(opts.baseUrl, enc, String(existing.id)),
+            {
+              method: 'PUT',
+              headers: {
+                'PRIVATE-TOKEN': opts.accessToken,
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                url: callbackUrl,
+                push_events: true,
+                merge_requests_events: true,
+                token: opts.webhookSecret,
+              }),
+            },
+          );
+          if (!putRes.ok) {
+            const text = await putRes.text().catch(() => '');
+            this.logger.warn(`GitLab Webhook 开启 MR 事件失败 HTTP ${putRes.status}: ${text}`);
+          }
+        }
+        return { remoteWebhookId: String(existing.id) };
+      }
     }
 
     const res = await fetch(gitlabApiV4ProjectHooksUrl(opts.baseUrl, enc), {
@@ -172,6 +202,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       body: JSON.stringify({
         url: callbackUrl,
         push_events: true,
+        merge_requests_events: true,
         token: opts.webhookSecret,
       }),
     });
@@ -224,9 +255,32 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       headers: { Accept: 'application/json' },
     });
     if (listRes.ok) {
-      const hooks = (await listRes.json()) as Array<{ id?: number; url?: string }>;
+      const hooks = (await listRes.json()) as Array<{
+        id?: number;
+        url?: string;
+        merge_requests_events?: boolean;
+      }>;
       const existing = hooks.find((h) => h.url?.includes(pMark));
-      if (existing?.id != null) return { remoteWebhookId: String(existing.id) };
+      if (existing?.id != null) {
+        if (!existing.merge_requests_events) {
+          const patchRes = await fetch(
+            giteeRepoHookItemUrl(owner, repo, String(existing.id), opts.accessToken),
+            {
+              method: 'PATCH',
+              headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                merge_requests_events: true,
+                push_events: true,
+              }),
+            },
+          );
+          if (!patchRes.ok) {
+            const text = await patchRes.text().catch(() => '');
+            this.logger.warn(`Gitee Webhook 开启 MR 事件失败 HTTP ${patchRes.status}: ${text}`);
+          }
+        }
+        return { remoteWebhookId: String(existing.id) };
+      }
     }
 
     const res = await fetch(giteeRepoHooksListUrl(owner, repo, opts.accessToken), {
@@ -236,6 +290,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
         url: callbackUrl,
         password: opts.webhookSecret,
         push_events: true,
+        merge_requests_events: true,
       }),
     });
     if (!res.ok) {
@@ -285,9 +340,38 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       headers: { Authorization: `token ${opts.accessToken}`, Accept: 'application/json' },
     });
     if (listRes.ok) {
-      const hooks = (await listRes.json()) as Array<{ id?: number; config?: { url?: string } }>;
+      const hooks = (await listRes.json()) as Array<{
+        id?: number;
+        events?: string[];
+        config?: { url?: string };
+      }>;
       const existing = hooks.find((h) => h.config?.url?.includes(pMark));
-      if (existing?.id != null) return { remoteWebhookId: String(existing.id) };
+      if (existing?.id != null) {
+        const ev = new Set([...(existing.events ?? []), 'push', 'pull_request']);
+        if (!existing.events?.includes('pull_request')) {
+          const patchRes = await fetch(
+            giteaApiV1RepoHookItemUrl(opts.baseUrl, owner, repo, String(existing.id)),
+            {
+              method: 'PATCH',
+              headers: {
+                Authorization: `token ${opts.accessToken}`,
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                active: true,
+                branch_filter: '*',
+                events: [...ev],
+              }),
+            },
+          );
+          if (!patchRes.ok) {
+            const text = await patchRes.text().catch(() => '');
+            this.logger.warn(`Gitea Webhook 开启 pull_request 失败 HTTP ${patchRes.status}: ${text}`);
+          }
+        }
+        return { remoteWebhookId: String(existing.id) };
+      }
     }
 
     const res = await fetch(giteaApiV1RepoHooksUrl(opts.baseUrl, owner, repo), {
@@ -300,7 +384,7 @@ export class HttpRemoteWebhookRegistrar implements RemoteWebhookRegistrar {
       body: JSON.stringify({
         active: true,
         branch_filter: '*',
-        events: ['push'],
+        events: ['push', 'pull_request'],
         type: GitProvider.GITEA,
         config: {
           url: callbackUrl,

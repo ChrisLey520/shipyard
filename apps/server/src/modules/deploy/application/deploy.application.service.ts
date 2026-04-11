@@ -410,7 +410,7 @@ export class DeployApplicationService {
 
   async deployPreview(opts: { deploymentId: string; projectId: string; previewId: string; orgId: string }) {
     const { deploymentId, projectId, previewId, orgId: _orgId } = opts;
-    let gitConn: { gitProvider: string; accessToken: string } | null = null;
+    let gitConn: { gitProvider: string; accessToken: string; baseUrl: string | null } | null = null;
 
     try {
       await this.prisma.deployment.update({
@@ -427,7 +427,7 @@ export class DeployApplicationService {
 
       gitConn = await this.prisma.gitConnection.findUnique({
         where: { projectId },
-        select: { gitProvider: true, accessToken: true },
+        select: { gitProvider: true, accessToken: true, baseUrl: true },
       });
 
       const preview = await this.prisma.preview.findUniqueOrThrow({
@@ -482,29 +482,25 @@ export class DeployApplicationService {
       const envVars = await this.getDecryptedProjectBuildEnvVars(projectId);
 
       const isSsr = project.frameworkType === 'ssr';
-      let allocatedPort = preview.allocatedPort ?? undefined;
+      /** SSR 蓝绿：每次部署新占端口，成功后再释放旧端口 */
+      let oldSsrPort: number | undefined;
+      let newSsrPort: number | undefined;
       const minP = server.previewPortMin ?? 40_000;
       const maxP = server.previewPortMax ?? 41_000;
 
       if (isSsr) {
-        if (allocatedPort != null) {
+        let prev = preview.allocatedPort ?? undefined;
+        if (prev != null) {
           const client = this.redis.getClient();
-          const k = `shipyard:preview-port:${server.id}:${allocatedPort}`;
+          const k = `shipyard:preview-port:${server.id}:${prev}`;
           const v = await client.get(k);
-          if (v !== preview.id) {
-            allocatedPort = undefined;
-          }
+          if (v !== preview.id) prev = undefined;
         }
-        if (allocatedPort == null) {
-          const p = await this.previewPorts.tryAllocate(server.id, preview.id, minP, maxP);
-          if (p == null) throw new Error('预览端口池已满');
-          allocatedPort = p;
-          await this.prisma.preview.update({
-            where: { id: preview.id },
-            data: { allocatedPort: p },
-          });
-        }
-        envVars['PORT'] = String(allocatedPort);
+        oldSsrPort = prev;
+        const p = await this.previewPorts.tryAllocate(server.id, preview.id, minP, maxP);
+        if (p == null) throw new Error('预览端口池已满');
+        newSsrPort = p;
+        envVars['PORT'] = String(newSsrPort);
       }
 
       const tmpExtractDir = path.join('/tmp', `preview-deploy-${deploymentId}`);
@@ -567,13 +563,17 @@ export class DeployApplicationService {
             const pm2Check = `pm2 describe ${this.shellSingleQuote(pm2Name)} > /dev/null 2>&1`;
             await this.sshExec(
               conn,
-              `${pm2Check} && pm2 reload ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)} --update-env || pm2 start ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)}`,
+              `${pm2Check} && pm2 delete ${this.shellSingleQuote(pm2Name)} || true`,
+            );
+            await this.sshExec(
+              conn,
+              `pm2 start ${this.shellSingleQuote(`${deployBase}/current/ecosystem.config.js`)}`,
             );
           }
 
           const nginxBody =
             project.frameworkType === 'ssr'
-              ? this.generateSsrNginxConf(previewHost, '127.0.0.1', allocatedPort!)
+              ? this.generateSsrNginxConf(previewHost, '127.0.0.1', newSsrPort!)
               : this.generateStaticNginxConf(previewHost, `${deployBase}/current`);
 
           await this.sshExec(
@@ -582,6 +582,16 @@ export class DeployApplicationService {
           );
         } finally {
           conn.end();
+        }
+
+        if (isSsr && newSsrPort != null) {
+          if (oldSsrPort != null && oldSsrPort !== newSsrPort) {
+            await this.previewPorts.releaseIfOwned(server.id, oldSsrPort, preview.id);
+          }
+          await this.prisma.preview.update({
+            where: { id: preview.id },
+            data: { allocatedPort: newSsrPort },
+          });
         }
       } finally {
         await this.redis.releaseLock(lockKey);
@@ -608,13 +618,21 @@ export class DeployApplicationService {
       await this.appendLogLine(deploymentId, `[preview-deploy] 预览地址: ${preview.url}`);
       await this.appendLogLine(deploymentId, '[preview-deploy] 部署成功 ✓');
 
-      if (gitConn?.gitProvider === GitProvider.GITHUB) {
+      if (
+        gitConn &&
+        (gitConn.gitProvider === GitProvider.GITHUB ||
+          gitConn.gitProvider === GitProvider.GITLAB ||
+          gitConn.gitProvider === GitProvider.GITEE ||
+          gitConn.gitProvider === GitProvider.GITEA)
+      ) {
         const token = this.crypto.decrypt(gitConn.accessToken);
         const body = `🚀 **Shipyard Preview** deployed for **#${preview.prNumber}**.\n\n🔗 ${preview.url}`;
-        const commentId = await this.gitPrComment.upsertGithubIssueComment({
+        const commentId = await this.gitPrComment.upsertPrPreviewComment({
+          provider: gitConn.gitProvider,
           repoFullName: project.repoFullName,
           prNumber: preview.prNumber,
           accessToken: token,
+          baseUrl: gitConn.baseUrl,
           body,
           existingCommentId: preview.commentId,
         });
@@ -645,14 +663,23 @@ export class DeployApplicationService {
       );
 
       const pv = await this.prisma.preview.findUnique({ where: { id: previewId } });
-      if (pv && gitConn?.gitProvider === GitProvider.GITHUB) {
+      if (
+        pv &&
+        gitConn &&
+        (gitConn.gitProvider === GitProvider.GITHUB ||
+          gitConn.gitProvider === GitProvider.GITLAB ||
+          gitConn.gitProvider === GitProvider.GITEE ||
+          gitConn.gitProvider === GitProvider.GITEA)
+      ) {
         const token = this.crypto.decrypt(gitConn.accessToken);
         const body = `❌ **Shipyard Preview** deploy failed for **#${pv.prNumber}**.\n\n\`\`\`\n${message}\n\`\`\``;
-        const commentId = await this.gitPrComment.upsertGithubIssueComment({
-          repoFullName: (await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } }))
-            .repoFullName,
+        const proj = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+        const commentId = await this.gitPrComment.upsertPrPreviewComment({
+          provider: gitConn.gitProvider,
+          repoFullName: proj.repoFullName,
           prNumber: pv.prNumber,
           accessToken: token,
+          baseUrl: gitConn.baseUrl,
           body,
           existingCommentId: pv.commentId,
         });

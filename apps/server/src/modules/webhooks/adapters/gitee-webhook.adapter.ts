@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import type { ParsedPushPayload } from '../webhook-types';
+import type { ParsedPushPayload, ParsedPullRequestPayload } from '../webhook-types';
 
 function secretEqual(a: string, b: string): boolean {
   const ha = createHash('sha256').update(a, 'utf8').digest();
@@ -11,6 +11,16 @@ function secretEqual(a: string, b: string): boolean {
 }
 
 export function giteeWebhookIdempotencyKey(payload: Record<string, unknown>): string {
+  if (String(payload['hook_name'] ?? '') === 'merge_request_hooks') {
+    const pr = payload['pull_request'] as
+      | { id?: number; number?: number; updated_at?: string }
+      | undefined;
+    const id = pr?.id ?? pr?.number;
+    const action = String(payload['action'] ?? '');
+    if (id != null) {
+      return `webhook:gitee:mr:${id}:${action}:${pr?.updated_at ?? ''}`;
+    }
+  }
   const repoId = String((payload['repository'] as { id?: number } | undefined)?.id ?? '');
   const head = payload['head_commit'] as { id?: string } | undefined;
   const sha = String(head?.id ?? (payload['after'] as string | undefined) ?? '');
@@ -48,5 +58,49 @@ export function parseGiteePushPayload(payload: Record<string, unknown>): ParsedP
     commitSha,
     commitMessage: headCommit?.message?.trim() || '',
     commitAuthor: headCommit?.author?.name?.trim() || '',
+  };
+}
+
+/** Gitee merge_request_hooks */
+export function parseGiteeMergeRequestPayload(
+  payload: Record<string, unknown>,
+): ParsedPullRequestPayload | null {
+  if (String(payload['hook_name'] ?? '') !== 'merge_request_hooks') return null;
+
+  const pr = payload['pull_request'] as
+    | {
+        number?: number;
+        state?: string;
+        title?: string;
+        body?: string;
+        head?: { ref?: string; sha?: string; repo?: { full_name?: string; path?: string } };
+        base?: { repo?: { full_name?: string; path?: string } };
+        user?: { login?: string; name?: string };
+      }
+    | undefined;
+  if (!pr || typeof pr.number !== 'number') return null;
+
+  const head = pr.head;
+  const headSha = head?.sha?.trim();
+  const headBranch = head?.ref?.trim();
+  const headRepoFullName =
+    head?.repo?.full_name?.trim() || head?.repo?.path?.trim() || '';
+  const baseRepoFullName =
+    pr.base?.repo?.full_name?.trim() || pr.base?.repo?.path?.trim() || '';
+  if (!headSha || !headBranch || !headRepoFullName || !baseRepoFullName) return null;
+
+  const action = String(payload['action'] ?? '').trim();
+  if (!action) return null;
+
+  return {
+    action,
+    prNumber: pr.number,
+    headSha,
+    headBranch,
+    headRepoFullName,
+    baseRepoFullName,
+    commitMessage: (pr.title ?? '').trim() || '(no title)',
+    commitAuthor: (pr.user?.login ?? pr.user?.name ?? '').trim() || 'unknown',
+    prState: (pr.state ?? 'open').trim(),
   };
 }

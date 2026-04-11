@@ -6,7 +6,12 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { RedisService } from '../../../common/redis/redis.service';
 import { PipelineService } from '../../pipeline/pipeline.service';
-import type { WebhookHttpResponse, WebhooksGitProvider, ParsedPushPayload } from '../webhook-types';
+import type {
+  WebhookHttpResponse,
+  WebhooksGitProvider,
+  ParsedPushPayload,
+  ParsedPullRequestPayload,
+} from '../webhook-types';
 import {
   githubWebhookIdempotencyKey,
   verifyGithubWebhookSignature,
@@ -19,13 +24,20 @@ import {
   verifyGitlabWebhookToken,
   parseGitlabWebhookEvent,
   parseGitlabPushPayload,
+  parseGitlabMergeRequestPayload,
 } from '../adapters/gitlab-webhook.adapter';
-import { giteeWebhookIdempotencyKey, verifyGiteeWebhookToken, parseGiteePushPayload } from '../adapters/gitee-webhook.adapter';
+import {
+  giteeWebhookIdempotencyKey,
+  verifyGiteeWebhookToken,
+  parseGiteePushPayload,
+  parseGiteeMergeRequestPayload,
+} from '../adapters/gitee-webhook.adapter';
 import {
   giteaWebhookIdempotencyKey,
   verifyGiteaWebhookSignature,
   parseGiteaWebhookEvent,
   parseGiteaPushPayload,
+  parseGiteaPullRequestPayload,
 } from '../adapters/gitea-webhook.adapter';
 
 function normalizeHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
@@ -40,6 +52,30 @@ function normalizeHeaders(headers: Record<string, string | string[] | undefined>
 
 function normalizeRepoKey(name: string): string {
   return name.trim().toLowerCase();
+}
+
+function isPreviewPrClosed(parsed: ParsedPullRequestPayload): boolean {
+  const s = parsed.prState.toLowerCase();
+  const a = parsed.action.toLowerCase();
+  return (
+    s === 'closed' ||
+    s === 'merged' ||
+    a === 'closed' ||
+    a === 'close' ||
+    a === 'merge'
+  );
+}
+
+function shouldQueuePreviewBuild(parsed: ParsedPullRequestPayload): boolean {
+  const a = parsed.action.toLowerCase();
+  return (
+    a === 'opened' ||
+    a === 'synchronize' ||
+    a === 'reopened' ||
+    a === 'open' ||
+    a === 'update' ||
+    a === 'reopen'
+  );
 }
 
 @Injectable()
@@ -130,8 +166,61 @@ export class WebhooksApplicationService {
         if (!gitConn.project) {
           return this.err(404, 'not_found');
         }
-        return this.handleGithubPullRequest(projectId, gitConn as typeof gitConn & { project: NonNullable<typeof gitConn.project> }, payload);
+        const parsed = parseGithubPullRequestPayload(payload);
+        if (!parsed) {
+          return this.ok(200, { skipped: true, reason: 'invalid_pr_payload' });
+        }
+        return this.handlePullRequest(
+          projectId,
+          gitConn as typeof gitConn & { project: NonNullable<typeof gitConn.project> },
+          parsed,
+        );
       }
+    }
+
+    if (provider === GitProvider.GITLAB && parseGitlabWebhookEvent(headers) === 'Merge Request Hook') {
+      if (!gitConn.project) {
+        return this.err(404, 'not_found');
+      }
+      const parsed = parseGitlabMergeRequestPayload(payload);
+      if (!parsed) {
+        return this.ok(200, { skipped: true, reason: 'invalid_pr_payload' });
+      }
+      return this.handlePullRequest(
+        projectId,
+        gitConn as typeof gitConn & { project: NonNullable<typeof gitConn.project> },
+        parsed,
+      );
+    }
+
+    if (provider === GitProvider.GITEA && parseGiteaWebhookEvent(headers).toLowerCase() === 'pull_request') {
+      if (!gitConn.project) {
+        return this.err(404, 'not_found');
+      }
+      const parsed = parseGiteaPullRequestPayload(payload);
+      if (!parsed) {
+        return this.ok(200, { skipped: true, reason: 'invalid_pr_payload' });
+      }
+      return this.handlePullRequest(
+        projectId,
+        gitConn as typeof gitConn & { project: NonNullable<typeof gitConn.project> },
+        parsed,
+      );
+    }
+
+    if (provider === GitProvider.GITEE && String(payload['hook_name'] ?? '') === 'merge_request_hooks') {
+      if (!gitConn.project) {
+        return this.err(404, 'not_found');
+      }
+      const parsed = parseGiteeMergeRequestPayload(payload);
+      if (!parsed) {
+        return this.ok(200, { skipped: true, reason: 'invalid_pr_payload' });
+      }
+      return this.handlePullRequest(
+        projectId,
+        gitConn as typeof gitConn & { project: NonNullable<typeof gitConn.project> },
+        parsed,
+      );
     }
 
     if (this.isNonPushPing(provider, headers, payload)) {
@@ -273,7 +362,7 @@ export class WebhooksApplicationService {
     }
   }
 
-  private async handleGithubPullRequest(
+  private async handlePullRequest(
     projectId: string,
     gitConn: {
       gitProvider: string;
@@ -287,13 +376,8 @@ export class WebhooksApplicationService {
         organization: { id: string };
       };
     },
-    payload: Record<string, unknown>,
+    parsed: ParsedPullRequestPayload,
   ): Promise<WebhookHttpResponse> {
-    const parsed = parseGithubPullRequestPayload(payload);
-    if (!parsed) {
-      return this.ok(200, { skipped: true, reason: 'invalid_pr_payload' });
-    }
-
     const project = gitConn.project;
     if (!project.previewEnabled) {
       return this.ok(200, { handled: false, reason: 'preview_disabled' });
@@ -313,14 +397,14 @@ export class WebhooksApplicationService {
 
     const orgId = project.organization.id;
 
-    if (parsed.action === 'closed' || parsed.prState === 'closed') {
+    if (isPreviewPrClosed(parsed)) {
       void this.deployService
         .teardownPreviewForPr(orgId, projectId, parsed.prNumber)
         .catch((e) => this.logger.error(`Preview teardown failed: ${e}`));
       return this.ok(200, { preview: 'teardown_started' });
     }
 
-    if (parsed.action !== 'opened' && parsed.action !== 'synchronize') {
+    if (!shouldQueuePreviewBuild(parsed)) {
       return this.ok(200, { handled: false, reason: 'pr_action_ignored' });
     }
 

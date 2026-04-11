@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'crypto';
-import type { ParsedGithubPullRequestPayload, ParsedPushPayload } from '../webhook-types';
+import type { ParsedPullRequestPayload, ParsedPushPayload } from '../webhook-types';
 
 export function githubWebhookIdempotencyKey(
   headers: Record<string, string>,
@@ -55,7 +55,7 @@ export function parseGithubPushPayload(payload: Record<string, unknown>): Parsed
 
 export function parseGithubPullRequestPayload(
   payload: Record<string, unknown>,
-): ParsedGithubPullRequestPayload | null {
+): ParsedPullRequestPayload | null {
   const pr = payload['pull_request'] as
     | {
         number?: number;

@@ -22,8 +22,8 @@ export interface ParsedPushPayload {
   commitAuthor: string;
 }
 
-/** GitHub pull_request webhook 统一形状（M1 仅 GitHub） */
-export interface ParsedGithubPullRequestPayload {
+/** 各平台 MR/PR Webhook 归一化形状（GitHub pull_request / GitLab MR / Gitee / Gitea） */
+export interface ParsedPullRequestPayload {
   action: string;
   prNumber: number;
   headSha: string;
@@ -32,6 +32,9 @@ export interface ParsedGithubPullRequestPayload {
   baseRepoFullName: string;
   commitMessage: string;
   commitAuthor: string;
-  /** pull_request.state：open / closed */
+  /** MR/PR 状态：opened / closed / merged 等 */
   prState: string;
 }
+
+/** @deprecated 使用 ParsedPullRequestPayload */
+export type ParsedGithubPullRequestPayload = ParsedPullRequestPayload;

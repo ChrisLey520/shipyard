@@ -323,16 +323,25 @@ export class BuildWorkerService implements OnModuleInit {
           }),
           this.prisma.gitConnection.findUnique({
             where: { projectId },
-            select: { gitProvider: true },
+            select: { gitProvider: true, baseUrl: true },
           }),
         ]);
-        if (gc?.gitProvider === GitProvider.GITHUB && p?.repoFullName) {
+        if (
+          p?.repoFullName &&
+          gc &&
+          (gc.gitProvider === GitProvider.GITHUB ||
+            gc.gitProvider === GitProvider.GITLAB ||
+            gc.gitProvider === GitProvider.GITEE ||
+            gc.gitProvider === GitProvider.GITEA)
+        ) {
           const accessToken = await this.gitTokens.getAccessTokenForProject(projectId);
           const body = `❌ **Shipyard Preview** build failed for **#${pv.prNumber}**.\n\n\`\`\`\n${message}\n\`\`\``;
-          const commentId = await this.gitPrComment.upsertGithubIssueComment({
+          const commentId = await this.gitPrComment.upsertPrPreviewComment({
+            provider: gc.gitProvider,
             repoFullName: p.repoFullName,
             prNumber: pv.prNumber,
             accessToken,
+            baseUrl: gc.baseUrl,
             body,
             existingCommentId: pv.commentId,
           });
