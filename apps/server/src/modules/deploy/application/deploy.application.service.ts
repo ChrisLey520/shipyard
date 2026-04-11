@@ -12,6 +12,7 @@ import {
 } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedisService } from '../../../common/redis/redis.service';
+import { Queue } from 'bullmq';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { GitCommitStatusService } from '../../git/git-commit-status.service';
 import { GitPrCommentApplicationService } from '../../git/application/git-pr-comment.application.service';
@@ -329,13 +330,39 @@ export class DeployApplicationService {
     return `'${s.replace(/'/g, `'\"'\"'`)}'`;
   }
 
+  /** 移除 build/deploy 队列中尚未执行的同名 job（与 Pipeline/BuildWorker 的 jobId 约定一致） */
+  private async cancelQueuedJobsForDeployment(orgId: string, deploymentId: string): Promise<void> {
+    const jobId = `deploy-${deploymentId}`;
+    const connection = this.redis.getClient();
+    for (const queueName of [`build-${orgId}`, `deploy-${orgId}`]) {
+      const queue = new Queue(queueName, { connection });
+      try {
+        const job = await queue.getJob(jobId);
+        if (job) {
+          try {
+            await job.remove();
+            this.logger.log(`Removed queued job ${jobId} from ${queueName}`);
+          } catch (e) {
+            this.logger.warn(`Failed to remove job ${jobId} from ${queueName}: ${e}`);
+          }
+        }
+      } finally {
+        await queue.close();
+      }
+    }
+  }
+
   /** PR 关闭时清理远端资源与数据库（幂等） */
-  async teardownPreviewForPr(_orgId: string, projectId: string, prNumber: number): Promise<void> {
+  async teardownPreviewForPr(orgId: string, projectId: string, prNumber: number): Promise<void> {
     const preview = await this.prisma.preview.findUnique({
       where: { projectId_prNumber: { projectId, prNumber } },
       include: { project: { include: { previewServer: true } } },
     });
-    if (!preview?.project.previewServer) return;
+    if (!preview) return;
+
+    await this.cancelQueuedJobsForDeployment(orgId, preview.deploymentId);
+
+    if (!preview.project.previewServer) return;
 
     const project = preview.project;
     const server = preview.project.previewServer;

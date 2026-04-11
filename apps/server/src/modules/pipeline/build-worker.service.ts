@@ -314,7 +314,7 @@ export class BuildWorkerService implements OnModuleInit {
         'Shipyard build failed',
       );
 
-      const pv = await this.prisma.preview.findFirst({ where: { deploymentId } });
+      const pv = await this.prisma.preview.findUnique({ where: { deploymentId } });
       if (pv) {
         const [p, gc] = await Promise.all([
           this.prisma.project.findUnique({

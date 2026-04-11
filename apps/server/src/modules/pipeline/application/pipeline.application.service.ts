@@ -127,10 +127,12 @@ export class PipelineApplicationService {
       },
     });
     if (dup) {
-      const prevRow = await this.prisma.preview.findUnique({
-        where: { projectId_prNumber: { projectId, prNumber: pr.prNumber } },
-      });
-      return { deployment: dup, previewId: prevRow?.id ?? '', deduped: true };
+      const byPr =
+        (await this.prisma.preview.findUnique({
+          where: { projectId_prNumber: { projectId, prNumber: pr.prNumber } },
+        })) ??
+        (await this.prisma.preview.findUnique({ where: { deploymentId: dup.id } }));
+      return { deployment: dup, previewId: byPr?.id ?? '', deduped: true };
     }
 
     const project = await this.prisma.project.findUniqueOrThrow({
