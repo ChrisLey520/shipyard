@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { isProjectDetailTab, projectDetailTabPath } from '../pages/projects/projectDetailTabs';
 
 const routes: RouteRecordRaw[] = [
   // 认证页（无需 Layout）
@@ -38,23 +39,43 @@ const routes: RouteRecordRaw[] = [
       { path: 'projects', component: () => import('../pages/projects/ProjectListPage.vue') },
       { path: 'projects/new', component: () => import('../pages/projects/ProjectNewPage.vue') },
       {
-        path: 'projects/:projectSlug/settings',
-        redirect: (to) => ({
-          path: `/orgs/${String(to.params['orgSlug'])}/projects/${String(to.params['projectSlug'])}`,
-          query: { tab: 'settings' },
-        }),
-      },
-      { path: 'projects/:projectSlug', component: () => import('../pages/projects/ProjectDetailPage.vue') },
-      {
-        path: 'projects/:projectSlug/environments',
-        redirect: (to) => ({
-          path: `/orgs/${String(to.params['orgSlug'])}/projects/${String(to.params['projectSlug'])}`,
-          query: { tab: 'environments' },
-        }),
-      },
-      {
         path: 'projects/:projectSlug/deployments/:deploymentId',
         component: () => import('../pages/pipeline/DeploymentDetailPage.vue'),
+      },
+      {
+        path: 'projects/:projectSlug/:tab',
+        component: () => import('../pages/projects/ProjectDetailPage.vue'),
+        beforeEnter: (to, _from, next) => {
+          const seg = String(to.params['tab'] ?? '');
+          if (!isProjectDetailTab(seg)) {
+            return next({
+              path: `/orgs/${String(to.params['orgSlug'])}/projects/${String(to.params['projectSlug'])}/overview`,
+              replace: true,
+            });
+          }
+          next();
+        },
+      },
+      {
+        path: 'projects/:projectSlug',
+        redirect: (to) => {
+          const orgSlug = String(to.params['orgSlug']);
+          const projectSlug = String(to.params['projectSlug']);
+          const qTab = to.query['tab'];
+          const restQuery = { ...to.query };
+          delete restQuery['tab'];
+          const hasRest = Object.keys(restQuery).length > 0;
+          if (typeof qTab === 'string' && isProjectDetailTab(qTab)) {
+            return {
+              path: projectDetailTabPath(orgSlug, projectSlug, qTab),
+              query: hasRest ? restQuery : undefined,
+            };
+          }
+          return {
+            path: projectDetailTabPath(orgSlug, projectSlug, 'overview'),
+            query: hasRest ? restQuery : undefined,
+          };
+        },
       },
 
       // 服务器

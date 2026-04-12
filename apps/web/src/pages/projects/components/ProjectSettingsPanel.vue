@@ -83,6 +83,7 @@ import {
 import { saveProjectSettings } from '@/composables/projects/useProjectSettingsSave';
 import { listServers } from '@/api/servers';
 import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
+import { projectDetailTabPath } from '../projectDetailTabs';
 
 const route = useRoute();
 const router = useRouter();
@@ -193,7 +194,7 @@ async function onSave() {
       refetchDeployments: () => deploymentsQuery.refetch(),
       loadBuildEnv,
       pathAfterSlugChange: (newSlug) =>
-        `/orgs/${orgSlug.value}/projects/${newSlug}?tab=settings`,
+        projectDetailTabPath(orgSlug.value, newSlug, 'settings'),
     });
   } finally {
     saving.value = false;

@@ -7,7 +7,7 @@
     </n-page-header>
 
     <n-tabs
-      v-model:value="activeProjectTab"
+      :value="activeProjectTab"
       style="margin-top: 16px"
       @update:value="onProjectTabChange"
     >
@@ -191,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed, watch } from 'vue';
+import { ref, h, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
@@ -217,6 +217,12 @@ import {
 import type { Env, EnvVar } from '@/api/projects/environments';
 import { useEnvironmentsProjectActions } from '@/composables/projects/useEnvironmentsProjectActions';
 import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
+import {
+  type ProjectDetailTab,
+  DEFAULT_PROJECT_DETAIL_TAB,
+  isProjectDetailTab,
+  projectDetailTabPath,
+} from './projectDetailTabs';
 
 const route = useRoute();
 const router = useRouter();
@@ -237,29 +243,14 @@ const deploymentsLoading = computed(
 const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
 
-/** 与路由 ?tab= 同步，避免刷新后总是回到「概览」 */
-const activeProjectTab = ref<
-  'overview' | 'settings' | 'environments' | 'deployments' | 'notifications' | 'feature-flags'
->('overview');
-
-function syncProjectTabFromRoute() {
-  const tab = route.query['tab'];
-  if (tab === 'deployments') activeProjectTab.value = 'deployments';
-  else if (tab === 'notifications') activeProjectTab.value = 'notifications';
-  else if (tab === 'feature-flags') activeProjectTab.value = 'feature-flags';
-  else if (tab === 'environments') activeProjectTab.value = 'environments';
-  else if (tab === 'settings') activeProjectTab.value = 'settings';
-  else activeProjectTab.value = 'overview';
-}
+const activeProjectTab = computed<ProjectDetailTab>(() => {
+  const seg = route.params['tab'];
+  return typeof seg === 'string' && isProjectDetailTab(seg) ? seg : DEFAULT_PROJECT_DETAIL_TAB;
+});
 
 function onProjectTabChange(name: string) {
-  const next = { ...route.query };
-  if (name === 'overview') {
-    delete next.tab;
-  } else {
-    next.tab = name;
-  }
-  void router.replace({ path: route.path, query: next });
+  if (!isProjectDetailTab(name)) return;
+  void router.push(projectDetailTabPath(orgSlug.value, projectSlug.value, name));
 }
 
 const buildEnvVars = ref<ProjectBuildEnvVar[]>([]);
@@ -551,11 +542,7 @@ async function loadBuildEnv() {
 }
 
 function goProjectSettings() {
-  void router.replace({
-    path: route.path,
-    query: { ...route.query, tab: 'settings' },
-  });
-  activeProjectTab.value = 'settings';
+  void router.push(projectDetailTabPath(orgSlug.value, projectSlug.value, 'settings'));
 }
 
 async function refetchDeployments() {
@@ -572,14 +559,6 @@ watch(
   { immediate: true },
 );
 
-watch(
-  () => route.query.tab,
-  () => syncProjectTabFromRoute(),
-);
-
-onMounted(() => {
-  syncProjectTabFromRoute();
-});
 </script>
 
 <style scoped>
