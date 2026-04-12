@@ -27,11 +27,11 @@ export default defineConfig({
       'pnpm --filter @shipyard/monitoring-server exec prisma generate',
       'pnpm --filter @shipyard/monitoring-server exec prisma db push --accept-data-loss',
       'pnpm --filter @shipyard/monitoring-server db:seed',
-      'pnpm --filter @shipyard/monitoring-server dev',
+      'pnpm --filter @shipyard/monitoring-server start:e2e',
     ].join(' && '),
     cwd: repoRoot,
     url: `${baseURL}/health`,
-    timeout: 120_000,
+    timeout: 180_000,
     reuseExistingServer: !process.env['CI'],
     env: {
       ...process.env,
