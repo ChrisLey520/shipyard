@@ -1,0 +1,142 @@
+<template>
+  <view class="p-1">
+    <view class="flex justify-end mb-2">
+      <wd-button size="small" type="primary" @click="openCreate">新增</wd-button>
+    </view>
+    <wd-loading v-if="loading" />
+    <view v-else>
+      <view
+        v-for="r in rows"
+        :key="r.id"
+        class="mb-2 p-3 rounded-lg bg-white border border-gray-200 flex justify-between items-start gap-2"
+      >
+        <view class="flex-1" @click="openEdit(r)">
+          <text class="font-medium">{{ r.key }}</text>
+          <text class="block text-xs text-gray-500 mt-1">{{ r.enabled ? '已启用' : '已关闭' }}</text>
+        </view>
+        <wd-button size="small" plain type="error" @click="removeRow(r.id)">删除</wd-button>
+      </view>
+    </view>
+    <view v-if="!loading && !rows.length" class="text-center text-gray-500 py-6">暂无特性开关</view>
+
+    <wd-popup v-model="showModal" position="bottom" :safe-area-inset-bottom="true">
+      <scroll-view scroll-y class="max-h-80vh p-4">
+        <wd-input v-model="form.key" label="Key" :disabled="!!editingId" placeholder="如 feature.xxx" />
+        <wd-cell title="启用" center>
+          <wd-switch v-model="form.enabled" />
+        </wd-cell>
+        <wd-textarea v-model="form.valueJson" label="JSON 值" placeholder="可选" />
+        <wd-button block type="primary" class="mt-3" :loading="saving" @click="submit">保存</wd-button>
+        <wd-button block plain class="mt-2" @click="showModal = false">取消</wd-button>
+      </scroll-view>
+    </wd-popup>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref, watch } from 'vue';
+import * as featureApi from '@/api/feature-flags';
+import type { FeatureFlagRow } from '@/api/feature-flags';
+import { HttpError } from '@/api/http';
+
+const props = defineProps<{ orgSlug: string; projectSlug: string }>();
+
+const loading = ref(false);
+const rows = ref<FeatureFlagRow[]>([]);
+const showModal = ref(false);
+const editingId = ref<string | null>(null);
+const saving = ref(false);
+const form = ref({ key: '', enabled: false, valueJson: '' });
+
+async function load() {
+  if (!props.orgSlug || !props.projectSlug) return;
+  loading.value = true;
+  try {
+    rows.value = await featureApi.listFeatureFlags(props.orgSlug, props.projectSlug);
+  } catch (e) {
+    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } finally {
+    loading.value = false;
+  }
+}
+
+watch(
+  () => [props.orgSlug, props.projectSlug],
+  () => void load(),
+  { immediate: true },
+);
+
+function openCreate() {
+  editingId.value = null;
+  form.value = { key: '', enabled: false, valueJson: '' };
+  showModal.value = true;
+}
+
+function openEdit(r: FeatureFlagRow) {
+  editingId.value = r.id;
+  form.value = {
+    key: r.key,
+    enabled: r.enabled,
+    valueJson: r.valueJson != null ? JSON.stringify(r.valueJson, null, 2) : '',
+  };
+  showModal.value = true;
+}
+
+async function submit() {
+  const key = form.value.key.trim();
+  if (!key) {
+    uni.showToast({ title: '请填写 Key', icon: 'none' });
+    return;
+  }
+  let valueJson: unknown;
+  const raw = form.value.valueJson.trim();
+  if (raw) {
+    try {
+      valueJson = JSON.parse(raw) as unknown;
+    } catch {
+      uni.showToast({ title: 'JSON 无效', icon: 'none' });
+      return;
+    }
+  }
+  saving.value = true;
+  try {
+    if (editingId.value) {
+      await featureApi.updateFeatureFlag(props.orgSlug, editingId.value, {
+        enabled: form.value.enabled,
+        valueJson: raw ? valueJson : null,
+      });
+    } else {
+      await featureApi.createFeatureFlag(props.orgSlug, {
+        key,
+        enabled: form.value.enabled,
+        valueJson: raw ? valueJson : undefined,
+        projectSlug: props.projectSlug,
+      });
+    }
+    uni.showToast({ title: '已保存', icon: 'success' });
+    showModal.value = false;
+    await load();
+  } catch (e) {
+    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } finally {
+    saving.value = false;
+  }
+}
+
+function removeRow(id: string) {
+  uni.showModal({
+    title: '删除',
+    content: '确定删除该特性开关？',
+    success: async (res) => {
+      if (!res.confirm) return;
+      try {
+        await featureApi.deleteFeatureFlag(props.orgSlug, id);
+        uni.showToast({ title: '已删除', icon: 'success' });
+        await load();
+      } catch (e) {
+        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      }
+    },
+  });
+}
+</script>

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Mini program**：对齐 Web 的项目治理能力——项目详情 **概览 / 部署 / 通知 / 特性** Tab，项目与流水线/构建变量编辑，项目通知 API；组织设置 **Kubernetes 集群** 与 **组织级特性开关**、slug 可改；服务器 **编辑/删除**；登录支持 **`redirect` 回跳**（路径白名单）；**access 刷新失败** 时跳转登录并携带当前页回跳意图。
 - **FeatureFlag**：数据库 **部分唯一索引**（组织级 `organizationId + key` 且 `projectId IS NULL`；项目级 `projectId + key` 且 `projectId IS NOT NULL`）。
 - **releaseConfig / 门禁**：Prometheus `gates.prometheus.queryUrl` **仅允许 `https://`**（Zod + 运行时校验）。
 - **Deploy hooks**：pre/post 远端输出经 **单行与总量上限** 截断后再写入部署日志，缓解日志与存储膨胀。

@@ -10,6 +10,22 @@ export interface ProjectListItem {
   _count: { deployments: number };
 }
 
+export interface PipelineConfigShape {
+  installCommand: string;
+  buildCommand: string;
+  lintCommand: string | null;
+  testCommand: string | null;
+  outputDir: string;
+  nodeVersion: string;
+  cacheEnabled: boolean;
+  timeoutSeconds: number;
+  ssrEntryPoint: string | null;
+  previewHealthCheckPath: string | null;
+  containerImageEnabled?: boolean;
+  containerImageName?: string | null;
+  updatedAt?: string;
+}
+
 export interface ProjectDetail {
   id: string;
   name: string;
@@ -25,10 +41,11 @@ export interface ProjectDetail {
     createdAt: string;
     updatedAt: string;
   };
-  pipelineConfig: null | Record<string, unknown>;
+  pipelineConfig: null | PipelineConfigShape;
   previewEnabled?: boolean;
   previewServerId?: string | null;
   previewBaseDomain?: string | null;
+  previewServer?: { id: string; name: string; host: string; os: string } | null;
   notificationMessageTemplate?: string | null;
   environments: Array<{
     id: string;
@@ -54,6 +71,38 @@ export interface DeploymentListItem {
   artifactId: string | null;
 }
 
+export type UpdateProjectPayload = {
+  name?: string;
+  frameworkType?: string;
+  slug?: string;
+  previewEnabled?: boolean;
+  previewServerId?: string | null;
+  previewBaseDomain?: string | null;
+  notificationMessageTemplate?: string | null;
+};
+
+export type UpdatePipelineConfigPayload = Partial<{
+  installCommand: string;
+  buildCommand: string;
+  lintCommand: string | null;
+  testCommand: string | null;
+  outputDir: string;
+  nodeVersion: string;
+  cacheEnabled: boolean;
+  timeoutSeconds: number;
+  ssrEntryPoint: string | null;
+  previewHealthCheckPath: string | null;
+  containerImageEnabled: boolean;
+  containerImageName: string | null;
+  containerRegistryAuth: { username?: string; password?: string } | null;
+}>;
+
+export interface ProjectBuildEnvVar {
+  id: string;
+  key: string;
+  updatedAt: string;
+}
+
 export async function listProjects(orgSlug: string) {
   return request<ProjectListItem[]>({ url: `/orgs/${orgSlug}/projects` });
 }
@@ -64,6 +113,30 @@ export async function createProject(orgSlug: string, payload: Record<string, unk
 
 export async function getProject(orgSlug: string, projectSlug: string) {
   return request<ProjectDetail>({ url: `/orgs/${orgSlug}/projects/${projectSlug}` });
+}
+
+export async function updateProject(
+  orgSlug: string,
+  projectSlug: string,
+  payload: UpdateProjectPayload,
+) {
+  return request<unknown>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}`,
+    method: 'PATCH',
+    data: payload,
+  });
+}
+
+export async function updatePipelineConfig(
+  orgSlug: string,
+  projectSlug: string,
+  payload: UpdatePipelineConfigPayload,
+) {
+  return request<unknown>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/pipeline-config`,
+    method: 'PATCH',
+    data: payload,
+  });
 }
 
 export async function deleteProject(orgSlug: string, projectSlug: string) {
@@ -88,5 +161,30 @@ export async function retryDeployment(orgSlug: string, projectSlug: string, depl
   return request<{ id: string }>({
     url: `/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}/retry`,
     method: 'POST',
+  });
+}
+
+export async function listProjectBuildEnv(orgSlug: string, projectSlug: string) {
+  return request<ProjectBuildEnvVar[]>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/build-env`,
+  });
+}
+
+export async function upsertProjectBuildEnv(
+  orgSlug: string,
+  projectSlug: string,
+  payload: { key: string; value: string },
+) {
+  return request<unknown>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/build-env`,
+    method: 'POST',
+    data: payload,
+  });
+}
+
+export async function deleteProjectBuildEnv(orgSlug: string, projectSlug: string, varId: string) {
+  return request<unknown>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/build-env/${varId}`,
+    method: 'DELETE',
   });
 }

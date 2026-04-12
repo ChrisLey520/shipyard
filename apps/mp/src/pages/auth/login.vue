@@ -16,20 +16,24 @@ import { ref } from 'vue';
 import { onLoad, onShow } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
 import { HttpError } from '@/api/http';
+import { reLaunchAfterAuth, resolveLoginRedirect } from '@/utils/redirectLogin';
 
 const auth = useAuthStore();
 const email = ref('');
 const password = ref('');
 const loading = ref(false);
+/** 登录成功后回跳（与 Web redirect query 对齐） */
+const redirectParam = ref<string | undefined>(undefined);
 
 onLoad((q) => {
-  const e = (q as { email?: string }).email;
-  if (e) email.value = decodeURIComponent(e);
+  const query = q as { email?: string; redirect?: string };
+  if (query.email) email.value = decodeURIComponent(query.email);
+  if (query.redirect) redirectParam.value = query.redirect;
 });
 
 onShow(() => {
   if (auth.isAuthenticated) {
-    uni.reLaunch({ url: '/pages/orgs/list' });
+    reLaunchAfterAuth(redirectParam.value);
   }
 });
 
@@ -41,7 +45,7 @@ async function onLogin() {
   loading.value = true;
   try {
     await auth.login(email.value.trim(), password.value);
-    uni.reLaunch({ url: '/pages/orgs/list' });
+    reLaunchAfterAuth(redirectParam.value);
   } catch (e) {
     const msg = e instanceof HttpError ? e.message : '登录失败';
     uni.showToast({ title: msg, icon: 'none' });
@@ -51,7 +55,12 @@ async function onLogin() {
 }
 
 function goRegister() {
-  uni.navigateTo({ url: '/pages/auth/register' });
+  let url = '/pages/auth/register';
+  if (redirectParam.value) {
+    const safe = resolveLoginRedirect(redirectParam.value);
+    if (safe) url += `?redirect=${encodeURIComponent(redirectParam.value)}`;
+  }
+  uni.navigateTo({ url });
 }
 
 function goForgot() {

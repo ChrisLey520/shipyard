@@ -41,6 +41,7 @@ import { useOrgStore } from '@/stores/org';
 import * as orgsApi from '@/api/orgs';
 import { slugifyFromDisplayName } from '@shipyard/shared';
 import { HttpError } from '@/api/http';
+import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
 
 const auth = useAuthStore();
 const orgStore = useOrgStore();
@@ -51,7 +52,7 @@ const form = ref({ name: '', slug: '' });
 
 onShow(() => {
   if (!auth.isAuthenticated) {
-    uni.reLaunch({ url: '/pages/auth/login' });
+    reLaunchToLoginWithRedirect();
   }
 });
 

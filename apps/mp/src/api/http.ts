@@ -1,4 +1,5 @@
 import { getApiBase } from '@/config/env';
+import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
 import { storage } from '@/utils/storage';
 
 export class HttpError extends Error {
@@ -124,7 +125,10 @@ export async function request<T>(opts: UniRequestOptions): Promise<T> {
       const token = await new Promise<string | null>((resolveQ) => {
         refreshQueue.push(resolveQ);
       });
-      if (!token) throw new HttpError('未授权', 401);
+      if (!token) {
+        reLaunchToLoginWithRedirect();
+        throw new HttpError('未授权', 401);
+      }
       return request<T>({ ...opts, _retry: true });
     }
 
@@ -133,7 +137,10 @@ export async function request<T>(opts: UniRequestOptions): Promise<T> {
       const newToken = await refreshAccessToken();
       refreshQueue.forEach((cb) => cb(newToken));
       refreshQueue = [];
-      if (!newToken) throw new HttpError('未授权', 401);
+      if (!newToken) {
+        reLaunchToLoginWithRedirect();
+        throw new HttpError('未授权', 401);
+      }
       return request<T>({ ...opts, _retry: true });
     } finally {
       isRefreshing = false;

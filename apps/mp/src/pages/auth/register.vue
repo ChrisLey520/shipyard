@@ -12,14 +12,22 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { onLoad } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
 import { HttpError } from '@/api/http';
+import { reLaunchAfterAuth } from '@/utils/redirectLogin';
 
 const auth = useAuthStore();
 const name = ref('');
 const email = ref('');
 const password = ref('');
 const loading = ref(false);
+const redirectParam = ref<string | undefined>(undefined);
+
+onLoad((q) => {
+  const r = (q as { redirect?: string }).redirect;
+  if (r) redirectParam.value = r;
+});
 
 async function onRegister() {
   if (!name.value.trim() || !email.value.trim() || !password.value) {
@@ -29,7 +37,7 @@ async function onRegister() {
   loading.value = true;
   try {
     await auth.register(name.value.trim(), email.value.trim(), password.value);
-    uni.reLaunch({ url: '/pages/orgs/list' });
+    reLaunchAfterAuth(redirectParam.value);
   } catch (e) {
     const msg = e instanceof HttpError ? e.message : '注册失败';
     uni.showToast({ title: msg, icon: 'none' });

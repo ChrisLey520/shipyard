@@ -56,6 +56,7 @@ import { useAuthStore } from '@/stores/auth';
 import { authApi } from '@/api/auth';
 import * as usersApi from '@/api/users';
 import { HttpError } from '@/api/http';
+import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
@@ -77,7 +78,7 @@ const localeLabel = computed(() => (selectedLocale.value === 'en' ? 'English' : 
 
 onShow(() => {
   if (!auth.isAuthenticated) {
-    uni.reLaunch({ url: '/pages/auth/login' });
+    reLaunchToLoginWithRedirect();
     return;
   }
   syncLocaleFromUser();
