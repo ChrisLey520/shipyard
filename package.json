@@ -14,7 +14,7 @@
     "build": "pnpm -r build",
     "lint": "eslint apps/web/src apps/server/src packages/shared/src --cache --max-warnings 0",
     "lint:recursive": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter @shipyard/shared build && pnpm --filter @shipyard/server db:generate && pnpm --filter @shipyard/monitoring-server exec prisma generate && pnpm -r typecheck",
     "typecheck:build": "tsc -b",
     "test": "pnpm --filter @shipyard/shared build && pnpm --filter @shipyard/shared test && pnpm --filter @shipyard/monitoring-sdk test && pnpm --filter @shipyard/server test && pnpm --filter @shipyard/monitoring-server test && pnpm --filter @shipyard/web test",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
