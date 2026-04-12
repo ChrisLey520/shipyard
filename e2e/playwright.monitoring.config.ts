@@ -23,12 +23,8 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: [
-      'pnpm --filter @shipyard/monitoring-server exec prisma generate',
-      'pnpm --filter @shipyard/monitoring-server exec prisma db push --accept-data-loss',
-      'pnpm --filter @shipyard/monitoring-server db:seed',
-      'pnpm --filter @shipyard/monitoring-server start:e2e',
-    ].join(' && '),
+    /** 在包目录内执行 prisma/tsx，避免从仓库根 exec prisma 时路径不一致 */
+    command: 'pnpm --filter @shipyard/monitoring-server run e2e:webserver',
     cwd: repoRoot,
     url: `${baseURL}/health`,
     timeout: 180_000,

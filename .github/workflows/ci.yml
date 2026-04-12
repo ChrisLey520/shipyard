@@ -104,6 +104,8 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # ts-node-dev 解析 @shipyard/shared 的 package.json main（dist），Vite dev 可走源码别名但 API 进程不能
+      - run: pnpm --filter @shipyard/shared build
       - run: pnpm --filter @shipyard/server db:generate
       - run: pnpm db:migrate:deploy
       - run: pnpm exec playwright install chromium --with-deps
