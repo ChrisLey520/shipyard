@@ -80,9 +80,12 @@ export async function listProjectGithubBranches(orgSlug: string, projectSlug: st
     .then((r) => r.data);
 }
 
+/** 分支下拉为尽力而为；失败时由调用方降级为空列表，故静默避免全局「请求失败」打断弹窗 */
 export async function listProjectBranches(orgSlug: string, projectSlug: string) {
   return http
-    .get<string[]>(`/orgs/${orgSlug}/projects/${projectSlug}/git/branches`)
+    .get<string[]>(`/orgs/${orgSlug}/projects/${projectSlug}/git/branches`, {
+      shipyard: { silent: true },
+    })
     .then((r) => r.data);
 }
 
@@ -108,4 +111,3 @@ export async function deleteEnvVar(orgSlug: string, projectSlug: string, envId: 
     .delete(`/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}/variables/${varId}`)
     .then((r) => r.data);
 }
-

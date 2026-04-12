@@ -17,7 +17,7 @@
 | users | User（资料与偏好） | `modules/users` | PersonalSettings（locale/头像） |
 | orgs | Organization, Membership | `modules/orgs` | Orgs 列表、OrgSettings、Team |
 | projects | Project | `modules/projects` | ProjectList/New/Detail |
-| environments | Environment | `modules/environments` | EnvironmentsPage |
+| environments | Environment | `modules/environments` | ProjectDetail「环境」Tab、`EnvironmentModal`（`pages/projects/components`） |
 | servers | Server | `modules/servers` | ServersPage |
 | git | GitAccount, GitConnection | `modules/git` | GitAccountsPage |
 | approvals | ApprovalRequest | `modules/approvals` | ApprovalsPage |

@@ -10,9 +10,9 @@ import {
   updateEnvironment,
   upsertEnvVar,
   type UpdateEnvironmentPayload,
-} from '@/api/environments';
+} from '@/api/projects/environments';
 
-export type { Env, EnvVar } from '@/api/environments';
+export type { Env, EnvVar } from '@/api/projects/environments';
 
 /** 项目下环境列表、变量、弹窗内创建/编辑所需远端调用 */
 export function useEnvironmentsProjectActions(

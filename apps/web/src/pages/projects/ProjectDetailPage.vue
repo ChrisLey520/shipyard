@@ -84,28 +84,19 @@
       <n-tab-pane name="environments" tab="环境">
         <n-card title="部署环境" size="small" style="margin-top: 8px">
           <template #header-extra>
-            <n-button size="small" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-              环境管理
-            </n-button>
+            <n-button type="primary" size="small" @click="openCreateEnv">添加环境</n-button>
           </template>
           <n-empty
             v-if="!project || project.environments.length === 0"
             description="还没有部署环境"
           >
             <template #extra>
-              <n-button type="primary" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-                去创建环境
-              </n-button>
+              <n-button type="primary" @click="openCreateEnv">添加环境</n-button>
             </template>
           </n-empty>
           <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
             <n-grid-item v-for="env in project.environments" :key="env.id">
-              <n-card
-                :title="env.name"
-                size="small"
-                style="cursor: pointer"
-                @click="goEnvDetail(env.id)"
-              >
+              <n-card :title="env.name" size="small">
                 <div style="display: flex; gap: 8px; flex-wrap: wrap">
                   <n-tag size="small">{{ env.triggerBranch }}</n-tag>
                   <n-tag size="small" :type="env.protected ? 'error' : 'default'">
@@ -118,19 +109,19 @@
                 <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
                   访问地址：
                   <template v-if="envAccessUrls[env.id]">
-                    <n-a :href="envAccessUrls[env.id]!" target="_blank" rel="noopener noreferrer" @click.stop>
+                    <n-a :href="envAccessUrls[env.id]!" target="_blank" rel="noopener noreferrer">
                       {{ envAccessUrls[env.id] }}
                     </n-a>
                   </template>
                   <template v-else> - </template>
                 </n-text>
-                <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end">
-                  <n-button size="small" type="primary" @click.stop="triggerDeploy(env.id)">
+                <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
+                  <n-button size="small" type="primary" @click="triggerDeploy(env.id)">
                     立即部署
                   </n-button>
-                  <n-button size="small" secondary @click.stop="openEditEnv(env.id)">
-                    编辑
-                  </n-button>
+                  <n-button size="small" secondary @click="openEnvVarModal(env)">环境变量</n-button>
+                  <n-button size="small" secondary @click="openEditEnv(env.id)">编辑</n-button>
+                  <n-button size="small" type="error" secondary @click="confirmDeleteEnv(env)">删除</n-button>
                 </div>
               </n-card>
             </n-grid-item>
@@ -186,13 +177,29 @@
     />
 
     <environment-modal
-      v-model:show="showEditEnv"
-      mode="edit"
+      v-model:show="showEnvModal"
+      :mode="envFormMode"
       :org-slug="orgSlug"
       :project-slug="projectSlug"
-      :initial-env="editingEnv"
-      @saved="onEnvSaved"
+      :initial-env="editingEnvForModal"
+      @saved="onEnvModalSaved"
     />
+
+    <n-modal
+      v-model:show="showEnvVarModal"
+      :title="envVarModalTitle"
+      preset="card"
+      style="width: min(100%, 600px)"
+      :mask-closable="false"
+      :close-on-esc="false"
+    >
+      <n-data-table :columns="envVarColumns" :data="envVarsList" size="small" />
+      <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+        <n-input v-model:value="newEnvVar.key" placeholder="KEY" style="width: 180px" />
+        <n-input v-model:value="newEnvVar.value" type="password" placeholder="value" style="flex: 1; min-width: 140px" />
+        <n-button type="primary" @click="addEnvVar">添加</n-button>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -202,6 +209,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
   NTag, NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
+  NModal, NInput,
   type DataTableColumns,
   useDialog,
 } from 'naive-ui';
@@ -213,7 +221,7 @@ import {
 } from './projectEditForm';
 import { deploymentStatusKey, formatDuration } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
-import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
+import EnvironmentModal from './components/EnvironmentModal.vue';
 import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
 import ProjectFeatureFlagsPanel from './components/ProjectFeatureFlagsPanel.vue';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -225,6 +233,8 @@ import {
   type DeploymentListItem,
   type ProjectDetail,
 } from '@/composables/projects/useProjectDetailActions';
+import type { Env, EnvVar } from '@/api/projects/environments';
+import { useEnvironmentsProjectActions } from '@/composables/projects/useEnvironmentsProjectActions';
 import { listServers } from '@/api/servers';
 import { saveProjectSettings } from '@/composables/projects/useProjectSettingsSave';
 
@@ -235,6 +245,7 @@ const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
 const projectApi = useProjectDetailActions(orgSlug, projectSlug);
+const envProjectApi = useEnvironmentsProjectActions(orgSlug, projectSlug);
 const projectDetailQuery = useProjectDetailQuery(orgSlug, projectSlug);
 const deploymentsQuery = useProjectDeploymentsQuery(orgSlug, projectSlug);
 const project = computed<ProjectDetail | null>(() => projectDetailQuery.data.value ?? null);
@@ -392,30 +403,102 @@ async function triggerDeploy(environmentId: string) {
   }
 }
 
-const showEditEnv = ref(false);
+const showEnvModal = ref(false);
+const envFormMode = ref<'create' | 'edit'>('create');
 const editingEnvId = ref<string | null>(null);
-const editingEnv = computed(() => {
+
+const editingEnvForModal = computed((): Env | null => {
   if (!editingEnvId.value) return null;
-  return project.value?.environments.find((e) => e.id === editingEnvId.value) ?? null;
+  const row = project.value?.environments.find((e) => e.id === editingEnvId.value);
+  return row ? (row as unknown as Env) : null;
 });
 
+function openCreateEnv() {
+  envFormMode.value = 'create';
+  editingEnvId.value = null;
+  showEnvModal.value = true;
+}
+
 function openEditEnv(envId: string) {
+  envFormMode.value = 'edit';
   editingEnvId.value = envId;
-  showEditEnv.value = true;
+  showEnvModal.value = true;
 }
 
-function goEnvDetail(envId: string) {
-  void router.push(
-    `/orgs/${orgSlug.value}/projects/${projectSlug.value}/environments?envId=${encodeURIComponent(envId)}`,
-  );
-}
-
-async function onEnvSaved() {
-  showEditEnv.value = false;
+async function onEnvModalSaved() {
+  showEnvModal.value = false;
   editingEnvId.value = null;
   await projectDetailQuery.refetch();
   void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
   void loadEnvAccessUrls();
+}
+
+const showEnvVarModal = ref(false);
+const selectedEnvForVars = ref<ProjectDetail['environments'][number] | null>(null);
+const envVarsList = ref<EnvVar[]>([]);
+const newEnvVar = ref({ key: '', value: '' });
+
+const envVarModalTitle = computed(() =>
+  selectedEnvForVars.value ? `${selectedEnvForVars.value.name} · 环境变量` : '环境变量',
+);
+
+const envVarColumns: DataTableColumns<EnvVar> = [
+  { title: 'KEY', key: 'key' },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 80,
+    render: (r) =>
+      h(
+        NButton,
+        { size: 'tiny', type: 'error', onClick: () => void removeEnvVarRow(r.id) },
+        { default: () => '删除' },
+      ),
+  },
+];
+
+function openEnvVarModal(env: ProjectDetail['environments'][number]) {
+  selectedEnvForVars.value = env;
+  showEnvVarModal.value = true;
+  void loadEnvVarsForModal(env.id);
+}
+
+async function loadEnvVarsForModal(envId: string) {
+  envVarsList.value = await envProjectApi.listEnvVars(envId);
+}
+
+async function addEnvVar() {
+  if (!newEnvVar.value.key.trim() || !newEnvVar.value.value || !selectedEnvForVars.value) return;
+  await envProjectApi.upsertEnvVar(selectedEnvForVars.value.id, {
+    key: newEnvVar.value.key.trim(),
+    value: newEnvVar.value.value,
+  });
+  newEnvVar.value = { key: '', value: '' };
+  await loadEnvVarsForModal(selectedEnvForVars.value.id);
+  message.success('已添加');
+}
+
+async function removeEnvVarRow(varId: string) {
+  const env = selectedEnvForVars.value;
+  if (!env) return;
+  await envProjectApi.deleteEnvVar(env.id, varId);
+  await loadEnvVarsForModal(env.id);
+}
+
+function confirmDeleteEnv(env: ProjectDetail['environments'][number]) {
+  dialog.warning({
+    title: '确认删除环境？',
+    content: `将删除环境「${env.name}」及其变量等关联数据，且无法恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await envProjectApi.deleteEnvironment(env.id);
+      message.success('已删除');
+      await projectDetailQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
+      void loadEnvAccessUrls();
+    },
+  });
 }
 
 async function loadEnvAccessUrls() {

@@ -39,7 +39,6 @@
         { "path": "pages/projects/list", "style": { "navigationBarTitleText": "项目" } },
         { "path": "pages/projects/new", "style": { "navigationBarTitleText": "新建项目" } },
         { "path": "pages/projects/detail", "style": { "navigationBarTitleText": "项目详情" } },
-        { "path": "pages/projects/environments", "style": { "navigationBarTitleText": "环境" } },
         { "path": "pages/projects/deployment-detail", "style": { "navigationBarTitleText": "部署" } },
         { "path": "pages/servers/index", "style": { "navigationBarTitleText": "服务器" } },
         { "path": "pages/team/index", "style": { "navigationBarTitleText": "团队" } },

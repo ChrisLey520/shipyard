@@ -44,7 +44,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'projects/:projectSlug', component: () => import('../pages/projects/ProjectDetailPage.vue') },
       {
         path: 'projects/:projectSlug/environments',
-        component: () => import('../pages/environments/EnvironmentsPage.vue'),
+        redirect: (to) => ({
+          path: `/orgs/${String(to.params['orgSlug'])}/projects/${String(to.params['projectSlug'])}`,
+          query: { tab: 'environments' },
+        }),
       },
       {
         path: 'projects/:projectSlug/deployments/:deploymentId',

@@ -75,11 +75,11 @@
       <!-- 环境 -->
       <view v-show="activeTab === 'env'">
         <view class="flex flex-wrap gap-2 mb-3">
-          <wd-button size="small" type="primary" plain @click="goEnvs">环境管理</wd-button>
+          <wd-button size="small" type="primary" @click="openCreateEnv">添加环境</wd-button>
         </view>
         <view v-if="!project.environments.length" class="text-center text-gray-500 py-6">
           <text class="block mb-3">还没有部署环境</text>
-          <wd-button size="small" type="primary" @click="goEnvs">去创建环境</wd-button>
+          <wd-button size="small" type="primary" @click="openCreateEnv">添加环境</wd-button>
         </view>
         <view v-else>
           <view
@@ -103,7 +103,9 @@
             <text v-if="e.accessUrl" class="text-xs text-primary block mt-1 break-all">访问：{{ e.accessUrl }}</text>
             <view class="flex flex-wrap gap-2 mt-3 justify-end">
               <wd-button size="small" type="primary" @click="doDeploy(e.id)">立即部署</wd-button>
-              <wd-button size="small" plain @click="goEnvs">编辑</wd-button>
+              <wd-button size="small" plain @click="openRuntimeVars(e)">环境变量</wd-button>
+              <wd-button size="small" plain @click="openEditEnv(e)">编辑</wd-button>
+              <wd-button size="small" plain type="error" @click="confirmDeleteEnv(e)">删除</wd-button>
             </view>
           </view>
         </view>
@@ -162,10 +164,56 @@
           <text>{{ v.key }}</text>
           <wd-button size="small" plain type="error" @click="removeBuildEnv(v.id)">删</wd-button>
         </view>
-        <wd-input v-model="newEnv.key" class="mt-3" label="KEY" placeholder="VAR_NAME" />
-        <wd-input v-model="newEnv.value" label="VALUE" show-password />
-        <wd-button block type="primary" class="mt-2" :loading="envSaving" @click="addBuildEnv">添加</wd-button>
+        <wd-input v-model="buildEnvDraft.key" class="mt-3" label="KEY" placeholder="VAR_NAME" />
+        <wd-input v-model="buildEnvDraft.value" label="VALUE" show-password />
+        <wd-button block type="primary" class="mt-2" :loading="buildEnvBusy" @click="addBuildEnv">添加</wd-button>
         <wd-button block plain class="mt-2" @click="showBuildEnv = false">关闭</wd-button>
+      </scroll-view>
+    </wd-popup>
+
+    <wd-popup v-model="showEnvCreate" position="bottom" :safe-area-inset-bottom="true">
+      <scroll-view scroll-y class="max-h-70vh p-4">
+        <text class="font-medium">新建环境</text>
+        <wd-input v-model="createEnvForm.name" class="mt-2" label="名称" />
+        <wd-input v-model="createEnvForm.triggerBranch" label="触发分支" />
+        <wd-input v-model="createEnvForm.deployPath" label="部署路径" />
+        <wd-input v-model="createEnvForm.serverId" label="服务器 ID" placeholder="在「服务器」页复制" />
+        <view class="flex items-center justify-between mt-2 py-2">
+          <text class="text-sm">受保护环境</text>
+          <wd-switch v-model="createEnvForm.protected" />
+        </view>
+        <wd-button block type="primary" class="mt-3" :loading="envFormBusy" @click="submitCreateEnv">创建</wd-button>
+        <wd-button block plain class="mt-2" @click="showEnvCreate = false">取消</wd-button>
+      </scroll-view>
+    </wd-popup>
+
+    <wd-popup v-model="showEnvEdit" position="bottom" :safe-area-inset-bottom="true">
+      <scroll-view scroll-y class="max-h-70vh p-4">
+        <text class="font-medium">编辑环境</text>
+        <wd-input v-model="editEnvForm.name" class="mt-2" label="名称" />
+        <wd-input v-model="editEnvForm.triggerBranch" label="触发分支" />
+        <wd-input v-model="editEnvForm.deployPath" label="部署路径" />
+        <view class="flex items-center justify-between mt-2 py-2">
+          <text class="text-sm">受保护环境</text>
+          <wd-switch v-model="editEnvForm.protected" />
+        </view>
+        <wd-button block type="primary" class="mt-3" :loading="envFormBusy" @click="submitEditEnv">保存</wd-button>
+        <wd-button block plain class="mt-2" type="error" @click="onDeleteEnvFromEditPopup">删除环境</wd-button>
+        <wd-button block plain class="mt-2" @click="showEnvEdit = false">取消</wd-button>
+      </scroll-view>
+    </wd-popup>
+
+    <wd-popup v-model="showRuntimeVars" position="bottom" :safe-area-inset-bottom="true">
+      <scroll-view scroll-y class="max-h-70vh p-4">
+        <text class="font-medium">{{ runtimeVarEnvName }} · 环境变量</text>
+        <view v-for="v in runtimeVars" :key="v.id" class="flex justify-between items-center mt-2 py-2 border-b">
+          <text class="text-sm">{{ v.key }}</text>
+          <wd-button size="small" plain type="error" @click="removeRuntimeVar(v.id)">删</wd-button>
+        </view>
+        <wd-input v-model="runtimeVarDraft.key" class="mt-3" label="KEY" placeholder="VAR_NAME" />
+        <wd-input v-model="runtimeVarDraft.value" label="VALUE" show-password />
+        <wd-button block type="primary" class="mt-2" :loading="runtimeVarBusy" @click="addRuntimeVar">添加</wd-button>
+        <wd-button block plain class="mt-2" @click="showRuntimeVars = false">关闭</wd-button>
       </scroll-view>
     </wd-popup>
   </view>
@@ -177,6 +225,8 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useProjectPageContext } from '@/composables/useProjectPageContext';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail, DeploymentListItem, ProjectBuildEnvVar } from '@/api/projects';
+import * as envApi from '@/api/projects/environments';
+import type { EnvVar } from '@/api/projects/environments';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 import ProjectEditPopup from '@/package-org/components/ProjectEditPopup.vue';
 import ProjectNotificationsTab from '@/package-org/components/ProjectNotificationsTab.vue';
@@ -199,8 +249,34 @@ const showDeploy = ref(false);
 const showEdit = ref(false);
 const showBuildEnv = ref(false);
 const buildEnvVars = ref<ProjectBuildEnvVar[]>([]);
-const newEnv = ref({ key: '', value: '' });
-const envSaving = ref(false);
+const buildEnvDraft = ref({ key: '', value: '' });
+const buildEnvBusy = ref(false);
+
+const showEnvCreate = ref(false);
+const showEnvEdit = ref(false);
+const envFormBusy = ref(false);
+const createEnvForm = ref({
+  name: '',
+  triggerBranch: 'main',
+  deployPath: '/var/www',
+  serverId: '',
+  protected: false,
+});
+const editingEnvId = ref<string | null>(null);
+const editingEnvRow = ref<ProjectDetail['environments'][number] | null>(null);
+const editEnvForm = ref({
+  name: '',
+  triggerBranch: '',
+  deployPath: '',
+  protected: false,
+});
+
+const showRuntimeVars = ref(false);
+const runtimeVarEnvId = ref<string | null>(null);
+const runtimeVarEnvName = ref('');
+const runtimeVars = ref<EnvVar[]>([]);
+const runtimeVarDraft = ref({ key: '', value: '' });
+const runtimeVarBusy = ref(false);
 
 const envActions = computed(() =>
   (project.value?.environments ?? []).map((e) => ({
@@ -258,10 +334,147 @@ function formatTime(iso: string) {
   }
 }
 
-function goEnvs() {
-  uni.navigateTo({
-    url: `/package-org/pages/projects/environments?orgSlug=${encodeURIComponent(orgSlug.value)}&projectSlug=${encodeURIComponent(projectSlug.value)}`,
+function openCreateEnv() {
+  createEnvForm.value = {
+    name: '',
+    triggerBranch: 'main',
+    deployPath: '/var/www',
+    serverId: '',
+    protected: false,
+  };
+  showEnvCreate.value = true;
+}
+
+function openEditEnv(e: ProjectDetail['environments'][number]) {
+  editingEnvId.value = e.id;
+  editingEnvRow.value = e;
+  editEnvForm.value = {
+    name: e.name,
+    triggerBranch: e.triggerBranch,
+    deployPath: e.deployPath,
+    protected: e.protected,
+  };
+  showEnvEdit.value = true;
+}
+
+async function submitCreateEnv() {
+  const f = createEnvForm.value;
+  if (!f.name.trim() || !f.triggerBranch.trim() || !f.deployPath.trim() || !f.serverId.trim()) {
+    uni.showToast({ title: '请填写名称、分支、路径与服务器 ID', icon: 'none' });
+    return;
+  }
+  envFormBusy.value = true;
+  try {
+    await envApi.createEnvironment(orgSlug.value, projectSlug.value, {
+      name: f.name.trim(),
+      triggerBranch: f.triggerBranch.trim(),
+      deployPath: f.deployPath.trim(),
+      serverId: f.serverId.trim(),
+      protected: f.protected,
+    });
+    uni.showToast({ title: '已创建', icon: 'success' });
+    showEnvCreate.value = false;
+    await loadAll();
+  } catch {
+    // 全局 request 已提示
+  } finally {
+    envFormBusy.value = false;
+  }
+}
+
+async function submitEditEnv() {
+  const id = editingEnvId.value;
+  if (!id || !editingEnvRow.value) return;
+  const f = editEnvForm.value;
+  envFormBusy.value = true;
+  try {
+    await envApi.updateEnvironment(orgSlug.value, projectSlug.value, id, {
+      name: f.name.trim(),
+      triggerBranch: f.triggerBranch.trim(),
+      deployPath: f.deployPath.trim(),
+      serverId: editingEnvRow.value.server.id,
+      protected: f.protected,
+    });
+    uni.showToast({ title: '已保存', icon: 'success' });
+    showEnvEdit.value = false;
+    await loadAll();
+  } catch {
+    // 全局 request 已提示
+  } finally {
+    envFormBusy.value = false;
+  }
+}
+
+function onDeleteEnvFromEditPopup() {
+  const e = editingEnvRow.value;
+  if (!e) return;
+  confirmDeleteEnv(e);
+}
+
+function confirmDeleteEnv(e: ProjectDetail['environments'][number]) {
+  uni.showModal({
+    title: '删除环境',
+    content: `确定删除「${e.name}」？不可恢复。`,
+    success: async (res) => {
+      if (!res.confirm) return;
+      try {
+        await envApi.deleteEnvironment(orgSlug.value, projectSlug.value, e.id);
+        uni.showToast({ title: '已删除', icon: 'success' });
+        showEnvEdit.value = false;
+        editingEnvId.value = null;
+        editingEnvRow.value = null;
+        await loadAll();
+      } catch {
+        // 全局 request 已提示
+      }
+    },
   });
+}
+
+async function openRuntimeVars(e: ProjectDetail['environments'][number]) {
+  runtimeVarEnvId.value = e.id;
+  runtimeVarEnvName.value = e.name;
+  runtimeVarDraft.value = { key: '', value: '' };
+  showRuntimeVars.value = true;
+  try {
+    runtimeVars.value = await envApi.listEnvVars(orgSlug.value, projectSlug.value, e.id);
+  } catch {
+    runtimeVars.value = [];
+  }
+}
+
+async function addRuntimeVar() {
+  const envId = runtimeVarEnvId.value;
+  if (!envId || !runtimeVarDraft.value.key.trim() || !runtimeVarDraft.value.value) {
+    uni.showToast({ title: '请填写 KEY 与 VALUE', icon: 'none' });
+    return;
+  }
+  runtimeVarBusy.value = true;
+  try {
+    await envApi.upsertEnvVar(orgSlug.value, projectSlug.value, envId, {
+      key: runtimeVarDraft.value.key.trim(),
+      value: runtimeVarDraft.value.value,
+    });
+    runtimeVarDraft.value = { key: '', value: '' };
+    runtimeVars.value = await envApi.listEnvVars(orgSlug.value, projectSlug.value, envId);
+    uni.showToast({ title: '已添加', icon: 'success' });
+  } catch {
+    // 全局 request 已提示
+  } finally {
+    runtimeVarBusy.value = false;
+  }
+}
+
+async function removeRuntimeVar(varId: string) {
+  const envId = runtimeVarEnvId.value;
+  if (!envId) return;
+  try {
+    await envApi.deleteEnvVar(orgSlug.value, projectSlug.value, envId, varId);
+    runtimeVars.value = await envApi.listEnvVars(orgSlug.value, projectSlug.value, envId);
+    uni.showToast({ title: '已删除', icon: 'success' });
+  } catch {
+    // 全局 request 已提示
+  }
 }
 
 function openDep(id: string) {
@@ -305,23 +518,23 @@ function onProjectSaved(payload: { slugChanged: boolean; newSlug: string }) {
 }
 
 async function addBuildEnv() {
-  if (!newEnv.value.key.trim() || !newEnv.value.value) {
+  if (!buildEnvDraft.value.key.trim() || !buildEnvDraft.value.value) {
     uni.showToast({ title: '请填写 KEY 与 VALUE', icon: 'none' });
     return;
   }
-  envSaving.value = true;
+  buildEnvBusy.value = true;
   try {
     await projectsApi.upsertProjectBuildEnv(orgSlug.value, projectSlug.value, {
-      key: newEnv.value.key.trim(),
-      value: newEnv.value.value,
+      key: buildEnvDraft.value.key.trim(),
+      value: buildEnvDraft.value.value,
     });
-    newEnv.value = { key: '', value: '' };
+    buildEnvDraft.value = { key: '', value: '' };
     buildEnvVars.value = await projectsApi.listProjectBuildEnv(orgSlug.value, projectSlug.value);
     uni.showToast({ title: '已添加', icon: 'success' });
   } catch {
     // 全局 request 已提示
   } finally {
-    envSaving.value = false;
+    buildEnvBusy.value = false;
   }
 }
 

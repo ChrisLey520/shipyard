@@ -1,4 +1,4 @@
-import { request } from './http';
+import { request } from '../http';
 
 export interface Env {
   id: string;
@@ -46,6 +46,37 @@ export async function updateEnvironment(
 export async function deleteEnvironment(orgSlug: string, projectSlug: string, envId: string) {
   return request<unknown>({
     url: `/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}`,
+    method: 'DELETE',
+  });
+}
+
+export interface EnvVar {
+  id: string;
+  key: string;
+}
+
+export async function listEnvVars(orgSlug: string, projectSlug: string, envId: string) {
+  return request<EnvVar[]>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}/variables`,
+  });
+}
+
+export async function upsertEnvVar(
+  orgSlug: string,
+  projectSlug: string,
+  envId: string,
+  body: { key: string; value: string },
+) {
+  return request<unknown>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}/variables`,
+    method: 'POST',
+    data: body,
+  });
+}
+
+export async function deleteEnvVar(orgSlug: string, projectSlug: string, envId: string, varId: string) {
+  return request<unknown>({
+    url: `/orgs/${orgSlug}/projects/${projectSlug}/environments/${envId}/variables/${varId}`,
     method: 'DELETE',
   });
 }

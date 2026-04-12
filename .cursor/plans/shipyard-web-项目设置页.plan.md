@@ -90,7 +90,7 @@
 |------|----------|------|
 | 部署通知渠道、规则等 | 详情 Tab「通知」— [ProjectNotificationsPanel](../../apps/web/src/pages/projects/components/ProjectNotificationsPanel.vue) | 内含 `notificationMessageTemplate`，已通过 `updateProject` 保存；**不设第三处编辑框**，设置页可文案引导至通知 Tab |
 | 项目级特性开关 | 详情 Tab「特性」— [ProjectFeatureFlagsPanel](../../apps/web/src/pages/projects/components/ProjectFeatureFlagsPanel.vue) | 独立 API，非 `updateProject` |
-| 环境 CRUD、release 配置 | [EnvironmentsPage](../../apps/web/src/pages/environments/EnvironmentsPage.vue) | 「环境管理」入口已存在 |
+| 环境 CRUD、release 配置 | [ProjectDetailPage](../../apps/web/src/pages/projects/ProjectDetailPage.vue)「环境」Tab + [EnvironmentModal](../../apps/web/src/pages/projects/components/EnvironmentModal.vue) | 已并入项目详情 |
 | 部署历史 / 触发部署 | 详情 Tab「部署历史」、概览卡片 | 运维流，非「设置」 |
 
 ---

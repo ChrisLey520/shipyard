@@ -1,5 +1,5 @@
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
-import { getEnvironmentAccessUrls } from '@/api/environments';
+import { getEnvironmentAccessUrls } from '@/api/projects/environments';
 import {
   bulkDeleteDeployments,
   clearDeployments,

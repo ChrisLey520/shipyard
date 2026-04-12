@@ -104,7 +104,23 @@
         />
       </n-form-item>
 
-      <n-form-item label="发布配置 (JSON)" :show-feedback="false">
+      <n-form-item :show-feedback="false">
+        <template #label>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%">
+            <span style="line-height: 1">发布配置 (JSON)</span>
+            <n-popover trigger="hover" placement="top" :width="360">
+              <template #trigger>
+                <n-button size="tiny" secondary circle style="width: 18px; height: 18px; padding: 0">
+                  <span style="font-size: 12px; line-height: 1">i</span>
+                </n-button>
+              </template>
+              <div style="font-size: 12px; line-height: 1.6">
+                可选。缺省与留空等价于 <n-text code>ssh</n-text> + <n-text code>direct</n-text>。
+                Kubernetes 须先在组织下登记集群（API）。
+              </div>
+            </n-popover>
+          </div>
+        </template>
         <n-input
           v-model:value="envForm.releaseConfigJson"
           type="textarea"
@@ -112,9 +128,6 @@
           :rows="6"
           :autosize="{ minRows: 4, maxRows: 14 }"
         />
-        <div style="font-size: 12px; color: var(--n-text-color-3); margin-top: 6px; line-height: 1.5">
-          可选。缺省与留空等价于 <n-text code>ssh</n-text> + <n-text code>direct</n-text>。Kubernetes 须先在组织下登记集群（API）。
-        </div>
       </n-form-item>
     </n-form>
 
@@ -148,7 +161,7 @@ import { serverOsLabel } from '@shipyard/shared';
 import {
   useEnvironmentsProjectActions,
   type Env,
-} from '@/composables/environments/useEnvironmentsProjectActions';
+} from '@/composables/projects/useEnvironmentsProjectActions';
 
 const props = defineProps<{
   show: boolean;
@@ -215,7 +228,9 @@ function resetFromInitial() {
       ? [...e.environmentServers].sort((a, b) => a.sortOrder - b.sortOrder)
       : [];
     const primaryId = e.server?.id ?? targets[0]?.serverId ?? null;
-    const extras = targets.map((t) => t.serverId).filter((id) => id !== primaryId);
+    const extras = targets
+      .map((t) => t.serverId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0 && id !== primaryId);
     envForm.value = {
       name: e.name,
       triggerBranch: e.triggerBranch,
@@ -225,8 +240,7 @@ function resetFromInitial() {
       healthCheckUrl: e.healthCheckUrl ?? '',
       protected: e.protected,
       extraServerIds: extras,
-      releaseConfigJson:
-        e.releaseConfig != null ? JSON.stringify(e.releaseConfig, null, 2) : '',
+      releaseConfigJson: releaseConfigToJsonString(e.releaseConfig),
     };
     return;
   }
@@ -243,15 +257,24 @@ function resetFromInitial() {
   };
 }
 
+function releaseConfigToJsonString(rc: unknown): string {
+  if (rc == null) return '';
+  try {
+    return JSON.stringify(rc, null, 2);
+  } catch {
+    return '';
+  }
+}
+
 async function ensureOptionsLoaded() {
   const servers = await envApi.listServersForOrg();
-  serverOptions.value = servers.map((s) => ({
+  serverOptions.value = (servers ?? []).map((s) => ({
     label: `${s.name}（${serverOsLabel(s.os)}）`,
     value: s.id,
   }));
   try {
     const branches = await envApi.listProjectBranches();
-    branchOptions.value = branches.map((b) => ({ label: b, value: b }));
+    branchOptions.value = (branches ?? []).map((b) => ({ label: b, value: b }));
   } catch {
     branchOptions.value = [];
   }
@@ -261,13 +284,15 @@ watch(
   () => [props.show, props.mode, props.initialEnv?.id] as const,
   async ([open]) => {
     if (!open) return;
-    resetFromInitial();
     loadingBranches.value = true;
     try {
+      // 须先拉取服务器/分支选项，再写入表单；否则 NSelect 在 options 为空时绑定已有 value 可能抛错
       await ensureOptionsLoaded();
+      resetFromInitial();
     } catch {
       serverOptions.value = [];
       branchOptions.value = [];
+      resetFromInitial();
     } finally {
       loadingBranches.value = false;
     }

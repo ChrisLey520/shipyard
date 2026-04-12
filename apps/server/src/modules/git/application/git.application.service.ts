@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DEFAULT_GITLAB_BASE_URL, GitProvider } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
@@ -187,32 +187,45 @@ export class GitApplicationService {
     return json.map((b) => b.name).filter((n): n is string => Boolean(n));
   }
 
+  /**
+   * 环境/表单分支下拉：失败时返回 []（可手输分支），避免抛 Error 变成 500 + 打断弹窗。
+   * 仅项目不存在时 404。
+   */
   async listProjectBranches(opts: { orgId: string; projectSlug: string }): Promise<string[]> {
     const project = await this.prisma.project.findFirst({
       where: { organizationId: opts.orgId, slug: opts.projectSlug },
       select: { id: true, repoFullName: true },
     });
-    if (!project) throw new Error('项目不存在');
+    if (!project) throw new NotFoundException('项目不存在');
 
     const gitConn = await this.prisma.gitConnection.findUnique({
       where: { projectId: project.id },
       select: { gitProvider: true, accessToken: true, baseUrl: true },
     });
-    if (!gitConn) throw new Error('未配置 Git 连接');
+    if (!gitConn) {
+      this.logger.debug(`listProjectBranches: no git connection for project ${project.id}`);
+      return [];
+    }
 
-    const pat = this.crypto.decrypt(gitConn.accessToken);
-    switch (gitConn.gitProvider) {
-      case GitProvider.GITHUB:
-        return this.listGithubBranchesByPat(pat, project.repoFullName);
-      case GitProvider.GITLAB:
-        return this.listGitlabBranchesByPat(pat, project.repoFullName, gitConn.baseUrl ?? undefined);
-      case GitProvider.GITEE:
-        return this.listGiteeBranchesByPat(pat, project.repoFullName);
-      case GitProvider.GITEA:
-        if (!gitConn.baseUrl) return [];
-        return this.listGiteaBranchesByPat(pat, project.repoFullName, gitConn.baseUrl);
-      default:
-        return [];
+    try {
+      const pat = this.crypto.decrypt(gitConn.accessToken);
+      switch (gitConn.gitProvider) {
+        case GitProvider.GITHUB:
+          return await this.listGithubBranchesByPat(pat, project.repoFullName);
+        case GitProvider.GITLAB:
+          return await this.listGitlabBranchesByPat(pat, project.repoFullName, gitConn.baseUrl ?? undefined);
+        case GitProvider.GITEE:
+          return await this.listGiteeBranchesByPat(pat, project.repoFullName);
+        case GitProvider.GITEA:
+          if (!gitConn.baseUrl) return [];
+          return await this.listGiteaBranchesByPat(pat, project.repoFullName, gitConn.baseUrl);
+        default:
+          return [];
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`listProjectBranches failed for ${opts.projectSlug}: ${msg}`);
+      return [];
     }
   }
 }
