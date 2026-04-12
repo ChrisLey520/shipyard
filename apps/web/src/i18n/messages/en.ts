@@ -17,6 +17,8 @@ export const en = {
     team: 'Team',
     approvals: 'Approvals',
     orgSettings: 'Organization settings',
+    toggleNav: 'Open or close sidebar navigation',
+    mainNavLabel: 'Main navigation',
   },
   theme: {
     theme: 'Theme',
@@ -96,6 +98,24 @@ export const en = {
     passwordNotMatch: 'The new passwords do not match',
     passwordSameAsOld: 'New password must be different from current password',
     changePasswordFailed: 'Failed to change password',
+  },
+  approvalsPage: {
+    title: 'Approvals',
+    tabPending: 'Pending',
+    tabHistory: 'History',
+    approve: 'Approve',
+    reject: 'Reject',
+    emptyPending: 'No pending approvals',
+    deploymentTitle: 'Deploy {shortId} → {env}',
+    applicantLine: 'Requested by {name} · {branch} · {commit}',
+    colDeployment: 'Deployment',
+    colEnv: 'Environment',
+    colStatus: 'Status',
+    colReviewer: 'Reviewer',
+    statusApproved: 'Approved',
+    statusRejected: 'Rejected',
+    toastApproved: 'Approved',
+    toastRejected: 'Rejected',
   },
   pipeline: {
     status: {

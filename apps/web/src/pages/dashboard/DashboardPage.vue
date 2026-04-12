@@ -1,9 +1,9 @@
 <template>
-  <div>
+  <div class="min-w-0">
     <n-page-header title="Dashboard" />
 
-    <!-- 统计卡片 -->
-    <n-grid :cols="4" :x-gap="16" style="margin: 16px 0">
+    <!-- 统计卡片：四项并排仅在大屏，避免平板过挤 -->
+    <n-grid responsive="screen" cols="1 s:2 xl:4" :x-gap="16" class="my-4">
       <n-grid-item>
         <n-statistic label="本月部署次数" :value="stats.totalDeploys" />
       </n-grid-item>
@@ -18,7 +18,7 @@
       </n-grid-item>
     </n-grid>
 
-    <n-grid :cols="2" :x-gap="16" class="dash-main-grid">
+    <n-grid responsive="screen" cols="1 lg:2" :x-gap="16" class="dash-main-grid">
       <!-- 最近部署 -->
       <n-grid-item class="dash-main-grid-item">
         <n-card title="最近部署" class="dash-card">
@@ -29,6 +29,7 @@
               :loading="loading"
               size="small"
               :pagination="false"
+              :scroll-x="720"
               :row-key="deploymentRowKey"
               :row-props="deploymentRowProps"
             />
@@ -162,9 +163,16 @@ const chartOption = computed(() => ({
 .dash-card-body {
   flex: 1;
   min-height: 260px;
+  min-width: 0;
 }
 
 .dash-chart {
-  height: 260px;
+  height: 200px;
+}
+
+@media (min-width: 640px) {
+  .dash-chart {
+    height: 260px;
+  }
 }
 </style>

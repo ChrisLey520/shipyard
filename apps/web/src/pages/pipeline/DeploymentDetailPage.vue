@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header :title="`部署 #${deploymentId.slice(0, 8)}`" @back="router.back()">
       <template #extra>
         <n-space>
@@ -19,11 +19,12 @@
         </n-space>
       </template>
       <template #subtitle>
-        <n-text depth="3">{{ deployment?.branch }} · {{ deployment?.commitMessage }}</n-text>
+        <n-text depth="3" class="block break-words">{{ deployment?.branch }} · {{ deployment?.commitMessage }}</n-text>
       </template>
     </n-page-header>
 
-    <n-grid :cols="3" :x-gap="16" style="margin: 16px 0">
+    <!-- 部署摘要：手机单列、平板两列、桌面三列 -->
+    <n-grid responsive="screen" cols="1 s:2 m:3" :x-gap="16" class="my-4">
       <n-grid-item>
         <n-statistic label="环境">{{ deployment?.environment?.name ?? 'Preview' }}</n-statistic>
       </n-grid-item>

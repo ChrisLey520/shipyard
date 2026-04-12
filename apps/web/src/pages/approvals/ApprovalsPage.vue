@@ -1,52 +1,68 @@
 <template>
-  <div>
-    <n-page-header title="审批中心" />
+  <div class="min-w-0 page-header-stack-sm">
+    <n-page-header :title="t('approvalsPage.title')" />
 
-    <n-tabs v-model:value="tab" style="margin-top: 16px">
-      <n-tab-pane name="pending" tab="待审批">
-        <n-list v-if="pendingItems.length">
-          <n-list-item v-for="item in pendingItems" :key="item.id">
-            <n-thing :title="`部署 ${item.deploymentId.slice(0, 8)} → ${item.deployment?.environment?.name ?? '?'}`">
-              <template #description>
-                申请人：{{ item.requestedBy?.name }} ·
-                {{ item.deployment?.branch }} ·
-                {{ item.deployment?.commitMessage }}
-              </template>
-              <template #action>
-                <n-space>
-                  <n-button size="small" type="success" @click="review(item.id, 'approved')">
-                    批准
-                  </n-button>
-                  <n-button size="small" type="error" @click="review(item.id, 'rejected')">
-                    拒绝
-                  </n-button>
-                </n-space>
-              </template>
-            </n-thing>
-          </n-list-item>
-        </n-list>
-        <div
-          v-else
-          style="margin-top: 16px; min-height: 45vh; display: flex; align-items: center; justify-content: center"
-        >
-          <n-empty description="暂无待审批" />
-        </div>
-      </n-tab-pane>
+    <n-spin :show="loading">
+      <n-tabs v-model:value="tab" class="mt-4">
+        <n-tab-pane name="pending" :tab="t('approvalsPage.tabPending')">
+          <div v-if="pendingItems.length" class="mt-4 flex flex-col gap-3">
+            <n-card v-for="item in pendingItems" :key="item.id" size="small" class="approval-pending-card">
+              <div class="text-[15px] font-600 leading-snug">
+                {{ deploymentTitle(item) }}
+              </div>
+              <div class="mt-2 text-sm leading-snug break-words text-[var(--n-text-color-3)]">
+                {{ applicantLine(item) }}
+              </div>
+              <div class="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                <n-button
+                  class="w-full sm:w-auto"
+                  size="small"
+                  type="error"
+                  @click="review(item.id, 'rejected')"
+                >
+                  {{ t('approvalsPage.reject') }}
+                </n-button>
+                <n-button
+                  class="w-full sm:w-auto"
+                  size="small"
+                  type="success"
+                  @click="review(item.id, 'approved')"
+                >
+                  {{ t('approvalsPage.approve') }}
+                </n-button>
+              </div>
+            </n-card>
+          </div>
+          <div
+            v-else
+            class="mt-4 flex min-h-[45vh] items-center justify-center"
+          >
+            <n-empty :description="t('approvalsPage.emptyPending')" />
+          </div>
+        </n-tab-pane>
 
-      <n-tab-pane name="history" tab="已处理">
-        <n-data-table :columns="histColumns" :data="histItems" size="small" :pagination="{ pageSize: 20 }" />
-      </n-tab-pane>
-    </n-tabs>
+        <n-tab-pane name="history" :tab="t('approvalsPage.tabHistory')">
+          <n-data-table
+            class="mt-4"
+            :columns="histColumns"
+            :data="histItems"
+            size="small"
+            :scroll-x="880"
+            :pagination="{ pageSize: 20 }"
+          />
+        </n-tab-pane>
+      </n-tabs>
+    </n-spin>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, h, computed, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import NaiveTagCell from '@/components/table/NaiveTagCell.vue';
 import { useRoute } from 'vue-router';
 import {
-  NPageHeader, NTabs, NTabPane, NList, NListItem, NThing,
-  NButton, NSpace, NEmpty, NDataTable, useMessage,
+  NPageHeader, NTabs, NTabPane, NCard, NButton, NEmpty, NDataTable, NSpin, useMessage,
   type DataTableColumns,
 } from 'naive-ui';
 import {
@@ -56,39 +72,72 @@ import {
 
 const route = useRoute();
 const message = useMessage();
+const { t } = useI18n();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const approvalsApi = useOrgApprovalsActions(orgSlug);
 const tab = ref('pending');
 const pendingItems = ref<ApprovalItem[]>([]);
 const histItems = ref<ApprovalItem[]>([]);
+const loading = ref(false);
 
-const histColumns: DataTableColumns<ApprovalItem> = [
-  { title: '部署', key: 'deploymentId', render: (r) => r.deploymentId.slice(0, 8) },
-  { title: '环境', key: 'env', render: (r) => r.deployment?.environment?.name ?? '?' },
+const histColumns = computed<DataTableColumns<ApprovalItem>>(() => [
+  { title: t('approvalsPage.colDeployment'), key: 'deploymentId', render: (r) => r.deploymentId.slice(0, 8) },
+  { title: t('approvalsPage.colEnv'), key: 'env', render: (r) => r.deployment?.environment?.name ?? '?' },
   {
-    title: '状态', key: 'status', width: 100,
+    title: t('approvalsPage.colStatus'),
+    key: 'status',
+    width: 100,
     render: (r) =>
       h(NaiveTagCell, {
         tagType: r.status === 'approved' ? 'success' : 'error',
-        label: r.status,
+        label:
+          r.status === 'approved'
+            ? t('approvalsPage.statusApproved')
+            : t('approvalsPage.statusRejected'),
       }),
   },
-  { title: '审批人', key: 'reviewedBy', render: (r) => r.reviewedBy?.name ?? '—' },
-];
+  { title: t('approvalsPage.colReviewer'), key: 'reviewedBy', render: (r) => r.reviewedBy?.name ?? '—' },
+]);
+
+function deploymentTitle(item: ApprovalItem) {
+  return t('approvalsPage.deploymentTitle', {
+    shortId: item.deploymentId.slice(0, 8),
+    env: item.deployment?.environment?.name ?? '?',
+  });
+}
+
+function applicantLine(item: ApprovalItem) {
+  return t('approvalsPage.applicantLine', {
+    name: item.requestedBy?.name ?? t('common.unknown'),
+    branch: item.deployment?.branch ?? '—',
+    commit: item.deployment?.commitMessage ?? '—',
+  });
+}
 
 async function review(id: string, decision: 'approved' | 'rejected') {
   await approvalsApi.reviewApproval(id, { decision });
-  message.success(decision === 'approved' ? '已批准' : '已拒绝');
+  message.success(decision === 'approved' ? t('approvalsPage.toastApproved') : t('approvalsPage.toastRejected'));
   await load();
 }
 
 async function load() {
-  const all = await approvalsApi.listApprovals();
-  pendingItems.value = all.filter((a) => a.status === 'pending');
-  histItems.value = all.filter((a) => a.status !== 'pending');
+  loading.value = true;
+  try {
+    const all = await approvalsApi.listApprovals();
+    pendingItems.value = all.filter((a) => a.status === 'pending');
+    histItems.value = all.filter((a) => a.status !== 'pending');
+  } finally {
+    loading.value = false;
+  }
 }
 
 watch(orgSlug, () => {
   void load();
 }, { immediate: true });
 </script>
+
+<style scoped>
+.approval-pending-card {
+  min-width: 0;
+}
+</style>

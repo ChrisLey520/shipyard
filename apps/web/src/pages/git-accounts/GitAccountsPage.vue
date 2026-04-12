@@ -1,24 +1,27 @@
 <template>
-  <div>
+  <div class="min-w-0">
     <n-page-header title="Git 账户" />
 
-    <n-card style="margin-top: 16px">
-      <div style="display: flex; justify-content: space-between; align-items: center">
-        <div style="font-weight: 600">已关联账户</div>
-        <n-space>
-          <n-button :loading="loading" @click="load">刷新</n-button>
-          <n-dropdown
-            trigger="click"
-            :options="oauthDropdownOptions"
-            @select="(k: string) => oauthConnect(k)"
-          >
-            <n-button>OAuth 授权</n-button>
-          </n-dropdown>
-          <n-button type="primary" @click="openCreate">关联 Git 账户（PAT）</n-button>
-        </n-space>
+    <!-- 工具栏控件多：窄屏纵向堆叠，避免横向溢出 -->
+    <n-card class="mt-4">
+      <div class="flex flex-col gap-3 min-w-0 md:flex-row md:items-center md:justify-between">
+        <div class="font-600 shrink-0">已关联账户</div>
+        <div class="flex w-full flex-col gap-2 min-w-0 sm:flex-row sm:flex-wrap sm:justify-end">
+          <n-button class="w-full sm:w-auto" :loading="loading" @click="load">刷新</n-button>
+          <div class="w-full sm:w-auto">
+            <n-dropdown
+              trigger="click"
+              :options="oauthDropdownOptions"
+              @select="(k: string) => oauthConnect(k)"
+            >
+              <n-button class="w-full sm:w-auto">OAuth 授权</n-button>
+            </n-dropdown>
+          </div>
+          <n-button class="w-full sm:w-auto" type="primary" @click="openCreate">关联 Git 账户（PAT）</n-button>
+        </div>
       </div>
 
-      <div v-if="!loading && accounts.length === 0" style="margin-top: 16px">
+      <div v-if="!loading && accounts.length === 0" class="mt-4">
         <n-empty description="暂无 Git 账户">
           <template #extra>
             <n-button type="primary" @click="openCreate">关联 Git 账户</n-button>
@@ -26,29 +29,32 @@
         </n-empty>
       </div>
 
-      <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+      <!-- 账户详情宽：大屏两列；中屏仍单列以免信息挤在一起 -->
+      <n-grid v-else responsive="screen" cols="1 l:2" :x-gap="16" :y-gap="16" class="mt-4">
         <n-grid-item v-for="acc in accounts" :key="acc.id">
           <n-card size="small" hoverable>
-            <n-thing :title="acc.name">
-              <template #description>
-                <n-space size="small" style="flex-wrap: wrap">
-                  <n-tag size="small">{{ gitProviderLabel(acc.gitProvider) }}</n-tag>
-                  <n-tag v-if="acc.authType === 'oauth'" size="small" type="success">OAuth</n-tag>
-                  <n-tag v-else size="small" type="default">PAT</n-tag>
-                  <span>账号：{{ acc.gitUsername || '-' }}</span>
-                  <span>地址：{{ displayGitProviderBaseUrl(acc.gitProvider, acc.baseUrl) }}</span>
-                </n-space>
-              </template>
-              <template #action>
-                <n-space>
-                  <n-button size="tiny" @click="openEdit(acc)">编辑</n-button>
-                  <n-button size="tiny" :loading="testingId === acc.id" @click="testRepos(acc)">
-                    连通测试
-                  </n-button>
-                  <n-button size="tiny" type="error" @click="confirmDelete(acc)">移除</n-button>
-                </n-space>
-              </template>
-            </n-thing>
+            <div class="flex flex-col gap-3 min-w-0">
+              <div class="text-base font-600 leading-snug break-words">{{ acc.name }}</div>
+              <div class="flex flex-wrap gap-2 text-sm text-[var(--n-text-color-2)]">
+                <n-tag size="small">{{ gitProviderLabel(acc.gitProvider) }}</n-tag>
+                <n-tag v-if="acc.authType === 'oauth'" size="small" type="success">OAuth</n-tag>
+                <n-tag v-else size="small" type="default">PAT</n-tag>
+                <span class="break-all">账号：{{ acc.gitUsername || '-' }}</span>
+                <span class="w-full break-all sm:w-auto">地址：{{ displayGitProviderBaseUrl(acc.gitProvider, acc.baseUrl) }}</span>
+              </div>
+              <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:flex-wrap sm:justify-end">
+                <n-button class="w-full sm:w-auto" size="tiny" type="error" @click="confirmDelete(acc)">移除</n-button>
+                <n-button
+                  class="w-full sm:w-auto"
+                  size="tiny"
+                  :loading="testingId === acc.id"
+                  @click="testRepos(acc)"
+                >
+                  连通测试
+                </n-button>
+                <n-button class="w-full sm:w-auto" size="tiny" @click="openEdit(acc)">编辑</n-button>
+              </div>
+            </div>
           </n-card>
         </n-grid-item>
       </n-grid>
@@ -103,7 +109,6 @@ import {
   NEmpty,
   NGrid,
   NGridItem,
-  NThing,
   NTag,
   NModal,
   NForm,

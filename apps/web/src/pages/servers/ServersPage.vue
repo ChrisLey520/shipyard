@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header title="服务器管理">
       <template #extra>
         <n-button type="primary" @click="openAdd">+ 添加服务器</n-button>
@@ -10,6 +10,7 @@
       :columns="columns"
       :data="servers"
       :loading="loading"
+      :scroll-x="960"
       style="margin-top: 16px"
     />
 

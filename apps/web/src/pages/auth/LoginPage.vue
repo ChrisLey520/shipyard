@@ -110,13 +110,14 @@ onMounted(syncEmailFromQueryAndFocusPassword);
 watch(() => route.query['email'], syncEmailFromQueryAndFocusPassword);
 
 async function handleSubmit() {
-  if (!form.value.email || !form.value.password) {
+  const email = form.value.email.trim();
+  if (!email || !form.value.password) {
     message.warning('请填写邮箱和密码');
     return;
   }
   loading.value = true;
   try {
-    await loginWithEmailPassword(form.value.email, form.value.password);
+    await loginWithEmailPassword(email, form.value.password);
     const redirect = (route.query['redirect'] as string) ?? '/orgs';
     void router.push(redirect);
   } finally {

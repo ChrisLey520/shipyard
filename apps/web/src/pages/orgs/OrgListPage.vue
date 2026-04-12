@@ -1,16 +1,17 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header :title="t('org.orgsTitle')">
       <template #extra>
         <n-button type="primary" @click="showCreate = true">{{ t('org.createOrgAction') }}</n-button>
       </template>
     </n-page-header>
 
-    <n-grid :cols="3" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+    <!-- 组织卡片以名称为准：中屏起两列、大屏三列 -->
+    <n-grid responsive="screen" cols="1 m:2 xl:3" :x-gap="16" :y-gap="16" class="mt-4">
       <n-grid-item v-for="org in orgStore.orgs" :key="org.id">
         <n-card hoverable @click="router.push(`/orgs/${org.slug}`)">
-          <div style="font-size: 18px; font-weight: 600">{{ org.name }}</div>
-          <n-text depth="3" style="font-size: 13px">{{ org.slug }}</n-text>
+          <div class="text-lg font-600 leading-snug break-words">{{ org.name }}</div>
+          <n-text depth="3" class="mt-0.5 block text-[13px] break-all">{{ org.slug }}</n-text>
         </n-card>
       </n-grid-item>
     </n-grid>
@@ -19,7 +20,7 @@
       v-model:show="showCreate"
       :title="t('org.createOrgTitle')"
       preset="card"
-      style="width: 440px"
+      style="width: min(440px, calc(100vw - 32px))"
       :mask-closable="false"
       :close-on-esc="false"
     >

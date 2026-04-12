@@ -17,6 +17,9 @@ export const zhCN = {
     team: '团队',
     approvals: '审批中心',
     orgSettings: '组织设置',
+    /** 侧栏抽屉：无障碍与移动端 */
+    toggleNav: '打开或收起侧边导航',
+    mainNavLabel: '主导航',
   },
   theme: {
     theme: '主题',
@@ -94,6 +97,24 @@ export const zhCN = {
     passwordNotMatch: '两次输入的新密码不一致',
     passwordSameAsOld: '新密码不能与原密码相同',
     changePasswordFailed: '修改密码失败',
+  },
+  approvalsPage: {
+    title: '审批中心',
+    tabPending: '待审批',
+    tabHistory: '已处理',
+    approve: '批准',
+    reject: '拒绝',
+    emptyPending: '暂无待审批',
+    deploymentTitle: '部署 {shortId} → {env}',
+    applicantLine: '申请人：{name} · {branch} · {commit}',
+    colDeployment: '部署',
+    colEnv: '环境',
+    colStatus: '状态',
+    colReviewer: '审批人',
+    statusApproved: '已批准',
+    statusRejected: '已拒绝',
+    toastApproved: '已批准',
+    toastRejected: '已拒绝',
   },
   pipeline: {
     status: {

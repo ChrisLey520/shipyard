@@ -8,3 +8,4 @@ export * from './i18n-locale';
 export * from './slug-rules';
 export * from './git-provider';
 export * from './notification-template';
+export * from './user-theme';

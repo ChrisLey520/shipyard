@@ -1,0 +1,48 @@
+/**
+ * 页面级响应式：与 Uno 的 sm(640px) 对齐。
+ * 在页面根节点加 class="page-header-stack-sm" 且内含 n-page-header 时生效。
+ */
+@media (max-width: 639px) {
+  .page-header-stack-sm .n-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .page-header-stack-sm .n-page-header__main {
+    min-width: 0;
+  }
+
+  .page-header-stack-sm .n-page-header__title {
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  .page-header-stack-sm .n-page-header__subtitle {
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  .page-header-stack-sm .n-page-header__extra {
+    margin-left: 0 !important;
+    width: 100%;
+  }
+
+  .page-header-stack-sm .n-page-header__extra > .n-button {
+    width: 100%;
+  }
+
+  .page-header-stack-sm .n-page-header__extra > .n-space {
+    width: 100%;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .page-header-stack-sm .n-page-header__extra > .n-space > * {
+    width: 100% !important;
+  }
+
+  .page-header-stack-sm .n-page-header__extra > .n-space .n-button {
+    width: 100%;
+  }
+}

@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header title="团队成员">
       <template #extra>
         <n-button type="primary" @click="showInvite = true">+ 邀请成员</n-button>
@@ -10,6 +10,7 @@
       :columns="columns"
       :data="members"
       :loading="loading"
+      :scroll-x="920"
       style="margin-top: 16px"
     />
 
@@ -17,7 +18,7 @@
       v-model:show="showInvite"
       title="邀请成员"
       preset="card"
-      style="width: 440px"
+      style="width: min(440px, calc(100vw - 32px))"
       :mask-closable="false"
       :close-on-esc="false"
     >

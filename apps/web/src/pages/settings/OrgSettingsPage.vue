@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full max-w-[min(100%,1200px)] mx-auto">
+  <div class="mx-auto w-full max-w-[min(100%,1200px)] min-w-0 page-header-stack-sm">
     <n-page-header title="组织设置" />
 
     <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -10,9 +10,9 @@
         <n-space vertical>
           <n-list v-if="k8sClusters.length > 0" bordered>
             <n-list-item v-for="c in k8sClusters" :key="c.id">
-              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
-                <span>{{ c.name }}</span>
-                <n-button size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
+              <div class="flex w-full flex-col gap-2 min-w-0 sm:flex-row sm:items-center sm:justify-between">
+                <span class="min-w-0 break-words">{{ c.name }}</span>
+                <n-button class="w-full shrink-0 sm:w-auto" size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
               </div>
             </n-list-item>
           </n-list>
@@ -49,7 +49,7 @@
       v-model:show="showK8s"
       title="登记 Kubernetes 集群"
       preset="card"
-      style="width: 520px"
+      style="width: min(520px, calc(100vw - 32px))"
       :mask-closable="false"
     >
       <n-form label-placement="top">

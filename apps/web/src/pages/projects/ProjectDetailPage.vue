@@ -1,18 +1,15 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header :title="project?.name ?? '...'" @back="router.push(`/orgs/${orgSlug}/projects`)">
       <template #subtitle>
-        <n-text depth="3">{{ project?.repoFullName }}</n-text>
+        <n-text depth="3" class="block break-all">{{ project?.repoFullName }}</n-text>
       </template>
     </n-page-header>
 
-    <n-tabs
-      :value="activeProjectTab"
-      style="margin-top: 16px"
-      @update:value="onProjectTabChange"
-    >
+    <div class="mt-4 min-w-0 overflow-x-auto">
+      <n-tabs :value="activeProjectTab" @update:value="onProjectTabChange">
       <n-tab-pane name="overview" tab="概览">
-        <n-grid :cols="2" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
+        <n-grid responsive="screen" cols="1 m:2" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
           <n-grid-item class="overview-top-grid-item">
             <n-card title="项目信息" size="small" class="overview-top-card">
               <n-descriptions label-placement="left" :column="1" size="small">
@@ -63,10 +60,10 @@
         </n-grid>
 
         <n-card title="构建环境变量（项目级）" size="small" style="margin-top: 16px">
-          <n-space justify="space-between" align="center">
-            <n-text depth="3">用于构建阶段（install/build）。环境级变量会覆盖同名项目变量。</n-text>
-            <n-button size="small" @click="goProjectSettings">前往项目设置</n-button>
-          </n-space>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <n-text depth="3" class="min-w-0">用于构建阶段（install/build）。环境级变量会覆盖同名项目变量。</n-text>
+            <n-button class="w-full shrink-0 sm:w-auto" size="small" @click="goProjectSettings">前往项目设置</n-button>
+          </div>
           <div style="margin-top: 8px">
             <n-tag size="small">{{ buildEnvVars.length }} keys</n-tag>
           </div>
@@ -86,7 +83,7 @@
               <n-button type="primary" @click="openCreateEnv">添加环境</n-button>
             </template>
           </n-empty>
-          <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
+          <n-grid v-else responsive="screen" cols="1 lg:2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
             <n-grid-item v-for="env in project.environments" :key="env.id">
               <n-card :title="env.name" size="small">
                 <div style="display: flex; gap: 8px; flex-wrap: wrap">
@@ -107,13 +104,13 @@
                   </template>
                   <template v-else> - </template>
                 </n-text>
-                <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
-                  <n-button size="small" type="primary" @click="triggerDeploy(env.id)">
+                <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                  <n-button class="w-full sm:w-auto" size="small" type="primary" @click="triggerDeploy(env.id)">
                     立即部署
                   </n-button>
-                  <n-button size="small" secondary @click="openEnvVarModal(env)">环境变量</n-button>
-                  <n-button size="small" secondary @click="openEditEnv(env.id)">编辑</n-button>
-                  <n-button size="small" type="error" secondary @click="confirmDeleteEnv(env)">删除</n-button>
+                  <n-button class="w-full sm:w-auto" size="small" secondary @click="openEnvVarModal(env)">环境变量</n-button>
+                  <n-button class="w-full sm:w-auto" size="small" secondary @click="openEditEnv(env.id)">编辑</n-button>
+                  <n-button class="w-full sm:w-auto" size="small" type="error" secondary @click="confirmDeleteEnv(env)">删除</n-button>
                 </div>
               </n-card>
             </n-grid-item>
@@ -134,9 +131,10 @@
       </n-tab-pane>
 
       <n-tab-pane name="deployments" tab="部署历史">
-        <n-space justify="space-between" align="center" style="margin-top: 8px">
-          <n-space>
+        <div class="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
             <n-button
+              class="w-full sm:w-auto"
               size="small"
               type="error"
               :disabled="checkedDeploymentIds.length === 0"
@@ -144,28 +142,30 @@
             >
               批量删除（{{ checkedDeploymentIds.length }}）
             </n-button>
-            <n-button size="small" secondary @click="clearSelection">清空选择</n-button>
-          </n-space>
-          <n-button size="small" type="error" secondary @click="confirmClearDeployments">
+            <n-button class="w-full sm:w-auto" size="small" secondary @click="clearSelection">清空选择</n-button>
+          </div>
+          <n-button class="w-full shrink-0 sm:w-auto" size="small" type="error" secondary @click="confirmClearDeployments">
             清空部署历史
           </n-button>
-        </n-space>
+        </div>
         <n-data-table
           :columns="deployColumns"
           :data="deployments"
           :loading="deploymentsLoading"
           :pagination="{ pageSize: 20 }"
+          :scroll-x="1180"
           :row-key="(row) => row.id"
           v-model:checked-row-keys="checkedDeploymentIds"
           size="small"
-          style="margin-top: 8px"
+          class="mt-2 min-w-0"
         />
       </n-tab-pane>
 
       <n-tab-pane name="settings" tab="设置">
         <project-settings-panel />
       </n-tab-pane>
-    </n-tabs>
+      </n-tabs>
+    </div>
 
     <environment-modal
       v-model:show="showEnvModal"
@@ -184,7 +184,7 @@
       :mask-closable="false"
       :close-on-esc="false"
     >
-      <n-data-table :columns="envVarColumns" :data="envVarsList" size="small" />
+      <n-data-table :columns="envVarColumns" :data="envVarsList" size="small" :scroll-x="560" class="min-w-0" />
       <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
         <n-input v-model:value="newEnvVar.key" placeholder="KEY" style="width: 180px" />
         <n-input v-model:value="newEnvVar.value" type="password" placeholder="value" style="flex: 1; min-width: 140px" />
@@ -202,7 +202,7 @@ import TableDeleteButtonCell from '@/components/table/TableDeleteButtonCell.vue'
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
-  NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
+  NButton, NText, NDataTable, useMessage, NEmpty, NDescriptions, NDescriptionsItem, NA,
   NModal, NInput,
   type DataTableColumns,
 } from 'naive-ui';

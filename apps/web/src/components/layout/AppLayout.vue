@@ -1,11 +1,19 @@
 <template>
   <n-layout class="h-screen" has-sider>
     <n-layout-sider
+      id="shipyard-app-sider"
+      role="navigation"
+      :aria-label="t('nav.mainNavLabel')"
       bordered
       collapse-mode="width"
-      :collapsed-width="64"
-      :width="220"
+      :collapsed-width="isCompactLayout ? 0 : 64"
+      :width="siderWidth"
       :collapsed="collapsed"
+      :position="isCompactLayout ? 'absolute' : 'static'"
+      :show-collapsed-content="!isCompactLayout"
+      :content-style="siderContentStyle"
+      class="app-layout-sider"
+      :class="{ 'app-layout-sider--overlay': isCompactLayout }"
       @collapse="collapsed = true"
       @expand="collapsed = false"
     >
@@ -43,8 +51,9 @@
         </template>
       </n-select>
 
+      <!-- 移动端抽屉内始终展开文案菜单；桌面端才使用折叠为图标栏 -->
       <n-menu
-        :collapsed="collapsed"
+        :collapsed="menuCollapsedRail"
         :collapsed-width="64"
         :collapsed-icon-size="22"
         :options="menuOptions"
@@ -53,25 +62,38 @@
       />
     </n-layout-sider>
 
-    <n-layout>
+    <n-layout class="app-layout-main">
+      <div
+        v-if="isCompactLayout && !collapsed"
+        class="app-layout-backdrop"
+        aria-hidden="true"
+        @click="collapsed = true"
+      />
       <!-- 顶栏 -->
-      <n-layout-header bordered class="h-14 flex items-center px-5 gap-3">
-        <n-button quaternary circle @click="collapsed = !collapsed">
+      <n-layout-header bordered class="app-layout-header h-14 flex items-center gap-2 sm:gap-3 px-3 sm:px-5">
+        <n-button
+          quaternary
+          circle
+          :aria-label="t('nav.toggleNav')"
+          :aria-expanded="!collapsed"
+          aria-controls="shipyard-app-sider"
+          @click="collapsed = !collapsed"
+        >
           <template #icon>
             <n-icon :component="MenuOutline" />
           </template>
         </n-button>
         <div class="flex-1" />
         <n-dropdown :options="themeMenuOptions" @select="handleThemeMenu">
-          <n-button quaternary>
-            {{ currentThemeLabel }}
-            <span class="ml-2 muted">
+          <n-button quaternary class="max-sm:px-2 shrink-0">
+            <span class="truncate max-sm:max-w-[5.5rem] sm:max-w-none">{{ currentThemeLabel }}</span>
+            <span class="ml-2 muted max-md:hidden shrink-0">
               {{ themeModeLabel }}
             </span>
           </n-button>
         </n-dropdown>
         <n-dropdown :options="userMenuOptions" @select="handleUserMenu">
-          <n-button quaternary>
+          <n-button quaternary class="max-sm:px-2">
             <n-avatar
               v-if="userAvatarResolvedUrl && !userAvatarFailed"
               :key="userAvatarResolvedUrl"
@@ -86,19 +108,22 @@
             <n-avatar v-else round size="small" style="margin-right: 8px">
               {{ (auth.user?.name ?? auth.user?.email ?? 'U').slice(0, 1).toUpperCase() }}
             </n-avatar>
-            {{ auth.user?.name }}
+            <span class="max-sm:hidden">{{ auth.user?.name }}</span>
           </n-button>
         </n-dropdown>
       </n-layout-header>
 
-      <n-layout-content style="overflow-y: auto; height: calc(100vh - 56px)">
+      <n-layout-content
+        class="app-layout-content min-w-0"
+        style="overflow-y: auto; height: calc(100vh - 56px)"
+      >
         <div class="app-shell">
           <div class="app-bg">
             <div class="app-bg-grid" />
             <div class="app-bg-blur-1" />
             <div class="app-bg-blur-2" />
           </div>
-          <div style="position: relative; padding: 24px">
+          <div class="app-layout-body">
             <div
               v-if="orgSlugParam && (orgGateLoading || orgGateError)"
               class="org-gate-center"
@@ -161,7 +186,7 @@
     v-model:show="showCreateOrg"
     :title="t('org.createOrgTitle')"
     preset="card"
-    style="width: 440px"
+    style="width: min(440px, calc(100vw - 32px))"
     :mask-closable="false"
     :close-on-esc="false"
   >
@@ -185,7 +210,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, watch, type Component } from 'vue';
+import { ref, computed, h, onMounted, onBeforeUnmount, watch, type Component, type CSSProperties } from 'vue';
+import { useMediaQuery, useEventListener } from '@vueuse/core';
 import NIconRenderer from './NIconRenderer.vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -226,7 +252,56 @@ const themeStore = useThemeStore();
 const { t } = useI18n();
 
 const collapsed = ref(false);
+/** 窄屏：侧栏改为叠层抽屉，主区域全宽 */
+const isCompactLayout = useMediaQuery('(max-width: 900px)');
 const currentOrgSlug = ref(orgStore.currentOrgSlug ?? '');
+
+/** 移动端抽屉宽度略大于桌面侧栏，便于拇指操作且不顶满屏 */
+const siderWidth = computed(() => (isCompactLayout.value ? 'min(300px, calc(100vw - 12px))' : 220));
+
+const siderContentStyle = computed<CSSProperties | undefined>(() =>
+  isCompactLayout.value
+    ? {
+        minHeight: '100dvh',
+        paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))',
+        boxSizing: 'border-box',
+      }
+    : undefined,
+);
+
+/** 桌面：与侧栏折叠同步为图标栏；移动：抽屉内始终展开文字菜单 */
+const menuCollapsedRail = computed(() => (isCompactLayout.value ? false : collapsed.value));
+
+watch(isCompactLayout, (narrow) => {
+  if (narrow) collapsed.value = true;
+});
+
+/** 移动端抽屉打开时锁定背景滚动，避免误滑主内容 */
+watch(
+  () => ({ compact: isCompactLayout.value, drawerOpen: !collapsed.value }),
+  ({ compact, drawerOpen }) => {
+    if (typeof document === 'undefined') return;
+    document.body.style.overflow = compact && drawerOpen ? 'hidden' : '';
+  },
+  { flush: 'sync' },
+);
+
+onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') document.body.style.overflow = '';
+});
+
+useEventListener(document, 'keydown', (e: KeyboardEvent) => {
+  if (e.key !== 'Escape') return;
+  if (!isCompactLayout.value || collapsed.value) return;
+  collapsed.value = true;
+});
+
+watch(
+  () => route.fullPath,
+  () => {
+    if (isCompactLayout.value) collapsed.value = true;
+  },
+);
 
 const orgSlugParam = computed(() => route.params['orgSlug'] as string | undefined);
 const orgGateLoading = ref(false);
@@ -398,10 +473,12 @@ const themeMenuOptions = computed<DropdownOption[]>(() => {
 });
 
 function handleMenuSelect(key: string) {
+  if (isCompactLayout.value) collapsed.value = true;
   void router.push(key);
 }
 
 function switchOrg(slug: string) {
+  if (isCompactLayout.value) collapsed.value = true;
   void router.push(`/orgs/${slug}`);
 }
 
@@ -487,5 +564,54 @@ onMounted(async () => {
 
 .org-gate-center :deep(.n-result) {
   max-width: 560px;
+}
+
+.app-layout-main {
+  position: relative;
+  min-width: 0;
+}
+
+.app-layout-header {
+  position: relative;
+  z-index: 1002;
+  min-width: 0;
+}
+
+.app-layout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.app-layout-sider--overlay {
+  z-index: 1001;
+  max-height: 100dvh;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* 移动端抽屉：菜单项最小点击高度（约 44px） */
+.app-layout-sider--overlay :deep(.n-menu-item-content) {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.app-layout-body {
+  position: relative;
+  padding: 12px 12px 20px;
+  box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+  .app-layout-body {
+    padding: 20px 20px 24px;
+  }
+}
+
+@media (min-width: 900px) {
+  .app-layout-body {
+    padding: 24px;
+  }
 }
 </style>

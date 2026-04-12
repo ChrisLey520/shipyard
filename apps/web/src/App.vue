@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import {
   NConfigProvider,
   NGlobalStyle,
@@ -39,9 +39,23 @@ import {
 import { useI18n } from 'vue-i18n';
 import DestructiveNameConfirmHost from './components/DestructiveNameConfirmHost.vue';
 import { useThemeStore } from './stores/theme';
+import { useAuthStore } from './stores/auth';
 import type { SupportedLocale } from './i18n';
 
 const themeStore = useThemeStore();
+const auth = useAuthStore();
+
+watch(
+  () => auth.user,
+  (u) => {
+    if (!u) return;
+    themeStore.applyFromUserProfile({
+      themeId: u.themeId ?? null,
+      colorMode: u.colorMode ?? null,
+    });
+  },
+  { immediate: true },
+);
 
 const { locale } = useI18n();
 

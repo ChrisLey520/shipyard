@@ -89,7 +89,9 @@ const loading = ref(false);
 const form = ref({ name: '', email: '', password: '' });
 
 async function handleSubmit() {
-  if (!form.value.name || !form.value.email || !form.value.password) {
+  const name = form.value.name.trim();
+  const email = form.value.email.trim();
+  if (!name || !email || !form.value.password) {
     message.warning('请填写所有字段');
     return;
   }
@@ -99,7 +101,7 @@ async function handleSubmit() {
   }
   loading.value = true;
   try {
-    await registerAccount(form.value.name, form.value.email, form.value.password);
+    await registerAccount(name, email, form.value.password);
     void router.push('/orgs');
   } finally {
     loading.value = false;

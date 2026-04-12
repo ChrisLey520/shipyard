@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header title="项目列表">
       <template #extra>
         <n-button type="primary" @click="router.push(`/orgs/${orgSlug}/projects/new`)">
@@ -9,26 +9,27 @@
     </n-page-header>
 
     <n-spin :show="loading">
-      <n-grid :cols="3" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+      <!-- 项目卡片信息多：平板 2 列、大屏 3 列，手机单列 -->
+      <n-grid responsive="screen" cols="1 m:2 xl:3" :x-gap="16" :y-gap="16" class="mt-4">
         <n-grid-item v-for="p in projects" :key="p.id">
           <n-card hoverable @click="router.push(`/orgs/${orgSlug}/projects/${p.slug}`)">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start">
-              <div>
-                <div style="font-size: 16px; font-weight: 600">{{ p.name }}</div>
-                <n-text depth="3" style="font-size: 12px">{{ p.repoFullName }}</n-text>
+            <div class="flex flex-col gap-2 min-w-0 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+              <div class="min-w-0">
+                <div class="text-base font-600 leading-snug break-words">{{ p.name }}</div>
+                <n-text depth="3" class="text-xs mt-0.5 block break-all">{{ p.repoFullName }}</n-text>
               </div>
-              <n-tag size="small" :type="p.frameworkType === 'ssr' ? 'info' : 'default'">
+              <n-tag size="small" class="shrink-0 self-start sm:self-auto" :type="p.frameworkType === 'ssr' ? 'info' : 'default'">
                 {{ p.frameworkType }}
               </n-tag>
             </div>
-            <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px">
-              <div style="font-size: 12px; color: var(--n-text-color-3)">
+            <div class="mt-3 flex flex-col gap-3 min-w-0 sm:flex-row sm:items-end sm:justify-between">
+              <div class="text-xs text-[var(--n-text-color-3)]">
                 {{ p.environments.length }} 个环境 · {{ p._count.deployments }} 次部署
               </div>
-              <n-space size="small">
-                <n-button size="tiny" @click.stop="openEdit(p)">编辑</n-button>
-                <n-button size="tiny" type="error" @click.stop="confirmDelete(p)">移除</n-button>
-              </n-space>
+              <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+                <n-button class="w-full sm:w-auto" size="tiny" @click.stop="openEdit(p)">编辑</n-button>
+                <n-button class="w-full sm:w-auto" size="tiny" type="error" @click.stop="confirmDelete(p)">移除</n-button>
+              </div>
             </div>
           </n-card>
         </n-grid-item>
@@ -61,7 +62,6 @@ import {
   NSpin,
   NEmpty,
   NButton,
-  NSpace,
   useMessage,
 } from 'naive-ui';
 import {

@@ -1,5 +1,5 @@
 <template>
-  <div style="max-width: 640px">
+  <div class="mx-auto w-full max-w-[640px] min-w-0 px-0 page-header-stack-sm">
     <n-page-header title="新建项目" @back="router.back()" />
 
     <n-card style="margin-top: 16px">
@@ -23,12 +23,12 @@
         </div>
 
         <div v-else-if="!form.gitAccountId">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
-            <div style="font-weight: 600">选择一个已关联的 Git 账户</div>
-            <n-space>
-              <n-button size="small" :loading="loadingAccounts" @click="loadAccounts">刷新</n-button>
-              <n-button size="small" type="primary" @click="showAddAccount = true">关联 Git 账户</n-button>
-            </n-space>
+          <div class="mb-3 flex flex-col gap-3 min-w-0 sm:flex-row sm:items-center sm:justify-between">
+            <div class="font-600 shrink-0">选择一个已关联的 Git 账户</div>
+            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <n-button class="w-full sm:w-auto" size="small" :loading="loadingAccounts" @click="loadAccounts">刷新</n-button>
+              <n-button class="w-full sm:w-auto" size="small" type="primary" @click="showAddAccount = true">关联 Git 账户</n-button>
+            </div>
           </div>
 
           <n-space vertical size="small">

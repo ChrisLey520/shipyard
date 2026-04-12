@@ -41,20 +41,21 @@ export function createAppCssVars(themeId: ThemeId, isDark: boolean): AppVars {
     return {
       '--app-accent-1': rgbTriplet('#22c55e'),
       '--app-accent-2': rgbTriplet('#38bdf8'),
-      '--app-grid-line': 'rgba(255,255,255,0.06)',
+      // 深色网格线随主题色相微调，与 Naive body 色温一致
+      '--app-grid-line': 'rgba(74, 222, 128, 0.07)',
     };
   }
   if (themeId === 'ocean') {
     return {
       '--app-accent-1': rgbTriplet('#38bdf8'),
       '--app-accent-2': rgbTriplet('#a78bfa'),
-      '--app-grid-line': 'rgba(255,255,255,0.06)',
+      '--app-grid-line': 'rgba(56, 189, 248, 0.08)',
     };
   }
   return {
     '--app-accent-1': rgbTriplet('#a78bfa'),
     '--app-accent-2': rgbTriplet('#38bdf8'),
-    '--app-grid-line': 'rgba(255,255,255,0.06)',
+    '--app-grid-line': 'rgba(167, 139, 250, 0.08)',
   };
 }
 
