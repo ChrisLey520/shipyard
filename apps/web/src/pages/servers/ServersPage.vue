@@ -17,11 +17,11 @@
       v-model:show="showAdd"
       :title="editingServerId ? '编辑服务器' : '添加服务器'"
       preset="card"
-      style="width: 520px"
+      style="width: min(100%, 580px)"
       :mask-closable="false"
       :close-on-esc="false"
     >
-      <n-form :model="form" label-placement="left" label-width="100">
+      <n-form :model="form" label-placement="left" :label-width="140">
         <n-form-item label="名称"><n-input v-model:value="form.name" /></n-form-item>
         <n-form-item label="操作系统">
           <n-select v-model:value="form.os" :options="osOptions" placeholder="请选择操作系统" />

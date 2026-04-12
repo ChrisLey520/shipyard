@@ -140,11 +140,11 @@
         v-model:show="showAddAccount"
         title="添加 Git 账户（PAT）"
         preset="card"
-        style="width: 560px"
+        style="width: min(100%, 620px)"
         :mask-closable="false"
         :close-on-esc="false"
       >
-        <n-form :model="accountForm" label-placement="left" label-width="110">
+        <n-form :model="accountForm" label-placement="left" :label-width="160">
           <n-form-item label="账户名称">
             <n-input v-model:value="accountForm.name" placeholder="例如：my-github" />
           </n-form-item>

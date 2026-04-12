@@ -1,25 +1,49 @@
 <template>
-  <div style="max-width: 640px">
+  <div class="w-full max-w-[min(100%,1200px)] mx-auto">
     <n-page-header title="组织设置" />
 
-    <n-card title="Kubernetes 集群（环境 releaseConfig 引用）" style="margin-top: 16px">
-      <n-space vertical>
-        <n-button size="small" type="primary" @click="openK8sModal">登记集群</n-button>
-        <n-list bordered>
-          <n-list-item v-for="c in k8sClusters" :key="c.id">
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
-              <span>{{ c.name }}</span>
-              <n-button size="tiny" type="error" @click="removeK8s(c.id)">删除</n-button>
-            </div>
-          </n-list-item>
-        </n-list>
-        <n-empty v-if="k8sClusters.length === 0" description="暂无集群" />
-      </n-space>
-    </n-card>
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <n-card title="Kubernetes 集群（环境 releaseConfig 引用）">
+        <template #header-extra>
+          <n-button size="small" type="primary" @click="openK8sModal">登记集群</n-button>
+        </template>
+        <n-space vertical>
+          <n-list v-if="k8sClusters.length > 0" bordered>
+            <n-list-item v-for="c in k8sClusters" :key="c.id">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
+                <span>{{ c.name }}</span>
+                <n-button size="tiny" type="error" @click="removeK8s(c.id)">删除</n-button>
+              </div>
+            </n-list-item>
+          </n-list>
+          <n-empty v-else description="暂无集群" />
+        </n-space>
+      </n-card>
 
-    <n-card title="组织级特性开关" style="margin-top: 16px">
-      <org-feature-flags-section :org-slug="orgSlug" />
-    </n-card>
+      <n-card title="基本信息">
+        <n-form :model="form" label-placement="left" label-width="120">
+          <n-form-item label="组织名称">
+            <n-input v-model:value="form.name" />
+          </n-form-item>
+          <n-form-item label="URL 标识">
+            <n-input v-model:value="form.slug" placeholder="只能包含小写字母、数字和连字符" />
+          </n-form-item>
+          <n-form-item label="并行构建数">
+            <n-input-number v-model:value="form.buildConcurrency" :min="1" :max="10" />
+          </n-form-item>
+          <n-form-item label="产物保留数量">
+            <n-input-number v-model:value="form.artifactRetention" :min="1" :max="100" />
+          </n-form-item>
+          <n-form-item>
+            <n-button type="primary" :loading="saving" @click="save">保存</n-button>
+          </n-form-item>
+        </n-form>
+      </n-card>
+
+      <n-card class="lg:col-span-2" title="组织级特性开关">
+        <org-feature-flags-section :org-slug="orgSlug" />
+      </n-card>
+    </div>
 
     <n-modal
       v-model:show="showK8s"
@@ -43,26 +67,6 @@
         </n-space>
       </template>
     </n-modal>
-
-    <n-card title="基本信息" style="margin-top: 16px">
-      <n-form :model="form" label-placement="left" label-width="120">
-        <n-form-item label="组织名称">
-          <n-input v-model:value="form.name" />
-        </n-form-item>
-        <n-form-item label="URL 标识">
-          <n-input v-model:value="form.slug" placeholder="只能包含小写字母、数字和连字符" />
-        </n-form-item>
-        <n-form-item label="并行构建数">
-          <n-input-number v-model:value="form.buildConcurrency" :min="1" :max="10" />
-        </n-form-item>
-        <n-form-item label="产物保留数量">
-          <n-input-number v-model:value="form.artifactRetention" :min="1" :max="100" />
-        </n-form-item>
-        <n-form-item>
-          <n-button type="primary" :loading="saving" @click="save">保存</n-button>
-        </n-form-item>
-      </n-form>
-    </n-card>
   </div>
 </template>
 

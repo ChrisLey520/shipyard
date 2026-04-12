@@ -18,9 +18,15 @@
         :key="r.id"
         class="mb-2 p-3 rounded-lg bg-white border border-gray-200"
       >
-        <view class="flex justify-between items-center">
-          <text class="font-medium">{{ r.channel }}</text>
-          <text class="text-xs text-gray-500">{{ r.enabled ? '启用' : '停用' }}</text>
+        <view class="flex justify-between items-center gap-2">
+          <text class="font-medium flex-1 min-w-0">{{ r.channel }}</text>
+          <view class="shrink-0" @click.stop>
+            <wd-switch
+              :model-value="r.enabled"
+              :disabled="togglingId === r.id"
+              @update:model-value="(v: boolean | string | number) => onToggleNotification(r, Boolean(v))"
+            />
+          </view>
         </view>
         <text class="block text-xs text-gray-600 mt-1">事件: {{ formatEvents(r.events) }}</text>
         <view class="flex gap-2 mt-2">
@@ -75,6 +81,7 @@ const savingTpl = ref(false);
 const showWh = ref(false);
 const savingWh = ref(false);
 const editingWhId = ref<string | null>(null);
+const togglingId = ref<string | null>(null);
 
 const eventOptions = Object.values(NotificationEvent);
 
@@ -122,6 +129,20 @@ async function saveTemplate() {
     // 全局 request 已提示
   } finally {
     savingTpl.value = false;
+  }
+}
+
+async function onToggleNotification(row: ProjectNotificationRow, enabled: boolean) {
+  if (row.enabled === enabled) return;
+  togglingId.value = row.id;
+  try {
+    await notifApi.updateProjectNotification(props.orgSlug, props.projectSlug, row.id, { enabled });
+    uni.showToast({ title: enabled ? '已启用' : '已停用', icon: 'success' });
+    await load();
+  } catch {
+    // 全局 request 已提示
+  } finally {
+    togglingId.value = null;
   }
 }
 

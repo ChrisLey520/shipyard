@@ -58,11 +58,11 @@
       v-model:show="showModal"
       :title="editing ? '编辑 Git 账户' : '关联 Git 账户（PAT）'"
       preset="card"
-      style="width: 560px"
+      style="width: min(100%, 620px)"
       :mask-closable="false"
       :close-on-esc="false"
     >
-      <n-form :model="form" label-placement="left" label-width="110">
+      <n-form :model="form" label-placement="left" :label-width="160">
         <n-form-item label="账户名称">
           <n-input v-model:value="form.name" placeholder="例如：my-github" />
         </n-form-item>

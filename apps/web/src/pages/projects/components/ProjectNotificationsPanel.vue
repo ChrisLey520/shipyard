@@ -432,7 +432,25 @@ function confirmDelete(row: ProjectNotificationRow) {
   });
 }
 
-const columns: DataTableColumns<ProjectNotificationRow> = [
+const togglingNotifId = ref<string | null>(null);
+
+async function toggleNotificationEnabled(row: ProjectNotificationRow, enabled: boolean) {
+  if (row.enabled === enabled) return;
+  togglingNotifId.value = row.id;
+  try {
+    await updateProjectNotification(props.orgSlug, props.projectSlug, row.id, { enabled });
+    message.success(enabled ? '已启用' : '已关闭');
+    await queryClient.invalidateQueries({
+      queryKey: ['projects', 'notifications', props.orgSlug, props.projectSlug],
+    });
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
+  } finally {
+    togglingNotifId.value = null;
+  }
+}
+
+const columns = computed<DataTableColumns<ProjectNotificationRow>>(() => [
   {
     title: '渠道',
     key: 'channel',
@@ -455,8 +473,14 @@ const columns: DataTableColumns<ProjectNotificationRow> = [
   {
     title: '启用',
     key: 'enabled',
-    width: 72,
-    render: (r) => (r.enabled ? '是' : '否'),
+    width: 96,
+    render: (r) =>
+      h(NSwitch, {
+        value: r.enabled,
+        loading: togglingNotifId.value === r.id,
+        disabled: togglingNotifId.value === r.id,
+        onUpdateValue: (v: boolean) => void toggleNotificationEnabled(r, v),
+      }),
   },
   {
     title: '操作',
@@ -472,7 +496,7 @@ const columns: DataTableColumns<ProjectNotificationRow> = [
         ),
       ]),
   },
-];
+]);
 
 watch(
   () => props.projectSlug,

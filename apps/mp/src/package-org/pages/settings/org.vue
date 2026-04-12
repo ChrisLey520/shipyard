@@ -4,7 +4,9 @@
     <wd-loading v-if="loading" />
     <view v-else-if="form">
       <wd-cell-group title="Kubernetes 集群" border>
-        <wd-button size="small" type="primary" custom-class="mb-2" @click="openK8s">登记集群</wd-button>
+        <view class="flex justify-end pb-2">
+          <wd-button size="small" type="primary" @click="openK8s">登记集群</wd-button>
+        </view>
         <view
           v-for="c in k8sClusters"
           :key="c.id"

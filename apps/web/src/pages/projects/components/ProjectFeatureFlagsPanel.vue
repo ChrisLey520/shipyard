@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue';
+import { computed, h, onMounted, ref } from 'vue';
 import {
   NButton,
   NDataTable,
@@ -154,13 +154,35 @@ async function removeRow(id: string) {
   }
 }
 
-const columns: DataTableColumns<FeatureFlagRow> = [
+const togglingId = ref<string | null>(null);
+
+async function toggleEnabled(row: FeatureFlagRow, enabled: boolean) {
+  if (row.enabled === enabled) return;
+  togglingId.value = row.id;
+  try {
+    await updateFeatureFlag(props.orgSlug, row.id, { enabled });
+    message.success(enabled ? '已启用' : '已关闭');
+    await load();
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
+  } finally {
+    togglingId.value = null;
+  }
+}
+
+const columns = computed<DataTableColumns<FeatureFlagRow>>(() => [
   { title: 'Key', key: 'key', ellipsis: { tooltip: true } },
   {
     title: '启用',
     key: 'enabled',
-    width: 80,
-    render: (r) => (r.enabled ? '是' : '否'),
+    width: 96,
+    render: (r) =>
+      h(NSwitch, {
+        value: r.enabled,
+        loading: togglingId.value === r.id,
+        disabled: togglingId.value === r.id,
+        onUpdateValue: (v: boolean) => void toggleEnabled(r, v),
+      }),
   },
   {
     title: '操作',
@@ -172,7 +194,7 @@ const columns: DataTableColumns<FeatureFlagRow> = [
         h(NButton, { size: 'tiny', type: 'error', onClick: () => removeRow(r.id) }, { default: () => '删除' }),
       ]),
   },
-];
+]);
 
 onMounted(() => void load());
 </script>

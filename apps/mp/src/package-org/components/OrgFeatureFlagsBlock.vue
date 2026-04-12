@@ -8,13 +8,19 @@
       <view
         v-for="r in rows"
         :key="r.id"
-        class="mb-2 p-3 rounded-lg bg-white border border-gray-200 flex justify-between items-start gap-2"
+        class="mb-2 p-3 rounded-lg bg-white border border-gray-200 flex justify-between items-center gap-2"
       >
-        <view class="flex-1" @click="openEdit(r)">
+        <view class="flex-1 min-w-0" @click="openEdit(r)">
           <text class="font-medium">{{ r.key }}</text>
-          <text class="block text-xs text-gray-500 mt-1">{{ r.enabled ? '已启用' : '已关闭' }}</text>
         </view>
-        <wd-button size="small" plain type="error" @click="removeRow(r.id)">删除</wd-button>
+        <view class="flex items-center gap-2 shrink-0" @click.stop>
+          <wd-switch
+            :model-value="r.enabled"
+            :disabled="togglingId === r.id"
+            @update:model-value="(v: boolean | string | number) => onToggleEnabled(r, Boolean(v))"
+          />
+          <wd-button size="small" plain type="error" @click="removeRow(r.id)">删除</wd-button>
+        </view>
       </view>
     </view>
     <view v-if="!loading && !rows.length" class="text-center text-gray-500 py-4">暂无特性开关</view>
@@ -47,6 +53,7 @@ const showModal = ref(false);
 const editingId = ref<string | null>(null);
 const saving = ref(false);
 const form = ref({ key: '', enabled: false, valueJson: '' });
+const togglingId = ref<string | null>(null);
 
 async function load() {
   if (!props.orgSlug) return;
@@ -65,6 +72,20 @@ watch(
   () => void load(),
   { immediate: true },
 );
+
+async function onToggleEnabled(row: FeatureFlagRow, enabled: boolean) {
+  if (row.enabled === enabled) return;
+  togglingId.value = row.id;
+  try {
+    await featureApi.updateFeatureFlag(props.orgSlug, row.id, { enabled });
+    uni.showToast({ title: enabled ? '已启用' : '已关闭', icon: 'success' });
+    await load();
+  } catch {
+    // 全局 request 已提示
+  } finally {
+    togglingId.value = null;
+  }
+}
 
 function openCreate() {
   editingId.value = null;
