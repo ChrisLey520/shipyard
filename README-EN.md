@@ -1,7 +1,7 @@
 # Shipyard (Self-hosted CI/CD for Frontend)
 
 Shipyard is a multi-tenant, self-hosted CI/CD platform for deploying frontend projects (static sites + SSR).  
-Tech stack: **NestJS + Prisma + PostgreSQL + Redis + BullMQ** (backend/worker), **Vue 3 + Vite + Pinia + Naive UI** (web).
+Tech stack: **NestJS + Prisma + PostgreSQL + Redis + BullMQ** (backend/worker), **Vue 3 + Vite + Pinia + Naive UI** (web admin), plus a **WeChat mini program** in **`apps/mp`** (uni-app, aligned with the web IA).
 
 Chinese version: `README.md`
 
@@ -9,7 +9,15 @@ Chinese version: `README.md`
 
 - `apps/server` — NestJS API server + Prisma schema
 - `apps/web` — Vue 3 admin UI
+- `apps/mp` — uni-app WeChat mini program (Vue 3 + Vite + TypeScript, IA aligned with web)
 - `packages/shared` — shared enums/DTOs/utils (**pure functions only**, no encryption)
+
+### WeChat mini program (`apps/mp`)
+
+- **Dev**: Copy `apps/mp/.env.example` to `apps/mp/.env` and set **`VITE_API_BASE`** to a **public HTTPS** API root (e.g. `https://api.example.com/api`). From the repo root run **`pnpm dev:mp`**, then open the build output in **WeChat DevTools** (path is printed in the terminal; usually `apps/mp/dist/dev/mp-weixin`).
+- **Build**: **`pnpm build:mp-weixin`**; output under `apps/mp/dist/build/mp-weixin`.
+- **Domains**: In the WeChat MP console, add the API host to **request legal domain names** (must match `VITE_API_BASE`, HTTPS). Real devices and release builds cannot call unlisted domains.
+- **Notes**: The mini program pins **vue-i18n 9.x** and **@intlify 9.14.2**, while `apps/web` uses vue-i18n 11. Deployment detail logs use **HTTP polling**, not a socket.io live stream. The login page supports a **`redirect`** query (**only** in-app paths starting with `/pages/` or `/package-org/`). If **token refresh fails**, the app **`reLaunch`es** to login and tries to preserve return navigation.
 
 ## Prerequisites
 
