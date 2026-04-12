@@ -28,6 +28,7 @@
         <wd-button block plain class="mt-2" @click="showCreate = false">取消</wd-button>
       </view>
     </wd-popup>
+    <typed-destructive-confirm-host />
   </view>
 </template>
 
@@ -38,6 +39,8 @@ import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as gitApi from '@/api/git-accounts';
 import type { GitAccountItem } from '@/api/git-accounts';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
+import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
 const loading = ref(false);
@@ -96,17 +99,16 @@ async function submit() {
 }
 
 function confirmDelete(g: GitAccountItem) {
-  uni.showActionSheet({
-    itemList: ['删除此账户'],
-    success: async (res) => {
-      if (res.tapIndex !== 0) return;
-      try {
-        await gitApi.deleteGitAccount(orgSlug.value, g.id);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        await load();
-      } catch {
-        // 全局 request 已提示
-      }
+  openTypedDestructiveMp({
+    title: '移除 Git 账户？',
+    description: `将移除「${g.name}」，并无法再用于新建项目拉仓库。`,
+    expected: g.name,
+    expectedLabel: '账户名称',
+    positiveText: '移除',
+    onConfirm: async () => {
+      await gitApi.deleteGitAccount(orgSlug.value, g.id);
+      uni.showToast({ title: '已删除', icon: 'success' });
+      await load();
     },
   });
 }

@@ -69,7 +69,6 @@ import {
   NDataTable,
   NInput,
   useMessage,
-  useDialog,
   type DataTableColumns,
 } from 'naive-ui';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -88,11 +87,11 @@ import {
 } from '@/composables/projects/useProjectDetailActions';
 import { saveProjectSettings } from '@/composables/projects/useProjectSettingsSave';
 import { listServers } from '@/api/servers';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
-const dialog = useDialog();
 const queryClient = useQueryClient();
 
 const orgSlug = computed(() => route.params['orgSlug'] as string);
@@ -121,7 +120,7 @@ const buildEnvColumns: DataTableColumns<ProjectBuildEnvVar> = [
     key: 'actions',
     width: 80,
     render: (r) =>
-      h(NButton, { size: 'tiny', type: 'error', onClick: () => deleteBuildEnv(r.id) }, { default: () => '删除' }),
+      h(NButton, { size: 'tiny', type: 'error', onClick: () => confirmDeleteBuildEnv(r) }, { default: () => '删除' }),
   },
 ];
 
@@ -168,10 +167,19 @@ async function addBuildEnv() {
   message.success('已添加');
 }
 
-async function deleteBuildEnv(varId: string) {
-  await projectApi.deleteProjectBuildEnv(varId);
-  await loadBuildEnv();
-  message.success('已删除');
+function confirmDeleteBuildEnv(row: ProjectBuildEnvVar) {
+  openDestructiveNameConfirm({
+    title: '删除构建变量？',
+    description: `将删除项目级构建变量「${row.key}」，后续构建将不再注入该键。`,
+    expected: row.key,
+    expectedLabel: '变量名（KEY）',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await projectApi.deleteProjectBuildEnv(row.id);
+      await loadBuildEnv();
+      message.success('已删除');
+    },
+  });
 }
 
 async function onSave() {
@@ -198,12 +206,14 @@ async function onSave() {
 }
 
 function confirmDeleteProject() {
-  dialog.warning({
-    title: '确认移除项目？',
-    content: '项目移除后将删除其环境、部署记录等数据，且无法恢复。',
+  const slug = projectSlug.value;
+  openDestructiveNameConfirm({
+    title: '移除项目？',
+    description: '项目移除后将删除其环境、部署记录等数据，且无法恢复。',
+    expected: slug,
+    expectedLabel: '项目 URL 标识（slug）',
     positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       await projectApi.deleteProject();
       message.success('项目已移除');
       void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });

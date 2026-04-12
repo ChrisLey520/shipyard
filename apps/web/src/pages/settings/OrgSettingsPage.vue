@@ -12,7 +12,7 @@
             <n-list-item v-for="c in k8sClusters" :key="c.id">
               <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
                 <span>{{ c.name }}</span>
-                <n-button size="tiny" type="error" @click="removeK8s(c.id)">删除</n-button>
+                <n-button size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
               </div>
             </n-list-item>
           </n-list>
@@ -95,6 +95,7 @@ import {
   type KubernetesClusterRow,
 } from '@/api/kubernetes-clusters';
 import OrgFeatureFlagsSection from './components/OrgFeatureFlagsSection.vue';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 import { useOrgStore } from '../../stores/org';
 import { useOrgSettings } from '@/composables/orgs/useOrgSettings';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
@@ -146,14 +147,19 @@ async function saveK8s() {
   }
 }
 
-async function removeK8s(id: string) {
-  try {
-    await deleteKubernetesCluster(orgSlug.value, id);
-    message.success('已删除');
-    await loadK8s();
-  } catch {
-    /* 接口错误由全局 axios 拦截器提示 */
-  }
+function confirmRemoveK8s(c: KubernetesClusterRow) {
+  openDestructiveNameConfirm({
+    title: '删除 Kubernetes 集群登记？',
+    description: `将移除「${c.name}」的 kubeconfig 登记；引用该集群的环境 release 配置可能失效。`,
+    expected: c.name,
+    expectedLabel: '集群名称',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await deleteKubernetesCluster(orgSlug.value, c.id);
+      message.success('已删除');
+      await loadK8s();
+    },
+  });
 }
 
 async function save() {

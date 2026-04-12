@@ -56,6 +56,7 @@ import {
   updateFeatureFlag,
   type FeatureFlagRow,
 } from '@/api/feature-flags';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const props = defineProps<{ orgSlug: string }>();
 const message = useMessage();
@@ -129,14 +130,19 @@ async function submit() {
   }
 }
 
-async function removeRow(id: string) {
-  try {
-    await deleteFeatureFlag(props.orgSlug, id);
-    message.success('已删除');
-    await load();
-  } catch {
-    /* 接口错误由全局 axios 拦截器提示 */
-  }
+function confirmRemoveRow(row: FeatureFlagRow) {
+  openDestructiveNameConfirm({
+    title: '删除组织级特性开关？',
+    description: `将删除「${row.key}」，且无法恢复。`,
+    expected: row.key,
+    expectedLabel: '开关 Key',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await deleteFeatureFlag(props.orgSlug, row.id);
+      message.success('已删除');
+      await load();
+    },
+  });
 }
 
 const togglingId = ref<string | null>(null);
@@ -176,7 +182,7 @@ const columns = computed<DataTableColumns<FeatureFlagRow>>(() => [
     render: (r) =>
       h('div', { style: 'display:flex;gap:8px' }, [
         h(NButton, { size: 'tiny', onClick: () => openEdit(r) }, { default: () => '编辑' }),
-        h(NButton, { size: 'tiny', type: 'error', onClick: () => removeRow(r.id) }, { default: () => '删除' }),
+        h(NButton, { size: 'tiny', type: 'error', onClick: () => confirmRemoveRow(r) }, { default: () => '删除' }),
       ]),
   },
 ]);

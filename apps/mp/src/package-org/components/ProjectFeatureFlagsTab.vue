@@ -19,7 +19,7 @@
             :disabled="togglingId === r.id"
             @update:model-value="(v: boolean | string | number) => onToggleEnabled(r, Boolean(v))"
           />
-          <wd-button size="small" plain type="error" @click="removeRow(r.id)">删除</wd-button>
+          <wd-button size="small" plain type="error" @click="confirmRemoveRow(r)">删除</wd-button>
         </view>
       </view>
     </view>
@@ -43,6 +43,7 @@
 import { ref, watch } from 'vue';
 import * as featureApi from '@/api/feature-flags';
 import type { FeatureFlagRow } from '@/api/feature-flags';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const props = defineProps<{ orgSlug: string; projectSlug: string }>();
 
@@ -143,19 +144,17 @@ async function submit() {
   }
 }
 
-function removeRow(id: string) {
-  uni.showModal({
-    title: '删除',
-    content: '确定删除该特性开关？',
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await featureApi.deleteFeatureFlag(props.orgSlug, id);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        await load();
-      } catch {
-        // 全局 request 已提示
-      }
+function confirmRemoveRow(r: FeatureFlagRow) {
+  openTypedDestructiveMp({
+    title: '删除项目级特性开关？',
+    description: `将删除「${r.key}」，且无法恢复。`,
+    expected: r.key,
+    expectedLabel: '开关 Key',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await featureApi.deleteFeatureFlag(props.orgSlug, r.id);
+      uni.showToast({ title: '已删除', icon: 'success' });
+      await load();
     },
   });
 }

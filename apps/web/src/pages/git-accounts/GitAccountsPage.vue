@@ -112,7 +112,6 @@ import {
   NSelect,
   NDropdown,
   useMessage,
-  useDialog,
 } from 'naive-ui';
 import {
   useOrgGitAccountsActions,
@@ -127,11 +126,11 @@ import {
   gitProviderLabel,
   gitProviderRequiresBaseUrl,
 } from '@shipyard/shared';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const message = useMessage();
-const dialog = useDialog();
 const gitApi = useOrgGitAccountsActions(orgSlug);
 
 const loading = ref(false);
@@ -244,12 +243,13 @@ async function testRepos(acc: GitAccountItem) {
 }
 
 function confirmDelete(acc: GitAccountItem) {
-  dialog.warning({
-    title: '确认移除 Git 账户？',
-    content: `将移除「${acc.name}」，并无法再用于新建项目拉仓库。`,
+  openDestructiveNameConfirm({
+    title: '移除 Git 账户？',
+    description: `将移除「${acc.name}」，并无法再用于新建项目拉仓库。`,
+    expected: acc.name,
+    expectedLabel: '账户名称',
     positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       await gitApi.deleteGitAccount(acc.id);
       message.success('已移除');
       await load();

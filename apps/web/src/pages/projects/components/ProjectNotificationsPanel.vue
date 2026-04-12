@@ -129,7 +129,6 @@ import {
   NSwitch,
   NTag,
   NText,
-  useDialog,
   useMessage,
   type DataTableColumns,
 } from 'naive-ui';
@@ -144,6 +143,7 @@ import {
 import { updateProject } from '@/api/projects';
 import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectNotificationsQuery } from '@/composables/projects/useProjectNotificationsQuery';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const props = defineProps<{
   orgSlug: string;
@@ -158,7 +158,6 @@ const templateHelpText =
 const templatePlaceholder = '示例：[{{orgSlug}}/{{projectSlug}}] {{event}}：{{message}}';
 
 const message = useMessage();
-const dialog = useDialog();
 const queryClient = useQueryClient();
 
 const orgSlugRef = computed(() => props.orgSlug);
@@ -418,11 +417,14 @@ async function submit() {
 }
 
 function confirmDelete(row: ProjectNotificationRow) {
-  dialog.warning({
+  const label = CHANNEL_LABELS[row.channel as NotificationChannel] ?? row.channel;
+  openDestructiveNameConfirm({
     title: '删除此通知配置？',
+    description: `将删除「${label}」渠道的一条通知配置，且无法恢复。`,
+    expected: row.id,
+    expectedLabel: '配置 ID',
     positiveText: '删除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       await deleteProjectNotification(props.orgSlug, props.projectSlug, row.id);
       message.success('已删除');
       await queryClient.invalidateQueries({

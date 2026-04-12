@@ -25,6 +25,7 @@
         <wd-button block plain class="mt-2" @click="showInvite = false">取消</wd-button>
       </view>
     </wd-popup>
+    <typed-destructive-confirm-host />
   </view>
 </template>
 
@@ -35,6 +36,8 @@ import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as teamApi from '@/api/team';
 import type { TeamMember } from '@/api/team';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
+import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
 const loading = ref(false);
@@ -84,18 +87,16 @@ async function submitInvite() {
 }
 
 function confirmRemove(m: TeamMember) {
-  uni.showModal({
-    title: '移除成员',
-    content: `将 ${m.user.email} 移出组织？`,
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await teamApi.removeMember(orgSlug.value, m.userId);
-        uni.showToast({ title: '已移除', icon: 'success' });
-        await load();
-      } catch {
-        // 全局 request 已提示
-      }
+  openTypedDestructiveMp({
+    title: '移除此成员？',
+    description: `将把「${m.user.name}」从本组织移除，其将无法再访问该组织资源。`,
+    expected: m.user.email,
+    expectedLabel: '成员邮箱',
+    positiveText: '移除',
+    onConfirm: async () => {
+      await teamApi.removeMember(orgSlug.value, m.userId);
+      uni.showToast({ title: '已移除', icon: 'success' });
+      await load();
     },
   });
 }

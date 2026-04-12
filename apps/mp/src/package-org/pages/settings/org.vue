@@ -13,7 +13,7 @@
           class="flex justify-between items-center py-2 border-b border-gray-100"
         >
           <text>{{ c.name }}</text>
-          <wd-button size="small" plain type="error" @click="removeK8s(c.id)">删除</wd-button>
+          <wd-button size="small" plain type="error" @click="confirmRemoveK8s(c)">删除</wd-button>
         </view>
         <view v-if="!k8sClusters.length" class="text-gray-500 text-sm py-2">暂无集群</view>
       </wd-cell-group>
@@ -39,6 +39,7 @@
         <wd-button block plain class="mt-2" @click="showK8s = false">取消</wd-button>
       </view>
     </wd-popup>
+    <typed-destructive-confirm-host />
   </view>
 </template>
 
@@ -54,6 +55,8 @@ import * as k8sApi from '@/api/kubernetes-clusters';
 import type { KubernetesClusterRow } from '@/api/kubernetes-clusters';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 import OrgFeatureFlagsBlock from '@/package-org/components/OrgFeatureFlagsBlock.vue';
+import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const orgStore = useOrgStore();
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
@@ -126,19 +129,17 @@ async function saveK8s() {
   }
 }
 
-function removeK8s(id: string) {
-  uni.showModal({
-    title: '删除集群',
-    content: '确定删除？',
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await k8sApi.deleteKubernetesCluster(orgSlug.value, id);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        await loadK8s();
-      } catch {
-        // 全局 request 已提示
-      }
+function confirmRemoveK8s(c: KubernetesClusterRow) {
+  openTypedDestructiveMp({
+    title: '删除 Kubernetes 集群登记？',
+    description: `将移除「${c.name}」的 kubeconfig 登记；引用该集群的环境 release 配置可能失效。`,
+    expected: c.name,
+    expectedLabel: '集群名称',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await k8sApi.deleteKubernetesCluster(orgSlug.value, c.id);
+      uni.showToast({ title: '已删除', icon: 'success' });
+      await loadK8s();
     },
   });
 }

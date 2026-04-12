@@ -47,6 +47,7 @@ import {
   NInput, NSelect, NSpace, useMessage, type DataTableColumns,
 } from 'naive-ui';
 import { useOrgTeam, type TeamMember } from '@/composables/team/useOrgTeam';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const message = useMessage();
@@ -76,7 +77,7 @@ const columns: DataTableColumns<TeamMember> = [
   {
     title: '操作', key: 'actions', width: 80,
     render: (r) => r.role !== 'owner'
-      ? h(NButton, { size: 'small', type: 'error', onClick: () => void removeMember(r.userId) }, { default: () => '移除' })
+      ? h(NButton, { size: 'small', type: 'error', onClick: () => void confirmRemoveMember(r) }, { default: () => '移除' })
       : h('span', '—'),
   },
 ];
@@ -91,8 +92,17 @@ async function handleInvite() {
   }
 }
 
-async function removeMember(userId: string) {
-  await removeMemberRequest(userId);
-  message.success('成员已移除');
+function confirmRemoveMember(member: TeamMember) {
+  openDestructiveNameConfirm({
+    title: '移除此成员？',
+    description: `将把「${member.user.name}」从本组织移除，其将无法再访问该组织资源。`,
+    expected: member.user.email,
+    expectedLabel: '成员邮箱',
+    positiveText: '移除',
+    onConfirm: async () => {
+      await removeMemberRequest(member.userId);
+      message.success('成员已移除');
+    },
+  });
 }
 </script>

@@ -64,6 +64,7 @@ import {
 } from 'naive-ui';
 import { ServerOs, SERVER_OS_LABELS, isServerOs, serverOsLabel } from '@shipyard/shared';
 import { useOrgServersActions, type ServerItem } from '@/composables/servers/useOrgServersActions';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const message = useMessage();
@@ -103,7 +104,7 @@ const columns: DataTableColumns<ServerItem> = [
     render: (row) => h('div', { style: 'display:flex;gap:8px' }, [
       h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => '编辑' }),
       h(NButton, { size: 'small', onClick: () => testConn(row.id) }, { default: () => '连通测试' }),
-      h(NButton, { size: 'small', type: 'error', onClick: () => removeServer(row.id) }, { default: () => '删除' }),
+      h(NButton, { size: 'small', type: 'error', onClick: () => confirmRemoveServer(row) }, { default: () => '删除' }),
     ]),
   },
 ];
@@ -114,10 +115,19 @@ async function testConn(serverId: string) {
   else message.error(result.message);
 }
 
-async function removeServer(serverId: string) {
-  await serversApi.deleteServer(serverId);
-  message.success('已删除');
-  await load();
+function confirmRemoveServer(row: ServerItem) {
+  openDestructiveNameConfirm({
+    title: '删除服务器？',
+    description: `将删除「${row.name}」（${row.host}），已关联的环境将无法再使用该服务器。`,
+    expected: row.name,
+    expectedLabel: '服务器名称',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await serversApi.deleteServer(row.id);
+      message.success('已删除');
+      await load();
+    },
+  });
 }
 
 function openAdd() {

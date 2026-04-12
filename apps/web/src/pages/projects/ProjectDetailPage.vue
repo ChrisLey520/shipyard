@@ -211,7 +211,6 @@ import {
   NTag, NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
   NModal, NInput,
   type DataTableColumns,
-  useDialog,
 } from 'naive-ui';
 import ProjectEditModal from './components/ProjectEditModal.vue';
 import {
@@ -237,6 +236,7 @@ import type { Env, EnvVar } from '@/api/projects/environments';
 import { useEnvironmentsProjectActions } from '@/composables/projects/useEnvironmentsProjectActions';
 import { listServers } from '@/api/servers';
 import { saveProjectSettings } from '@/composables/projects/useProjectSettingsSave';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const router = useRouter();
@@ -254,7 +254,6 @@ const deploymentsLoading = computed(
   () => deploymentsQuery.isPending.value || deploymentsQuery.isFetching.value,
 );
 
-const dialog = useDialog();
 const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
 
@@ -331,7 +330,7 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
           : h(NButton, { size: 'tiny', disabled: true }, { default: () => '回滚' }),
         h(
           NButton,
-          { size: 'tiny', type: 'error', secondary: true, onClick: () => confirmDeleteDeployment(r.id) },
+          { size: 'tiny', type: 'error', secondary: true, onClick: () => confirmDeleteDeployment(r) },
           { default: () => '删除' },
         ),
       ]),
@@ -342,14 +341,15 @@ function clearSelection() {
   checkedDeploymentIds.value = [];
 }
 
-function confirmDeleteDeployment(deploymentId: string) {
-  dialog.warning({
-    title: '确认删除该部署记录？',
-    content: '删除后将移除该条部署记录及其日志/产物记录，且无法恢复。',
+function confirmDeleteDeployment(row: DeploymentListItem) {
+  openDestructiveNameConfirm({
+    title: '删除该部署记录？',
+    description: `环境：${row.environment?.name ?? '—'}，分支：${row.branch}。删除后将移除该条部署记录及其日志/产物记录，且无法恢复。`,
+    expected: row.id,
+    expectedLabel: '部署 ID',
     positiveText: '删除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await projectApi.deleteDeployment(deploymentId);
+    onConfirm: async () => {
+      await projectApi.deleteDeployment(row.id);
       message.success('已删除');
       clearSelection();
       await refetchDeployments();
@@ -361,12 +361,14 @@ function confirmDeleteDeployment(deploymentId: string) {
 function confirmBulkDeleteDeployments() {
   const ids = checkedDeploymentIds.value.filter((x): x is string => typeof x === 'string');
   if (ids.length === 0) return;
-  dialog.warning({
-    title: '确认批量删除？',
-    content: `将删除 ${ids.length} 条部署记录，且无法恢复。`,
+  const slug = projectSlug.value;
+  openDestructiveNameConfirm({
+    title: '批量删除部署记录？',
+    description: `将删除已选中的 ${ids.length} 条部署记录，且无法恢复。`,
+    expected: slug,
+    expectedLabel: '项目 URL 标识（slug）',
     positiveText: '删除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       const res = await projectApi.bulkDeleteDeployments(ids);
       message.success(`已删除 ${res.deleted} 条`);
       clearSelection();
@@ -377,12 +379,14 @@ function confirmBulkDeleteDeployments() {
 }
 
 function confirmClearDeployments() {
-  dialog.warning({
-    title: '确认清空部署历史？',
-    content: '将删除该项目的全部部署记录（含日志），且无法恢复。',
+  const slug = projectSlug.value;
+  openDestructiveNameConfirm({
+    title: '清空部署历史？',
+    description: '将删除该项目的全部部署记录（含日志），且无法恢复。',
+    expected: slug,
+    expectedLabel: '项目 URL 标识（slug）',
     positiveText: '清空',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       const res = await projectApi.clearDeployments();
       message.success(`已清空 ${res.deleted} 条`);
       clearSelection();
@@ -451,7 +455,7 @@ const envVarColumns: DataTableColumns<EnvVar> = [
     render: (r) =>
       h(
         NButton,
-        { size: 'tiny', type: 'error', onClick: () => void removeEnvVarRow(r.id) },
+        { size: 'tiny', type: 'error', onClick: () => void confirmRemoveEnvVarRow(r) },
         { default: () => '删除' },
       ),
   },
@@ -478,20 +482,31 @@ async function addEnvVar() {
   message.success('已添加');
 }
 
-async function removeEnvVarRow(varId: string) {
+function confirmRemoveEnvVarRow(row: EnvVar) {
   const env = selectedEnvForVars.value;
   if (!env) return;
-  await envProjectApi.deleteEnvVar(env.id, varId);
-  await loadEnvVarsForModal(env.id);
+  openDestructiveNameConfirm({
+    title: '删除环境变量？',
+    description: `将从环境「${env.name}」删除变量「${row.key}」。`,
+    expected: row.key,
+    expectedLabel: '变量名（KEY）',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await envProjectApi.deleteEnvVar(env.id, row.id);
+      await loadEnvVarsForModal(env.id);
+      message.success('已删除');
+    },
+  });
 }
 
 function confirmDeleteEnv(env: ProjectDetail['environments'][number]) {
-  dialog.warning({
-    title: '确认删除环境？',
-    content: `将删除环境「${env.name}」及其变量等关联数据，且无法恢复。`,
+  openDestructiveNameConfirm({
+    title: '删除环境？',
+    description: `将删除环境「${env.name}」及其变量等关联数据，且无法恢复。`,
+    expected: env.name,
+    expectedLabel: '环境名称',
     positiveText: '删除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       await envProjectApi.deleteEnvironment(env.id);
       message.success('已删除');
       await projectDetailQuery.refetch();

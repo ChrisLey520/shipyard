@@ -62,7 +62,6 @@ import {
   NEmpty,
   NButton,
   NSpace,
-  useDialog,
   useMessage,
 } from 'naive-ui';
 import {
@@ -74,6 +73,7 @@ import { useProjectListQuery } from '@/composables/projects/useProjectListQuery'
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 import { listServers } from '@/api/servers';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const router = useRouter();
@@ -83,7 +83,6 @@ const listActions = useProjectListPageActions(orgSlug);
 const { data: projectsData, isPending: loading } = useProjectListQuery(orgSlug);
 const projects = computed(() => projectsData.value ?? []);
 const message = useMessage();
-const dialog = useDialog();
 
 const showEdit = ref(false);
 const saving = ref(false);
@@ -158,12 +157,13 @@ async function openEdit(p: ProjectListItem) {
 }
 
 function confirmDelete(p: ProjectListItem) {
-  dialog.warning({
-    title: '确认移除项目？',
-    content: `将移除「${p.name}」，并删除其环境、部署记录等数据，且无法恢复。`,
+  openDestructiveNameConfirm({
+    title: '移除项目？',
+    description: `将移除「${p.name}」，并删除其环境、部署记录等数据，且无法恢复。`,
+    expected: p.slug,
+    expectedLabel: '项目 URL 标识（slug）',
     positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       await listActions.deleteProject(p.slug);
       message.success('项目已移除');
       await queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });

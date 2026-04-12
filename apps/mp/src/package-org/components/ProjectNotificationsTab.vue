@@ -38,7 +38,7 @@
           >
             编辑
           </wd-button>
-          <wd-button size="small" plain type="error" @click="removeRow(r.id)">删除</wd-button>
+          <wd-button size="small" plain type="error" @click="confirmRemoveRow(r)">删除</wd-button>
         </view>
       </view>
     </view>
@@ -69,6 +69,7 @@ import { NotificationChannel, NotificationEvent } from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
 import * as notifApi from '@/api/projects/notifications';
 import type { ProjectNotificationRow } from '@/api/projects/notifications';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const props = defineProps<{ orgSlug: string; projectSlug: string }>();
 
@@ -209,19 +210,17 @@ async function submitWebhook() {
   }
 }
 
-function removeRow(id: string) {
-  uni.showModal({
-    title: '删除',
-    content: '确定删除该通知配置？',
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await notifApi.deleteProjectNotification(props.orgSlug, props.projectSlug, id);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        await load();
-      } catch {
-        // 全局 request 已提示
-      }
+function confirmRemoveRow(r: ProjectNotificationRow) {
+  openTypedDestructiveMp({
+    title: '删除通知配置？',
+    description: `将删除「${String(r.channel)}」渠道的一条通知配置，且无法恢复。`,
+    expected: r.id,
+    expectedLabel: '配置 ID',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await notifApi.deleteProjectNotification(props.orgSlug, props.projectSlug, r.id);
+      uni.showToast({ title: '已删除', icon: 'success' });
+      await load();
     },
   });
 }

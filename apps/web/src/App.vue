@@ -11,6 +11,7 @@
         <n-dialog-provider>
           <n-notification-provider>
             <router-view />
+            <destructive-name-confirm-host />
           </n-notification-provider>
         </n-dialog-provider>
       </n-message-provider>
@@ -36,6 +37,7 @@ import {
   dateJaJP,
 } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
+import DestructiveNameConfirmHost from './components/DestructiveNameConfirmHost.vue';
 import { useThemeStore } from './stores/theme';
 import type { SupportedLocale } from './i18n';
 

@@ -162,7 +162,7 @@
         <text class="font-medium">构建环境变量</text>
         <view v-for="v in buildEnvVars" :key="v.id" class="flex justify-between items-center mt-2 py-2 border-b">
           <text>{{ v.key }}</text>
-          <wd-button size="small" plain type="error" @click="removeBuildEnv(v.id)">删</wd-button>
+          <wd-button size="small" plain type="error" @click="confirmRemoveBuildEnv(v)">删</wd-button>
         </view>
         <wd-input v-model="buildEnvDraft.key" class="mt-3" label="KEY" placeholder="VAR_NAME" />
         <wd-input v-model="buildEnvDraft.value" label="VALUE" show-password />
@@ -208,7 +208,7 @@
         <text class="font-medium">{{ runtimeVarEnvName }} · 环境变量</text>
         <view v-for="v in runtimeVars" :key="v.id" class="flex justify-between items-center mt-2 py-2 border-b">
           <text class="text-sm">{{ v.key }}</text>
-          <wd-button size="small" plain type="error" @click="removeRuntimeVar(v.id)">删</wd-button>
+          <wd-button size="small" plain type="error" @click="confirmRemoveRuntimeVar(v)">删</wd-button>
         </view>
         <wd-input v-model="runtimeVarDraft.key" class="mt-3" label="KEY" placeholder="VAR_NAME" />
         <wd-input v-model="runtimeVarDraft.value" label="VALUE" show-password />
@@ -216,6 +216,7 @@
         <wd-button block plain class="mt-2" @click="showRuntimeVars = false">关闭</wd-button>
       </scroll-view>
     </wd-popup>
+    <typed-destructive-confirm-host />
   </view>
 </template>
 
@@ -231,6 +232,8 @@ import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 import ProjectEditPopup from '@/package-org/components/ProjectEditPopup.vue';
 import ProjectNotificationsTab from '@/package-org/components/ProjectNotificationsTab.vue';
 import ProjectFeatureFlagsTab from '@/package-org/components/ProjectFeatureFlagsTab.vue';
+import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const tabDefs = [
   { k: 'overview' as const, label: '概览' },
@@ -412,21 +415,19 @@ function onDeleteEnvFromEditPopup() {
 }
 
 function confirmDeleteEnv(e: ProjectDetail['environments'][number]) {
-  uni.showModal({
-    title: '删除环境',
-    content: `确定删除「${e.name}」？不可恢复。`,
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await envApi.deleteEnvironment(orgSlug.value, projectSlug.value, e.id);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        showEnvEdit.value = false;
-        editingEnvId.value = null;
-        editingEnvRow.value = null;
-        await loadAll();
-      } catch {
-        // 全局 request 已提示
-      }
+  openTypedDestructiveMp({
+    title: '删除环境？',
+    description: `将删除环境「${e.name}」及其变量等关联数据，且无法恢复。`,
+    expected: e.name,
+    expectedLabel: '环境名称',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await envApi.deleteEnvironment(orgSlug.value, projectSlug.value, e.id);
+      uni.showToast({ title: '已删除', icon: 'success' });
+      showEnvEdit.value = false;
+      editingEnvId.value = null;
+      editingEnvRow.value = null;
+      await loadAll();
     },
   });
 }
@@ -465,16 +466,22 @@ async function addRuntimeVar() {
   }
 }
 
-async function removeRuntimeVar(varId: string) {
+function confirmRemoveRuntimeVar(row: EnvVar) {
   const envId = runtimeVarEnvId.value;
+  const envName = runtimeVarEnvName.value;
   if (!envId) return;
-  try {
-    await envApi.deleteEnvVar(orgSlug.value, projectSlug.value, envId, varId);
-    runtimeVars.value = await envApi.listEnvVars(orgSlug.value, projectSlug.value, envId);
-    uni.showToast({ title: '已删除', icon: 'success' });
-  } catch {
-    // 全局 request 已提示
-  }
+  openTypedDestructiveMp({
+    title: '删除环境变量？',
+    description: `将从环境「${envName}」删除变量「${row.key}」。`,
+    expected: row.key,
+    expectedLabel: '变量名（KEY）',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await envApi.deleteEnvVar(orgSlug.value, projectSlug.value, envId, row.id);
+      runtimeVars.value = await envApi.listEnvVars(orgSlug.value, projectSlug.value, envId);
+      uni.showToast({ title: '已删除', icon: 'success' });
+    },
+  });
 }
 
 function openDep(id: string) {
@@ -538,13 +545,18 @@ async function addBuildEnv() {
   }
 }
 
-async function removeBuildEnv(id: string) {
-  try {
-    await projectsApi.deleteProjectBuildEnv(orgSlug.value, projectSlug.value, id);
-    buildEnvVars.value = await projectsApi.listProjectBuildEnv(orgSlug.value, projectSlug.value);
-    uni.showToast({ title: '已删除', icon: 'success' });
-  } catch {
-    // 全局 request 已提示
-  }
+function confirmRemoveBuildEnv(row: ProjectBuildEnvVar) {
+  openTypedDestructiveMp({
+    title: '删除构建变量？',
+    description: `将删除项目级构建变量「${row.key}」。`,
+    expected: row.key,
+    expectedLabel: '变量名（KEY）',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await projectsApi.deleteProjectBuildEnv(orgSlug.value, projectSlug.value, row.id);
+      buildEnvVars.value = await projectsApi.listProjectBuildEnv(orgSlug.value, projectSlug.value);
+      uni.showToast({ title: '已删除', icon: 'success' });
+    },
+  });
 }
 </script>

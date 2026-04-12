@@ -41,6 +41,7 @@
         <wd-button block plain class="mt-2" @click="closeForm">取消</wd-button>
       </view>
     </wd-popup>
+    <typed-destructive-confirm-host />
   </view>
 </template>
 
@@ -51,6 +52,8 @@ import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as serversApi from '@/api/servers';
 import type { ServerItem } from '@/api/servers';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
+import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
 const loading = ref(false);
@@ -113,18 +116,16 @@ function openEdit(s: ServerItem) {
 }
 
 function confirmDelete(s: ServerItem) {
-  uni.showModal({
-    title: '删除服务器',
-    content: `确定删除「${s.name}」？`,
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await serversApi.deleteServer(orgSlug.value, s.id);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        servers.value = await serversApi.listServers(orgSlug.value);
-      } catch {
-        // 全局 request 已提示
-      }
+  openTypedDestructiveMp({
+    title: '删除服务器？',
+    description: `将删除「${s.name}」（${s.host}），已关联的环境将无法再使用该服务器。`,
+    expected: s.name,
+    expectedLabel: '服务器名称',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await serversApi.deleteServer(orgSlug.value, s.id);
+      uni.showToast({ title: '已删除', icon: 'success' });
+      servers.value = await serversApi.listServers(orgSlug.value);
     },
   });
 }
