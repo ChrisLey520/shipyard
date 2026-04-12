@@ -1,5 +1,6 @@
 import { BreadcrumbBuffer } from './breadcrumb.js';
 import { createEventId } from './id.js';
+import { idbClear, idbLoadPending, idbSavePending } from './idb-outbox.js';
 import { sanitizeValue } from './sanitize.js';
 import { shouldSample } from './sampling.js';
 import type {
@@ -20,9 +21,17 @@ export class MonitoringClient {
   private flushTimer: ReturnType<typeof setInterval> | undefined;
   private closed = false;
   private readonly pluginCleanups: MonitoringPluginCleanup[] = [];
+  private readonly persist?: { dbName: string; maxItems: number };
 
   constructor(config: MonitoringCoreConfig) {
     this.config = config;
+    if (config.persistQueue && typeof globalThis === 'object' && globalThis !== null && 'indexedDB' in globalThis) {
+      this.persist = {
+        dbName: config.persistQueue.dbName ?? 'shipyard-monitoring-outbox',
+        maxItems: Math.min(500, Math.max(10, config.persistQueue.maxItems ?? 100)),
+      };
+      void this.restoreFromIdb();
+    }
     this.breadcrumbs = new BreadcrumbBuffer(
       config.maxBreadcrumbs ?? 30,
       config.maxBreadcrumbDataChars ?? 1024,
@@ -34,6 +43,14 @@ export class MonitoringClient {
       }, interval);
     }
     this.installPlugins();
+  }
+
+  private async restoreFromIdb(): Promise<void> {
+    if (!this.persist || this.closed) return;
+    const pending = await idbLoadPending(this.persist.dbName);
+    if (pending.length === 0) return;
+    this.queue = [...pending, ...this.queue];
+    void this.flush();
   }
 
   private createPluginContext(): MonitoringPluginContext {
@@ -92,6 +109,9 @@ export class MonitoringClient {
     const event = this.buildEvent(type, payload, rate);
     const max = this.config.maxBatchSize ?? 20;
     this.queue.push(event);
+    if (this.persist) {
+      void idbSavePending(this.persist.dbName, this.queue, this.persist.maxItems);
+    }
     if (this.queue.length >= max) {
       void this.flush();
     }
@@ -140,8 +160,18 @@ export class MonitoringClient {
         useBeacon,
         contentType: 'application/json',
       });
+      if (this.persist) {
+        if (this.queue.length === 0) {
+          await idbClear(this.persist.dbName);
+        } else {
+          await idbSavePending(this.persist.dbName, this.queue, this.persist.maxItems);
+        }
+      }
     } catch {
-      // 丢弃或未来持久化队列；MVP 丢弃
+      this.queue = [...batch, ...this.queue];
+      if (this.persist) {
+        await idbSavePending(this.persist.dbName, this.queue, this.persist.maxItems);
+      }
     }
   }
 

@@ -8,6 +8,10 @@
 - `web` 入口会拉取 `web-vitals` 与浏览器专用逻辑；错误引用会导致小程序包体膨胀或构建失败。
 - Core 无 `@dcloudio/*` 依赖；`uni` 适配器在运行时依赖全局 `uni`，与条件编译配合使用。
 
+## IndexedDB 持久化队列（Web）
+
+`initWebMonitoring` 可传 `persistQueue: true` 或 `{ maxItems?: number; dbName?: string }`：在浏览器将**已脱敏**的待发送事件写入 IndexedDB；`flush` 失败时回灌内存并写回 IDB，减少弱网丢事件。默认最多保留 100 条。小程序请勿使用。
+
 ## 插件开发指南
 
 插件用于在**不修改 SDK 源码**的前提下挂载自定义采集（如 `PerformanceObserver`、`healthcheck`、业务埋点）。上报仍走 `MonitoringClient` 的同一套管道：**脱敏、采样、队列、批量 ingest**。

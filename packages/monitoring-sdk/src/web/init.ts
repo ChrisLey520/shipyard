@@ -31,6 +31,8 @@ export interface WebMonitoringOptions {
   captureGlobalErrors?: boolean;
   /** 自定义采集插件（在内置 router/错误/web-vitals 等之前完成 setup） */
   plugins?: MonitoringPlugin[];
+  /** 开启 IndexedDB 持久化队列（flush 失败回灌）；传 true 使用默认上限 */
+  persistQueue?: boolean | { maxItems?: number; dbName?: string };
 }
 
 function deviceSummary(): Record<string, unknown> {
@@ -91,6 +93,11 @@ export function initWebMonitoring(options: WebMonitoringOptions): MonitoringClie
     ...(options.release !== undefined ? { release: options.release } : {}),
     ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.plugins !== undefined && options.plugins.length > 0 ? { plugins: options.plugins } : {}),
+    ...(options.persistQueue === true
+      ? { persistQueue: {} }
+      : options.persistQueue && typeof options.persistQueue === 'object'
+        ? { persistQueue: options.persistQueue }
+        : {}),
   };
   const client = createMonitoringClient(coreConfig);
 

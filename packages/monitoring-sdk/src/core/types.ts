@@ -96,4 +96,9 @@ export interface MonitoringCoreConfig {
   sdkVersion?: string;
   /** 自定义采集插件，构造时依次 setup；shutdown 时逆序 teardown 再 flush */
   plugins?: MonitoringPlugin[];
+  /**
+   * 仅浏览器：IndexedDB 持久化内存队列（已脱敏后的 MonitoringEvent）。
+   * flush 失败时回灌；条数上限默认 100。
+   */
+  persistQueue?: { maxItems?: number; dbName?: string };
 }

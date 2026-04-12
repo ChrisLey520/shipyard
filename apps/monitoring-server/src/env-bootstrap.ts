@@ -11,7 +11,8 @@ function loadEnv(): void {
 
 loadEnv();
 
-const abs = resolve(process.cwd(), 'prisma/monitoring.db');
+/** v2：使用独立库 `monitoring`，勿与 Shipyard 主库 `shipyard` 共用（避免 prisma db push 覆盖主 schema） */
 if (!process.env['MONITORING_DATABASE_URL']?.trim()) {
-  process.env['MONITORING_DATABASE_URL'] = `file:${abs}`;
+  process.env['MONITORING_DATABASE_URL'] =
+    'postgresql://shipyard:shipyard_pass@127.0.0.1:5432/monitoring';
 }

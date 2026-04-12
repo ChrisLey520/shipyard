@@ -35,6 +35,7 @@ async function bootstrap(): Promise<void> {
   const port = parseInt(process.env['MONITORING_PORT'] ?? '3030', 10);
   await app.listen(port);
   logger.log(`Monitoring ingest at http://localhost:${port}/v1/ingest/batch`);
+  logger.log(`Health at http://localhost:${port}/health`);
 }
 
 bootstrap().catch((err: unknown) => {

@@ -1,10 +1,12 @@
 import { config } from 'dotenv';
 import { resolve } from 'path';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../src/generated/monitoring-prisma';
 
+config({ path: resolve(process.cwd(), '../../.env') });
 config({ path: resolve(process.cwd(), '.env') });
-if (!process.env['MONITORING_DATABASE_URL']) {
-  process.env['MONITORING_DATABASE_URL'] = `file:${resolve(process.cwd(), 'prisma/monitoring.db')}`;
+if (!process.env['MONITORING_DATABASE_URL']?.trim()) {
+  process.env['MONITORING_DATABASE_URL'] =
+    'postgresql://shipyard:shipyard_pass@127.0.0.1:5432/monitoring';
 }
 
 const prisma = new PrismaClient();

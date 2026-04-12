@@ -5,5 +5,6 @@ export const router = createRouter({
   routes: [
     { path: '/', component: () => import('./views/EventsList.vue') },
     { path: '/events/:id', component: () => import('./views/EventDetail.vue'), props: true },
+    { path: '/settings', component: () => import('./views/SettingsPage.vue') },
   ],
 });

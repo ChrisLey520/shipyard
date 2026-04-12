@@ -16,3 +16,5 @@ playwright-report/
 blob-report/
 apps/monitoring-server/prisma/*.db
 apps/monitoring-server/prisma/*.db-journal
+apps/monitoring-server/src/generated/
+apps/monitoring-server/data/

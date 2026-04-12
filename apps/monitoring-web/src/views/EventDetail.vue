@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { NButton, NCard, NCode, NLayout, NLayoutContent, NPageHeader, NSpace, useMessage } from 'naive-ui';
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NCode,
+  NDataTable,
+  NLayout,
+  NLayoutContent,
+  NPageHeader,
+  NSpace,
+  useMessage,
+} from 'naive-ui';
+import type { DataTableColumns } from 'naive-ui';
 import { fetchEventDetail } from '../api';
 
 const props = defineProps<{ id: string }>();
@@ -14,6 +26,8 @@ const detail = ref<{
   receivedAt: string;
   projectKey: string;
   event: unknown;
+  symbolicatedStack?: { lines: string[]; notice: string | null } | null;
+  breadcrumbs?: unknown;
 } | null>(null);
 
 onMounted(async () => {
@@ -27,6 +41,19 @@ onMounted(async () => {
 });
 
 const jsonText = () => JSON.stringify(detail.value?.event ?? {}, null, 2);
+
+type Crumb = { t?: string; category?: string; message?: string; data?: unknown };
+const crumbRows = (): Crumb[] => {
+  const b = detail.value?.breadcrumbs;
+  if (!Array.isArray(b)) return [];
+  return b.filter((x): x is Crumb => x && typeof x === 'object');
+};
+
+const crumbColumns: DataTableColumns<Crumb> = [
+  { title: 'time', key: 't', width: 180 },
+  { title: 'category', key: 'category', width: 120 },
+  { title: 'message', key: 'message', ellipsis: { tooltip: true } },
+];
 </script>
 
 <template>
@@ -45,8 +72,22 @@ const jsonText = () => JSON.stringify(detail.value?.event ?? {}, null, 2);
         <p>receivedAt: {{ detail.receivedAt }}</p>
         <p>projectKey: {{ detail.projectKey }}</p>
       </n-card>
-      <n-card style="margin-top: 16px" title="完整事件（含 breadcrumbs / payload）">
-        <n-code v-if="!loading" language="json" :code="jsonText()" word-wrap style="max-height: 70vh; overflow: auto" />
+      <n-card v-if="detail?.symbolicatedStack?.notice" style="margin-top: 16px" title="堆栈说明">
+        <n-alert type="warning" :title="detail.symbolicatedStack.notice" />
+      </n-card>
+      <n-card v-if="detail?.symbolicatedStack?.lines?.length" style="margin-top: 16px" title="堆栈（符号化 / 原始）">
+        <n-code
+          language="text"
+          :code="detail.symbolicatedStack.lines.join('\n')"
+          word-wrap
+          style="max-height: 40vh; overflow: auto"
+        />
+      </n-card>
+      <n-card v-if="crumbRows().length" style="margin-top: 16px" title="面包屑">
+        <n-data-table :columns="crumbColumns" :data="crumbRows()" :bordered="true" size="small" />
+      </n-card>
+      <n-card style="margin-top: 16px" title="完整事件 JSON">
+        <n-code v-if="!loading" language="json" :code="jsonText()" word-wrap style="max-height: 50vh; overflow: auto" />
         <p v-else>加载中…</p>
       </n-card>
     </n-layout-content>

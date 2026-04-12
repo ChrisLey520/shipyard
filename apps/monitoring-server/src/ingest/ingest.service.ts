@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../generated/monitoring-prisma';
 import { PrismaService } from '../prisma/prisma.service';
+import { HourlyBucketService } from './hourly-bucket.service';
 import { ingestBatchSchema, type IngestBatchInput } from './schemas';
 
 function extractBearer(authHeader: string | undefined): string | null {
@@ -15,7 +16,10 @@ function payloadMessage(payload: Record<string, unknown>): string | null {
 
 @Injectable()
 export class IngestService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly hourlyBucket: HourlyBucketService,
+  ) {}
 
   async ingestBatch(authHeader: string | undefined, body: unknown): Promise<{
     accepted: number;
@@ -85,7 +89,8 @@ export class IngestService {
     let accepted = 0;
     for (const row of rows) {
       try {
-        await this.prisma.monitoringEvent.create({ data: row });
+        const created = await this.prisma.monitoringEvent.create({ data: row });
+        await this.hourlyBucket.bump(created.projectId, created.type, created.release, created.receivedAt);
         accepted += 1;
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {

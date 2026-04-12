@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
 
@@ -34,5 +34,58 @@ export class AdminController {
   @Throttle({ default: { limit: 300, ttl: 60_000 } })
   async detail(@Headers('x-admin-token') adminToken: string | undefined, @Param('id') id: string) {
     return this.admin.getById(adminToken, id);
+  }
+
+  @Get('projects')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async projects(@Headers('x-admin-token') adminToken: string | undefined) {
+    return this.admin.listProjects(adminToken);
+  }
+
+  @Post('projects')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async createProject(
+    @Headers('x-admin-token') adminToken: string | undefined,
+    @Body() body: { projectKey?: string },
+  ) {
+    return this.admin.createProject(adminToken, body.projectKey ?? '');
+  }
+
+  @Post('projects/:id/rotate-token')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async rotateToken(@Headers('x-admin-token') adminToken: string | undefined, @Param('id') id: string) {
+    return this.admin.rotateIngestToken(adminToken, id);
+  }
+
+  @Get('metrics/hourly')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async hourlyMetrics(
+    @Headers('x-admin-token') adminToken: string | undefined,
+    @Query('projectKey') projectKey: string,
+    @Query('days') days = '7',
+    @Query('type') type?: string,
+    @Query('release') release?: string,
+  ) {
+    return this.admin.hourlyMetrics(adminToken, {
+      projectKey,
+      days: parseInt(days, 10) || 7,
+      ...(type !== undefined ? { type } : {}),
+      ...(release !== undefined ? { release } : {}),
+    });
+  }
+
+  @Get('alert-rules')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async listAlerts(
+    @Headers('x-admin-token') adminToken: string | undefined,
+    @Query('projectKey') projectKey?: string,
+  ) {
+    return this.admin.listAlertRules(adminToken, projectKey);
+  }
+
+  @Post('alert-rules')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async createAlert(@Headers('x-admin-token') adminToken: string | undefined, @Body() body: unknown) {
+    return this.admin.createAlertRule(adminToken, body);
   }
 }
