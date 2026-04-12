@@ -139,6 +139,7 @@
         v-show="activeTab === 'flags'"
         :org-slug="orgSlug"
         :project-slug="projectSlug"
+        :environment-names="(project?.environments ?? []).map((e) => e.name)"
       />
     </view>
 

@@ -257,7 +257,7 @@ pnpm -r build
 | pre/post hooks | SSH | 在入口机 `deployPath` 下 `timeout 120 bash -lc …` |
 | Kubernetes | 组织「Kubernetes 集群」+ 流水线开启镜像推送 | `kubectl set image` + `rollout status`；可选 `rolloutTimeoutSeconds`（默认 600s）；`strategy: rolling` 时可配 `rollingUpdateMaxSurge` / `MaxUnavailable`（set image 前 strategic patch）。**不支持** `canary` / `blue_green`。凭据见 [docs/adr/0001-kubernetes-secrets-and-deploy-worker.md](docs/adr/0001-kubernetes-secrets-and-deploy-worker.md)；GitOps 与 patch 冲突见 [顺架构需求规格](.cursor/plans/shipyard-顺架构发布策略-需求规格.md)。 |
 | `object_storage`（S3） | Worker 安装 `aws` CLI；`strategy` 仅 `direct` | 解压构建产物后 `aws s3 sync` 至 `objectStorage.bucket`/`prefix`；可选 `credentialsEncrypted`（解密 JSON 含 accessKeyId/secretAccessKey），否则用环境默认凭证链。见 [docs/runbooks/object-storage-s3.md](docs/runbooks/object-storage-s3.md) |
-| 特性开关 | — | 组织级或项目级 `FeatureFlag` CRUD，与部署路径解耦 |
+| 特性开关 | — | 组织级、项目级或 **环境级**（`GET/POST .../feature-flags?projectSlug=&environmentName=`）`FeatureFlag` CRUD，与部署路径解耦 |
 
 **验收**：未配置 `releaseConfig` 时行为与旧版单服务器直连一致。迁移会为每个已有环境插入一条 `EnvironmentServer` 指向原 `serverId`。
 

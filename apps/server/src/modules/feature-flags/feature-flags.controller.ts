@@ -26,28 +26,37 @@ import { FeatureFlagsApplicationService } from './application/feature-flags.appl
 export class FeatureFlagsController {
   constructor(private readonly flags: FeatureFlagsApplicationService) {}
 
-  /** projectSlug 为空：组织级；否则项目级 */
+  /** projectSlug 为空：组织级；有 projectSlug 无 environmentName：项目级；二者皆有：环境级 */
   @Get()
   @Roles(OrgRole.VIEWER)
   async list(
     @OrgId() orgId: string,
     @Query('projectSlug') projectSlug?: string,
+    @Query('environmentName') environmentName?: string,
   ) {
     const slug = projectSlug?.trim() || null;
-    return this.flags.listFlags(orgId, slug);
+    return this.flags.listFlags(orgId, slug, environmentName);
   }
 
   @Post()
   @Roles(OrgRole.DEVELOPER)
   async create(
     @OrgId() orgId: string,
-    @Body() body: { key: string; enabled?: boolean; valueJson?: unknown; projectSlug?: string | null },
+    @Body()
+    body: {
+      key: string;
+      enabled?: boolean;
+      valueJson?: unknown;
+      projectSlug?: string | null;
+      environmentName?: string | null;
+    },
   ) {
     const slug = body.projectSlug?.trim() || null;
     return this.flags.createFlag(orgId, slug, {
       key: body.key,
       enabled: body.enabled,
       valueJson: body.valueJson,
+      environmentName: body.environmentName,
     });
   }
 

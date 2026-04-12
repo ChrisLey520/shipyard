@@ -6,12 +6,20 @@ export interface FeatureFlagRow {
   enabled: boolean;
   valueJson: unknown;
   projectId: string | null;
+  environmentId: string | null;
   updatedAt: string;
 }
 
-export async function listFeatureFlags(orgSlug: string, projectSlug?: string | null) {
-  const q = projectSlug ? `?projectSlug=${encodeURIComponent(projectSlug)}` : '';
-  return request<FeatureFlagRow[]>({ url: `/orgs/${orgSlug}/feature-flags${q}` });
+export async function listFeatureFlags(
+  orgSlug: string,
+  projectSlug?: string | null,
+  environmentName?: string | null,
+) {
+  const params = new URLSearchParams();
+  if (projectSlug) params.set('projectSlug', projectSlug);
+  if (environmentName) params.set('environmentName', environmentName);
+  const q = params.toString();
+  return request<FeatureFlagRow[]>({ url: `/orgs/${orgSlug}/feature-flags${q ? `?${q}` : ''}` });
 }
 
 export async function createFeatureFlag(
@@ -21,6 +29,7 @@ export async function createFeatureFlag(
     enabled?: boolean;
     valueJson?: unknown;
     projectSlug?: string | null;
+    environmentName?: string | null;
   },
 ) {
   return request<FeatureFlagRow>({

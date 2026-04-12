@@ -1,7 +1,11 @@
 <template>
   <view class="p-1">
+    <picker mode="selector" :range="scopeLabels" :value="scopeIndex" @change="onScopePick">
+      <wd-cell title="作用域" :value="scopeLabels[scopeIndex] ?? '项目级'" is-link />
+    </picker>
+    <text class="text-xs text-gray-500 block px-3 pb-2">{{ scopeHint }}</text>
     <view class="flex justify-end mb-2">
-      <wd-button size="small" type="primary" @click="openCreate">新增</wd-button>
+      <wd-button size="small" type="primary" :disabled="scopeAddDisabled" @click="openCreate">新增</wd-button>
     </view>
     <wd-loading v-if="loading" />
     <view v-else>
@@ -40,12 +44,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import * as featureApi from '@/api/feature-flags';
 import type { FeatureFlagRow } from '@/api/feature-flags';
 import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
 
-const props = defineProps<{ orgSlug: string; projectSlug: string }>();
+const props = defineProps<{
+  orgSlug: string;
+  projectSlug: string;
+  environmentNames: string[];
+}>();
 
 const loading = ref(false);
 const rows = ref<FeatureFlagRow[]>([]);
@@ -54,12 +62,53 @@ const editingId = ref<string | null>(null);
 const saving = ref(false);
 const form = ref({ key: '', enabled: false, valueJson: '' });
 const togglingId = ref<string | null>(null);
+const scopeIndex = ref(0);
+
+const scopeLabels = computed(() => {
+  const labels = ['项目级'];
+  for (const n of props.environmentNames) {
+    labels.push(`环境：${n}`);
+  }
+  return labels;
+});
+
+const scopeEnvName = computed(() => {
+  if (scopeIndex.value <= 0) return undefined;
+  return props.environmentNames[scopeIndex.value - 1];
+});
+
+const scopeHint = computed(() => {
+  if (scopeIndex.value === 0) {
+    return '项目级开关；可与组织级、各环境级同名 key 并存。';
+  }
+  const name = scopeEnvName.value;
+  return name
+    ? `环境「${name}」内 key 唯一。`
+    : '请先添加部署环境。';
+});
+
+const scopeAddDisabled = computed(() => {
+  if (scopeIndex.value === 0) return false;
+  return !scopeEnvName.value;
+});
+
+watch(
+  () => props.environmentNames.join('\0'),
+  () => {
+    const max = Math.max(0, props.environmentNames.length);
+    if (scopeIndex.value > max) scopeIndex.value = 0;
+  },
+);
 
 async function load() {
   if (!props.orgSlug || !props.projectSlug) return;
   loading.value = true;
   try {
-    rows.value = await featureApi.listFeatureFlags(props.orgSlug, props.projectSlug);
+    rows.value = await featureApi.listFeatureFlags(
+      props.orgSlug,
+      props.projectSlug,
+      scopeEnvName.value,
+    );
   } catch {
     // 全局 request 已提示
   } finally {
@@ -67,8 +116,12 @@ async function load() {
   }
 }
 
+function onScopePick(e: { detail: { value: string | number } }) {
+  scopeIndex.value = Number(e.detail.value);
+}
+
 watch(
-  () => [props.orgSlug, props.projectSlug],
+  () => [props.orgSlug, props.projectSlug, scopeIndex.value] as const,
   () => void load(),
   { immediate: true },
 );
@@ -88,6 +141,10 @@ async function onToggleEnabled(row: FeatureFlagRow, enabled: boolean) {
 }
 
 function openCreate() {
+  if (scopeAddDisabled.value) {
+    uni.showToast({ title: '请先添加部署环境', icon: 'none' });
+    return;
+  }
   editingId.value = null;
   form.value = { key: '', enabled: false, valueJson: '' };
   showModal.value = true;
@@ -132,6 +189,7 @@ async function submit() {
         enabled: form.value.enabled,
         valueJson: raw ? valueJson : undefined,
         projectSlug: props.projectSlug,
+        environmentName: scopeEnvName.value ?? null,
       });
     }
     uni.showToast({ title: '已保存', icon: 'success' });
@@ -145,9 +203,10 @@ async function submit() {
 }
 
 function confirmRemoveRow(r: FeatureFlagRow) {
+  const scopeLabel = scopeIndex.value === 0 ? '项目级' : `环境「${scopeEnvName.value}」`;
   openTypedDestructiveMp({
-    title: '删除项目级特性开关？',
-    description: `将删除「${r.key}」，且无法恢复。`,
+    title: '删除特性开关？',
+    description: `将删除${scopeLabel}开关「${r.key}」，且无法恢复。`,
     expected: r.key,
     expectedLabel: '开关 Key',
     positiveText: '删除',

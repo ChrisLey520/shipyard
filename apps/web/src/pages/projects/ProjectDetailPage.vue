@@ -126,7 +126,11 @@
       </n-tab-pane>
 
       <n-tab-pane name="feature-flags" tab="特性开关">
-        <project-feature-flags-panel :org-slug="orgSlug" :project-slug="projectSlug" />
+        <project-feature-flags-panel
+          :org-slug="orgSlug"
+          :project-slug="projectSlug"
+          :environment-names="(project?.environments ?? []).map((e) => e.name)"
+        />
       </n-tab-pane>
 
       <n-tab-pane name="deployments" tab="部署历史">

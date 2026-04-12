@@ -1,8 +1,20 @@
 <template>
   <div>
-    <n-space justify="space-between" align="center" style="margin-bottom: 12px">
-      <n-text depth="3">项目级开关，与部署流水线解耦；运行时 SDK 可后续接入。</n-text>
-      <n-button size="small" type="primary" @click="openCreate">新增</n-button>
+    <n-space vertical size="small" style="margin-bottom: 12px">
+      <n-space justify="space-between" align="center" wrap>
+        <n-space align="center" wrap>
+          <n-text depth="3">作用域</n-text>
+          <n-select
+            v-model:value="scopeValue"
+            :options="scopeOptions"
+            size="small"
+            style="min-width: 200px"
+            :consistent-menu-width="false"
+          />
+        </n-space>
+        <n-button size="small" type="primary" :disabled="scopeDisabled" @click="openCreate">新增</n-button>
+      </n-space>
+      <n-text depth="3">{{ scopeHint }}</n-text>
     </n-space>
     <n-data-table :columns="columns" :data="rows" :loading="loading" size="small" :row-key="(r) => r.id" />
 
@@ -40,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue';
+import { computed, h, ref, watch } from 'vue';
 import TableRowSwitchCell from '@/components/table/TableRowSwitchCell.vue';
 import TableRowEditDeleteCell from '@/components/table/TableRowEditDeleteCell.vue';
 import {
@@ -50,6 +62,7 @@ import {
   NFormItem,
   NInput,
   NModal,
+  NSelect,
   NSpace,
   NSwitch,
   NText,
@@ -65,9 +78,13 @@ import {
 } from '@/api/feature-flags';
 import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
+const PROJECT_SCOPE = '__project__';
+
 const props = defineProps<{
   orgSlug: string;
   projectSlug: string;
+  /** 当前项目下环境名称列表，用于环境级开关 */
+  environmentNames: string[];
 }>();
 
 const message = useMessage();
@@ -77,11 +94,37 @@ const showModal = ref(false);
 const editingId = ref<string | null>(null);
 const saving = ref(false);
 const form = ref({ key: '', enabled: false, valueJson: '' });
+const scopeValue = ref<string>(PROJECT_SCOPE);
+
+const scopeOptions = computed(() => {
+  const opts = [{ label: '项目级', value: PROJECT_SCOPE }];
+  for (const name of props.environmentNames) {
+    opts.push({ label: `环境：${name}`, value: name });
+  }
+  return opts;
+});
+
+const scopeEnvName = computed(() => (scopeValue.value === PROJECT_SCOPE ? null : scopeValue.value));
+
+const scopeDisabled = computed(
+  () => scopeValue.value !== PROJECT_SCOPE && !props.environmentNames.includes(scopeValue.value),
+);
+
+const scopeHint = computed(() => {
+  if (scopeValue.value === PROJECT_SCOPE) {
+    return '项目级开关，与部署流水线解耦；可与组织级、各环境级同名 key 并存。';
+  }
+  return `环境「${scopeValue.value}」内 key 唯一；可与项目级、组织级同名 key 并存。请先创建环境再选此项。`;
+});
+
+function envNameForApi(): string | undefined {
+  return scopeEnvName.value ?? undefined;
+}
 
 async function load() {
   loading.value = true;
   try {
-    rows.value = await listFeatureFlags(props.orgSlug, props.projectSlug);
+    rows.value = await listFeatureFlags(props.orgSlug, props.projectSlug, envNameForApi());
   } catch {
     rows.value = [];
   } finally {
@@ -89,7 +132,26 @@ async function load() {
   }
 }
 
+watch(
+  () => [props.orgSlug, props.projectSlug, scopeValue.value] as const,
+  () => void load(),
+  { immediate: true },
+);
+
+watch(
+  () => props.environmentNames.join('\0'),
+  () => {
+    if (scopeValue.value !== PROJECT_SCOPE && !props.environmentNames.includes(scopeValue.value)) {
+      scopeValue.value = PROJECT_SCOPE;
+    }
+  },
+);
+
 function openCreate() {
+  if (scopeDisabled.value) {
+    message.warning('请先添加部署环境');
+    return;
+  }
   editingId.value = null;
   form.value = { key: '', enabled: false, valueJson: '' };
   showModal.value = true;
@@ -135,6 +197,7 @@ async function submit() {
         enabled: form.value.enabled,
         valueJson,
         projectSlug: props.projectSlug,
+        environmentName: envNameForApi() ?? null,
       });
       message.success('已创建');
     }
@@ -148,9 +211,11 @@ async function submit() {
 }
 
 function confirmRemoveRow(row: FeatureFlagRow) {
+  const scopeLabel =
+    scopeValue.value === PROJECT_SCOPE ? '项目级' : `环境「${scopeValue.value}」`;
   openDestructiveNameConfirm({
     title: '删除特性开关？',
-    description: `将删除项目级开关「${row.key}」，且无法恢复。`,
+    description: `将删除${scopeLabel}开关「${row.key}」，且无法恢复。`,
     expected: row.key,
     expectedLabel: '开关 Key',
     positiveText: '删除',
@@ -203,6 +268,4 @@ const columns = computed<DataTableColumns<FeatureFlagRow>>(() => [
       }),
   },
 ]);
-
-onMounted(() => void load());
 </script>

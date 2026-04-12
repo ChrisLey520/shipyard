@@ -293,6 +293,7 @@ model Environment {
   environmentServers EnvironmentServer[]
   envVariables EnvVariable[]
   deployments  Deployment[]
+  featureFlags FeatureFlag[]
 
   @@unique([projectId, name])
   @@index([projectId])
@@ -387,11 +388,12 @@ model BuildArtifact {
   deployment Deployment @relation("DeploymentArtifact", fields: [deploymentId], references: [id], onDelete: Cascade)
 }
 
-/// 组织级或项目级特性开关（projectId 为空表示组织级；唯一性由应用层保证）
+/// 组织级 / 项目级 / 环境级特性开关（projectId 为空且 environmentId 为空为组织级；projectId 非空且 environmentId 为空为项目级；environmentId 非空为环境级；部分唯一索引见迁移 SQL）
 model FeatureFlag {
   id             String   @id @default(uuid())
   organizationId String
   projectId      String?
+  environmentId  String?
   key            String
   enabled        Boolean  @default(false)
   valueJson      Json?
@@ -400,8 +402,10 @@ model FeatureFlag {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   project      Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment  Environment? @relation(fields: [environmentId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, projectId, key])
+  @@index([environmentId])
 }
 
 /// 加密存储 kubeconfig，仅 Deploy Worker 解密使用

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **FeatureFlag（环境级）**：`FeatureFlag.environmentId` 可选；`GET/POST /orgs/:org/feature-flags` 支持 **`projectSlug` + `environmentName`** 查询环境级列表/创建；PostgreSQL **部分唯一索引** 区分组织 / 项目（`environmentId IS NULL`）/ 环境三级；Web 与小程序项目「特性」Tab **作用域选择**。
 - **Deploy（Canary）**：SSH `strategy: canary` 支持 **`canaryPercent` + `nginxCanaryStableUpstream` + `nginxCanaryCandidateUpstream` 生成** Nginx `split_clients` 片段（`$shipyard_canary_pool`）；非空 **`nginxCanaryBody` 手写优先**；片段写入前 **备份**，**`nginx -t` 失败则恢复** 后再判失败。保存环境时 **`kubernetes` + `canary` 拒绝（400）**。
 - **Deploy（顺架构扩展）**：金丝雀 **`nginxCanaryTemplate: upstream_weight`**（双 `server` + `weight` 的 `upstream` 块）；**Kubernetes** 可选 **`rolloutTimeoutSeconds`**、`strategy: rolling` 时 **`rollingUpdateMaxSurge` / `MaxUnavailable`** strategic patch；**保存拒绝** `kubernetes` + **`blue_green`**；**`executor: object_storage`**（S3）解压产物后 **`aws s3 sync`**，可选 **`credentialsEncrypted`**。
 - **Web**：环境对话框 **执行器 / 发布策略** 与金丝雀 / K8s rollout / S3 字段，与 JSON 合并写入 `releaseConfig`。

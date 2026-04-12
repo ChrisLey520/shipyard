@@ -171,7 +171,7 @@ The following items are the **next phase** priorities (ordered by “works end-t
 | pre/post hooks | SSH | `timeout 120 bash -lc` under `deployPath` on the primary host |
 | Kubernetes | Org cluster + image push | `kubectl set image` + `rollout status`; optional `rolloutTimeoutSeconds` (default 600s); with `strategy: rolling`, optional `rollingUpdateMaxSurge` / `rollingUpdateMaxUnavailable` patched before set image. **Not** `canary` or `blue_green` (use SSH). GitOps may overwrite patches — see repo `.cursor/plans/shipyard-顺架构发布策略-需求规格.md`. |
 | `object_storage` (S3) | Worker has `aws` CLI; `strategy` must be `direct` | After extract, `aws s3 sync` to `objectStorage.bucket`/`prefix`; optional encrypted credentials JSON else default AWS credential chain. See [docs/runbooks/object-storage-s3.md](docs/runbooks/object-storage-s3.md) |
-| Feature flags | — | Org- or project-scoped CRUD, decoupled from deploy |
+| Feature flags | — | Org-, project-, or **environment-scoped** CRUD (`GET/POST .../feature-flags?projectSlug=&environmentName=`), decoupled from deploy |
 
 **Acceptance**: omitting `releaseConfig` keeps legacy single-server behavior. Migration seeds one `EnvironmentServer` per existing environment.
 
