@@ -172,9 +172,8 @@ async function handleSave() {
     }
     showAdd.value = false;
     await load();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? (editingServerId.value ? '更新失败' : '添加失败'));
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     adding.value = false;
   }
@@ -184,9 +183,7 @@ async function load() {
   loading.value = true;
   try {
     servers.value = await serversApi.listServers();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '加载服务器列表失败');
+  } catch {
     servers.value = [];
   } finally {
     loading.value = false;

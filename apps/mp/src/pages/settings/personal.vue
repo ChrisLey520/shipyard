@@ -55,7 +55,6 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
 import { authApi } from '@/api/auth';
 import * as usersApi from '@/api/users';
-import { HttpError } from '@/api/http';
 import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
 
 const { t, locale } = useI18n();
@@ -110,8 +109,8 @@ async function saveLocale() {
     await auth.fetchMe();
     syncLocaleFromUser();
     uni.showToast({ title: t('common.saved'), icon: 'success' });
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : t('settings.uploadFailed'), icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     savingLocale.value = false;
   }
@@ -130,11 +129,8 @@ function pickAvatar() {
         await usersApi.uploadMyAvatar(path);
         await auth.fetchMe();
         uni.showToast({ title: t('settings.avatarUpdated'), icon: 'success' });
-      } catch (e) {
-        uni.showToast({
-          title: e instanceof HttpError ? e.message : t('settings.uploadFailed'),
-          icon: 'none',
-        });
+      } catch {
+        // 全局 request 已提示
       } finally {
         uploadingAvatar.value = false;
       }
@@ -179,11 +175,8 @@ async function submitPwd() {
         uni.reLaunch({ url: `/pages/auth/login?email=${encodeURIComponent(email)}` });
       },
     });
-  } catch (e) {
-    uni.showToast({
-      title: e instanceof HttpError ? e.message : t('settings.changePasswordFailed'),
-      icon: 'none',
-    });
+  } catch {
+    // 全局 request 已提示
   } finally {
     changingPwd.value = false;
   }

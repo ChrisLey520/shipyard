@@ -110,7 +110,7 @@ const k8sForm = ref({ name: '', kubeconfig: '' });
 
 async function loadK8s() {
   try {
-    k8sClusters.value = await listKubernetesClusters(orgSlug.value);
+    k8sClusters.value = await listKubernetesClusters(orgSlug.value, { shipyard: { silent: true } });
   } catch {
     k8sClusters.value = [];
   }
@@ -135,9 +135,8 @@ async function saveK8s() {
     message.success('已保存');
     showK8s.value = false;
     await loadK8s();
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { message?: string } } };
-    message.error(err?.response?.data?.message ?? '保存失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     k8sSaving.value = false;
   }
@@ -149,7 +148,7 @@ async function removeK8s(id: string) {
     message.success('已删除');
     await loadK8s();
   } catch {
-    message.error('删除失败');
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
@@ -171,9 +170,8 @@ async function save() {
       await router.replace(`/orgs/${form.value.slug}/settings`);
     }
     message.success('保存成功');
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '保存失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 

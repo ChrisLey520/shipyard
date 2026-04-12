@@ -34,7 +34,6 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as teamApi from '@/api/team';
 import type { TeamMember } from '@/api/team';
-import { HttpError } from '@/api/http';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
@@ -53,8 +52,8 @@ async function load() {
   loading.value = true;
   try {
     members.value = await teamApi.listMembers(orgSlug.value);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -77,8 +76,8 @@ async function submitInvite() {
     showInvite.value = false;
     invite.value = { email: '', role: 'member' };
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }
@@ -94,8 +93,8 @@ function confirmRemove(m: TeamMember) {
         await teamApi.removeMember(orgSlug.value, m.userId);
         uni.showToast({ title: '已移除', icon: 'success' });
         await load();
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });

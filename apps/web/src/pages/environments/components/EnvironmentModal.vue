@@ -244,15 +244,17 @@ function resetFromInitial() {
 }
 
 async function ensureOptionsLoaded() {
-  const [servers, branches] = await Promise.all([
-    envApi.listServersForOrg(),
-    envApi.listProjectBranches().catch(() => [] as string[]),
-  ]);
+  const servers = await envApi.listServersForOrg();
   serverOptions.value = servers.map((s) => ({
     label: `${s.name}（${serverOsLabel(s.os)}）`,
     value: s.id,
   }));
-  branchOptions.value = branches.map((b) => ({ label: b, value: b }));
+  try {
+    const branches = await envApi.listProjectBranches();
+    branchOptions.value = branches.map((b) => ({ label: b, value: b }));
+  } catch {
+    branchOptions.value = [];
+  }
 }
 
 watch(
@@ -263,6 +265,9 @@ watch(
     loadingBranches.value = true;
     try {
       await ensureOptionsLoaded();
+    } catch {
+      serverOptions.value = [];
+      branchOptions.value = [];
     } finally {
       loadingBranches.value = false;
     }
@@ -354,7 +359,7 @@ async function handleSubmit() {
     showProxy.value = false;
     emit('saved');
   } catch {
-    message.error(props.mode === 'edit' ? '保存失败' : '创建失败');
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     submitting.value = false;
   }

@@ -256,9 +256,8 @@ async function handleCreate() {
     });
     message.success('项目创建成功！');
     void router.push(`/orgs/${orgSlug.value}/projects/${form.value.slug}`);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '创建失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
@@ -275,9 +274,8 @@ async function loadRepos() {
       value: r.fullName,
     }));
     message.success(`已加载 ${repoOptions.value.length} 个仓库`);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '仓库列表获取失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     loadingRepos.value = false;
   }
@@ -287,12 +285,8 @@ async function loadAccounts() {
   loadingAccounts.value = true;
   try {
     gitAccounts.value = await creation.loadGitAccounts();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(
-      e?.response?.data?.message ??
-        'Git 账户列表加载失败（若刚升级代码，请在服务端执行数据库迁移：pnpm --filter @shipyard/server db:migrate）',
-    );
+  } catch {
+    gitAccounts.value = [];
   } finally {
     loadingAccounts.value = false;
   }
@@ -324,9 +318,8 @@ async function handleCreateAccount() {
     if (created?.id) {
       form.value.gitAccountId = created.id;
     }
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '添加失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     creatingAccount.value = false;
   }

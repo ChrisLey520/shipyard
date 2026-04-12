@@ -413,9 +413,8 @@ async function triggerDeploy(environmentId: string) {
     message.success('部署已入队');
     await refetchDeployments();
     void loadEnvAccessUrls();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '触发部署失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
@@ -447,7 +446,11 @@ async function onEnvSaved() {
 
 async function loadEnvAccessUrls() {
   if (!project.value) return;
-  envAccessUrls.value = await projectApi.fetchEnvironmentAccessUrls().catch(() => ({}));
+  try {
+    envAccessUrls.value = await projectApi.fetchEnvironmentAccessUrls();
+  } catch {
+    envAccessUrls.value = {};
+  }
 }
 
 let envAccessPollTimer: number | null = null;
@@ -473,7 +476,7 @@ async function rollback(deploymentId: string) {
     message.success('回滚已入队');
     await refetchDeployments();
   } catch {
-    message.error('回滚失败');
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
@@ -485,9 +488,8 @@ async function retryFailed(deploymentId: string) {
     if (next?.id) {
       await router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${next.id}`);
     }
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '重试失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
@@ -544,7 +546,7 @@ const editProjectInitial = ref<ProjectEditFormValues>({
 
 async function loadPreviewServerOptions() {
   try {
-    const list = await listServers(orgSlug.value);
+    const list = await listServers(orgSlug.value, { shipyard: { silent: true } });
     previewServerOptions.value = list.map((s) => ({
       label: `${s.name} (${s.host})`,
       value: s.id,
@@ -660,9 +662,8 @@ async function saveProject(v: ProjectEditFormValues) {
     await projectDetailQuery.refetch();
     await refetchDeployments();
     await loadBuildEnv();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '保存失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     savingProject.value = false;
   }

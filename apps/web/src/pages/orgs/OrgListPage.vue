@@ -78,9 +78,6 @@ async function handleCreate() {
     showCreate.value = false;
     message.success(t('org.created'));
     void router.push(`/orgs/${form.value.slug}`);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? t('org.createFailed'));
   } finally {
     creating.value = false;
   }

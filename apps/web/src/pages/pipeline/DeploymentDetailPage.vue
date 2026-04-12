@@ -270,6 +270,7 @@ import { useAuthStore } from '../../stores/auth';
 import {
   useDeploymentDetailActions,
   type DeploymentDetail,
+  type DeploymentLogLine,
 } from '@/composables/pipeline/useDeploymentDetailActions';
 import {
   buildPm2StaticAccessUrlFromSnapshot,
@@ -581,7 +582,11 @@ async function loadDeploymentView() {
   terminal = null;
   logLines.value = [];
 
-  deployment.value = await deploymentDetailApi.getDeploymentDetail().catch(() => null);
+  try {
+    deployment.value = await deploymentDetailApi.getDeploymentDetail();
+  } catch {
+    deployment.value = null;
+  }
 
   await nextTick();
   if (!terminalEl.value) return;
@@ -592,7 +597,12 @@ async function loadDeploymentView() {
   terminal.open(terminalEl.value);
   fitAddon.fit();
 
-  const logs = await deploymentDetailApi.getDeploymentLogs().catch(() => []);
+  let logs: DeploymentLogLine[] = [];
+  try {
+    logs = await deploymentDetailApi.getDeploymentLogs();
+  } catch {
+    logs = [];
+  }
   const sorted = [...logs].sort((a, b) => a.seq - b.seq);
   pollLogSeq.value = sorted.length ? Math.max(...sorted.map((l) => l.seq)) : -1;
   for (const log of sorted) {
@@ -645,9 +655,8 @@ async function handleRetry() {
     if (next?.id) {
       await router.replace(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${next.id}`);
     }
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '重试失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     retrying.value = false;
   }

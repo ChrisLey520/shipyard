@@ -119,9 +119,6 @@ async function handleSubmit() {
     await loginWithEmailPassword(form.value.email, form.value.password);
     const redirect = (route.query['redirect'] as string) ?? '/orgs';
     void router.push(redirect);
-  } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { message?: string } } };
-    message.error(axiosErr?.response?.data?.message ?? '登录失败，请检查邮箱和密码');
   } finally {
     loading.value = false;
   }

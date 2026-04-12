@@ -40,7 +40,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useOrgStore } from '@/stores/org';
 import * as orgsApi from '@/api/orgs';
 import { slugifyFromDisplayName } from '@shipyard/shared';
-import { HttpError } from '@/api/http';
 import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
 
 const auth = useAuthStore();
@@ -65,9 +64,8 @@ async function load() {
   loading.value = true;
   try {
     await orgStore.fetchOrgs();
-  } catch (e) {
-    const msg = e instanceof HttpError ? e.message : '加载失败';
-    uni.showToast({ title: msg, icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -103,9 +101,8 @@ async function handleCreate() {
     showCreate.value = false;
     form.value = { name: '', slug: '' };
     uni.showToast({ title: '已创建', icon: 'success' });
-  } catch (e) {
-    const msg = e instanceof HttpError ? e.message : '创建失败';
-    uni.showToast({ title: msg, icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     creating.value = false;
   }

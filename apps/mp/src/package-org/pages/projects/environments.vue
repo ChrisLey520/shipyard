@@ -49,7 +49,6 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useProjectPageContext } from '@/composables/useProjectPageContext';
 import * as envApi from '@/api/environments';
 import type { Env } from '@/api/environments';
-import { HttpError } from '@/api/http';
 
 const { orgSlug, projectSlug, initProjectFromQuery } = useProjectPageContext();
 const loading = ref(false);
@@ -81,8 +80,8 @@ async function load() {
   loading.value = true;
   try {
     envs.value = await envApi.listEnvironments(orgSlug.value, projectSlug.value);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -118,8 +117,8 @@ async function submitCreate() {
     showCreate.value = false;
     createForm.value = { name: '', triggerBranch: 'main', deployPath: '/var/www', serverId: '' };
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }
@@ -139,8 +138,8 @@ async function submitEdit() {
     uni.showToast({ title: '已保存', icon: 'success' });
     showEdit.value = false;
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }
@@ -160,8 +159,8 @@ function submitDelete() {
         uni.showToast({ title: '已删除', icon: 'success' });
         showEdit.value = false;
         await load();
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       } finally {
         saving.value = false;
       }

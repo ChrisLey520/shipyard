@@ -9,7 +9,6 @@
 import { ref } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { authApi } from '@/api/auth';
-import { HttpError } from '@/api/http';
 
 const token = ref('');
 const password = ref('');
@@ -29,9 +28,8 @@ async function submit() {
     await authApi.resetPassword(token.value, password.value);
     uni.showToast({ title: '已重置，请登录', icon: 'none' });
     setTimeout(() => uni.reLaunch({ url: '/pages/auth/login' }), 800);
-  } catch (e) {
-    const msg = e instanceof HttpError ? e.message : '失败';
-    uni.showToast({ title: msg, icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }

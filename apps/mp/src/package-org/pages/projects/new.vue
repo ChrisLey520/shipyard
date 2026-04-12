@@ -18,7 +18,6 @@ import { ref, watch } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as projectsApi from '@/api/projects';
-import { HttpError } from '@/api/http';
 import { slugifyFromDisplayName } from '@shipyard/shared';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
@@ -71,8 +70,8 @@ async function submit() {
     setTimeout(() => {
       uni.navigateBack();
     }, 400);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '创建失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     submitting.value = false;
   }

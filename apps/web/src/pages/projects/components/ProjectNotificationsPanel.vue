@@ -221,9 +221,8 @@ async function saveTemplate() {
     await queryClient.invalidateQueries({
       queryKey: ['projects', 'detail', props.orgSlug, props.projectSlug],
     });
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '保存失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     savingTemplate.value = false;
   }
@@ -409,9 +408,8 @@ async function submit() {
     await queryClient.invalidateQueries({
       queryKey: ['projects', 'notifications', props.orgSlug, props.projectSlug],
     });
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '保存失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     saving.value = false;
   }

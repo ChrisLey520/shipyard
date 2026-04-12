@@ -34,6 +34,7 @@ export async function getEnvironmentAccessUrls(orgSlug: string, projectSlug: str
   return http
     .get<Record<string, string | null>>(
       `/orgs/${orgSlug}/projects/${projectSlug}/environments/access-urls`,
+      { shipyard: { silent: true } },
     )
     .then((r) => r.data);
 }

@@ -101,9 +101,6 @@ async function handleSubmit() {
   try {
     await registerAccount(form.value.name, form.value.email, form.value.password);
     void router.push('/orgs');
-  } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { message?: string } } };
-    message.error(axiosErr?.response?.data?.message ?? '注册失败');
   } finally {
     loading.value = false;
   }

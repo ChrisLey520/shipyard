@@ -35,8 +35,6 @@ import { useProjectPageContext } from '@/composables/useProjectPageContext';
 import * as pipelineApi from '@/api/pipeline';
 import type { DeploymentDetail, DeploymentLogLine } from '@/api/pipeline';
 import * as projectsApi from '@/api/projects';
-import { HttpError } from '@/api/http';
-
 const { orgSlug, projectSlug, initProjectFromQuery } = useProjectPageContext();
 const deploymentId = ref('');
 const loading = ref(true);
@@ -76,8 +74,8 @@ async function fetchDetail() {
       projectSlug.value,
       deploymentId.value,
     );
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    /* 详情为 silent 请求，失败时保留/清空由轮询与首屏处理 */
   }
 }
 
@@ -139,8 +137,8 @@ async function retry() {
     await fetchDetail();
     await fetchLogs();
     startPoll();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '重试失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     retrying.value = false;
     loading.value = false;

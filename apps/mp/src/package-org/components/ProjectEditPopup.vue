@@ -53,7 +53,6 @@ import { ref, watch } from 'vue';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail } from '@/api/projects';
-import { HttpError } from '@/api/http';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -196,8 +195,8 @@ async function save() {
     uni.showToast({ title: '已保存', icon: 'success' });
     emit('update:modelValue', false);
     emit('saved', { slugChanged: slugAfter !== slugBefore, newSlug: slugAfter });
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '保存失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }

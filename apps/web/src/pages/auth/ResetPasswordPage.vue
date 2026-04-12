@@ -37,8 +37,6 @@ async function handleSubmit() {
     await confirmResetPassword(token, password.value);
     message.success('密码重置成功，请登录');
     void router.push('/login');
-  } catch {
-    message.error('重置链接无效或已过期');
   } finally {
     loading.value = false;
   }

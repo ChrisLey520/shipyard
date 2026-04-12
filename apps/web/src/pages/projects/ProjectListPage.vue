@@ -116,7 +116,7 @@ async function openEdit(p: ProjectListItem) {
   editing.value = p;
   try {
     try {
-      const srv = await listServers(orgSlug.value);
+      const srv = await listServers(orgSlug.value, { shipyard: { silent: true } });
       previewServerOptions.value = srv.map((s) => ({
         label: `${s.name} (${s.host})`,
         value: s.id,
@@ -151,7 +151,6 @@ async function openEdit(p: ProjectListItem) {
     };
     showEdit.value = true;
   } catch {
-    message.error('加载项目失败');
     editing.value = null;
     editingDetail.value = null;
   }
@@ -242,9 +241,8 @@ async function saveEdit(v: ProjectEditFormValues) {
     editing.value = null;
     editingDetail.value = null;
     await queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '保存失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     saving.value = false;
   }

@@ -36,7 +36,6 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as approvalsApi from '@/api/approvals';
 import type { ApprovalItem } from '@/api/approvals';
-import { HttpError } from '@/api/http';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
@@ -61,8 +60,8 @@ async function load() {
   loading.value = true;
   try {
     items.value = await approvalsApi.listApprovals(orgSlug.value);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -92,8 +91,8 @@ async function decide(decision: 'approved' | 'rejected') {
     uni.showToast({ title: '已提交', icon: 'success' });
     showReview.value = false;
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }

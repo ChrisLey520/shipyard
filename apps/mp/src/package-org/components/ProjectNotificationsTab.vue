@@ -63,7 +63,6 @@ import { NotificationChannel, NotificationEvent } from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
 import * as notifApi from '@/api/projects/notifications';
 import type { ProjectNotificationRow } from '@/api/projects/notifications';
-import { HttpError } from '@/api/http';
 
 const props = defineProps<{ orgSlug: string; projectSlug: string }>();
 
@@ -98,8 +97,8 @@ async function load() {
     const p = await projectsApi.getProject(props.orgSlug, props.projectSlug);
     templateDraft.value = p.notificationMessageTemplate ?? '';
     rows.value = await notifApi.listProjectNotifications(props.orgSlug, props.projectSlug);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -119,8 +118,8 @@ async function saveTemplate() {
     });
     uni.showToast({ title: '已保存', icon: 'success' });
     emit('refreshProject');
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     savingTpl.value = false;
   }
@@ -182,8 +181,8 @@ async function submitWebhook() {
     uni.showToast({ title: '已保存', icon: 'success' });
     showWh.value = false;
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     savingWh.value = false;
   }
@@ -199,8 +198,8 @@ function removeRow(id: string) {
         await notifApi.deleteProjectNotification(props.orgSlug, props.projectSlug, id);
         uni.showToast({ title: '已删除', icon: 'success' });
         await load();
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });

@@ -143,7 +143,6 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useProjectPageContext } from '@/composables/useProjectPageContext';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail, DeploymentListItem, ProjectBuildEnvVar } from '@/api/projects';
-import { HttpError } from '@/api/http';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 import ProjectEditPopup from '@/package-org/components/ProjectEditPopup.vue';
 import ProjectNotificationsTab from '@/package-org/components/ProjectNotificationsTab.vue';
@@ -189,8 +188,8 @@ async function loadAll() {
     ]);
     project.value = p;
     deployments.value = deps;
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -201,7 +200,7 @@ async function reloadProjectOnly() {
   try {
     project.value = await projectsApi.getProject(orgSlug.value, projectSlug.value);
   } catch {
-    /* ignore */
+    // 全局 request 已提示
   }
 }
 
@@ -255,8 +254,8 @@ async function doDeploy(environmentId: string) {
     await projectsApi.triggerDeploy(orgSlug.value, projectSlug.value, { environmentId });
     uni.showToast({ title: '已触发', icon: 'success' });
     deployments.value = await projectsApi.listDeployments(orgSlug.value, projectSlug.value);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '触发失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   }
 }
 
@@ -270,8 +269,8 @@ function confirmDelete() {
         await projectsApi.deleteProject(orgSlug.value, projectSlug.value);
         uni.showToast({ title: '已删除', icon: 'success' });
         setTimeout(() => uni.navigateBack(), 400);
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '删除失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });
@@ -301,8 +300,8 @@ async function addBuildEnv() {
     newEnv.value = { key: '', value: '' };
     buildEnvVars.value = await projectsApi.listProjectBuildEnv(orgSlug.value, projectSlug.value);
     uni.showToast({ title: '已添加', icon: 'success' });
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     envSaving.value = false;
   }
@@ -313,8 +312,8 @@ async function removeBuildEnv(id: string) {
     await projectsApi.deleteProjectBuildEnv(orgSlug.value, projectSlug.value, id);
     buildEnvVars.value = await projectsApi.listProjectBuildEnv(orgSlug.value, projectSlug.value);
     uni.showToast({ title: '已删除', icon: 'success' });
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   }
 }
 </script>

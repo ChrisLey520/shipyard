@@ -36,7 +36,9 @@ export async function getDeploymentDetail(
   deploymentId: string,
 ) {
   return http
-    .get<DeploymentDetail>(`/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}`)
+    .get<DeploymentDetail>(`/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}`, {
+      shipyard: { silent: true },
+    })
     .then((r) => r.data);
 }
 
@@ -48,6 +50,7 @@ export async function getDeploymentLogs(
   return http
     .get<DeploymentLogLine[]>(
       `/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}/logs`,
+      { shipyard: { silent: true } },
     )
     .then((r) => r.data);
 }

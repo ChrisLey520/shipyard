@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios';
 import type { ServerOs } from '@shipyard/shared';
 import { http } from '../client';
 
@@ -13,8 +14,8 @@ export interface ServerItem {
   createdAt?: string;
 }
 
-export async function listServers(orgSlug: string) {
-  return http.get<ServerItem[]>(`/orgs/${orgSlug}/servers`).then((r) => r.data);
+export async function listServers(orgSlug: string, config?: AxiosRequestConfig) {
+  return http.get<ServerItem[]>(`/orgs/${orgSlug}/servers`, config).then((r) => r.data);
 }
 
 export async function createServer(orgSlug: string, payload: Record<string, unknown>) {

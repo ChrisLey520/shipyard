@@ -30,6 +30,7 @@ export async function getDeploymentDetail(
 ) {
   return request<DeploymentDetail>({
     url: `/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}`,
+    shipyard: { silent: true },
   });
 }
 
@@ -40,5 +41,6 @@ export async function getDeploymentLogs(
 ) {
   return request<DeploymentLogLine[]>({
     url: `/orgs/${orgSlug}/projects/${projectSlug}/deployments/${deploymentId}/logs`,
+    shipyard: { silent: true },
   });
 }

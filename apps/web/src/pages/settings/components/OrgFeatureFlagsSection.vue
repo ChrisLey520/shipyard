@@ -71,7 +71,7 @@ async function load() {
   try {
     rows.value = await listFeatureFlags(props.orgSlug);
   } catch {
-    message.error('加载失败');
+    rows.value = [];
   } finally {
     loading.value = false;
   }
@@ -123,7 +123,7 @@ async function submit() {
     showModal.value = false;
     await load();
   } catch {
-    message.error('保存失败');
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     saving.value = false;
   }
@@ -135,7 +135,7 @@ async function removeRow(id: string) {
     message.success('已删除');
     await load();
   } catch {
-    message.error('删除失败');
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 

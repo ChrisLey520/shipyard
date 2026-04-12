@@ -6,8 +6,11 @@ export interface KubernetesClusterRow {
   createdAt: string;
 }
 
-export async function listKubernetesClusters(orgSlug: string) {
-  return request<KubernetesClusterRow[]>({ url: `/orgs/${orgSlug}/kubernetes-clusters` });
+export async function listKubernetesClusters(orgSlug: string, options?: { silent?: boolean }) {
+  return request<KubernetesClusterRow[]>({
+    url: `/orgs/${orgSlug}/kubernetes-clusters`,
+    ...(options?.silent ? { shipyard: { silent: true } } : {}),
+  });
 }
 
 export async function createKubernetesCluster(orgSlug: string, body: { name: string; kubeconfig: string }) {

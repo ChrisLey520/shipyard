@@ -204,11 +204,14 @@ async function handleBeforeUpload(options: { file: UploadFileInfo }) {
     // 立即更新 UI（避免依赖 fetchMe 或浏览器缓存）
     if (auth.user) auth.user = { ...auth.user, avatarUrl: newAvatarUrl };
     avatarBust.value = Date.now();
-    await auth.fetchMe().catch(() => {});
+    try {
+      await auth.fetchMe();
+    } catch {
+      /* 资料刷新失败可忽略，头像已本地更新 */
+    }
     message.success(t('settings.avatarUpdated'));
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? t('settings.uploadFailed'));
+  } catch {
+    /* 上传失败由全局 axios 拦截器提示 */
   } finally {
     uploadingAvatar.value = false;
   }
@@ -264,9 +267,8 @@ async function handleChangePassword() {
         });
       },
     });
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? t('settings.changePasswordFailed'));
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     changingPassword.value = false;
   }

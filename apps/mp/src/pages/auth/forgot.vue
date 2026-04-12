@@ -8,8 +8,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { authApi } from '@/api/auth';
-import { HttpError } from '@/api/http';
-
 const email = ref('');
 const loading = ref(false);
 
@@ -22,9 +20,8 @@ async function submit() {
   try {
     await authApi.forgotPassword(email.value.trim());
     uni.showToast({ title: '已发送（若邮箱存在）', icon: 'none' });
-  } catch (e) {
-    const msg = e instanceof HttpError ? e.message : '请求失败';
-    uni.showToast({ title: msg, icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }

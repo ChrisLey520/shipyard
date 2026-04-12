@@ -38,7 +38,6 @@
 import { ref, watch } from 'vue';
 import * as featureApi from '@/api/feature-flags';
 import type { FeatureFlagRow } from '@/api/feature-flags';
-import { HttpError } from '@/api/http';
 
 const props = defineProps<{ orgSlug: string }>();
 
@@ -54,8 +53,8 @@ async function load() {
   loading.value = true;
   try {
     rows.value = await featureApi.listFeatureFlags(props.orgSlug);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -116,8 +115,8 @@ async function submit() {
     uni.showToast({ title: '已保存', icon: 'success' });
     showModal.value = false;
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }
@@ -133,8 +132,8 @@ function removeRow(id: string) {
         await featureApi.deleteFeatureFlag(props.orgSlug, id);
         uni.showToast({ title: '已删除', icon: 'success' });
         await load();
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });

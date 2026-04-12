@@ -14,7 +14,6 @@
 import { ref } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
-import { HttpError } from '@/api/http';
 import { reLaunchAfterAuth } from '@/utils/redirectLogin';
 
 const auth = useAuthStore();
@@ -38,9 +37,8 @@ async function onRegister() {
   try {
     await auth.register(name.value.trim(), email.value.trim(), password.value);
     reLaunchAfterAuth(redirectParam.value);
-  } catch (e) {
-    const msg = e instanceof HttpError ? e.message : '注册失败';
-    uni.showToast({ title: msg, icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }

@@ -1,6 +1,7 @@
 import { rawRequest, request } from './http';
 
-const authFormShipyard = { silent: true, skipAuthRefresh: true } as const;
+/** 公开鉴权：不 refresh；错误由 request 全局 UI 展示（与 Web axios 对齐） */
+const authPublicShipyard = { skipAuthRefresh: true } as const;
 
 export interface TokenPair {
   accessToken: string;
@@ -17,10 +18,10 @@ export interface AuthUser {
 
 export const authApi = {
   register: (data: { name: string; email: string; password: string }) =>
-    request<TokenPair>({ url: '/auth/register', method: 'POST', data, shipyard: authFormShipyard }),
+    request<TokenPair>({ url: '/auth/register', method: 'POST', data, shipyard: authPublicShipyard }),
 
   login: (data: { email: string; password: string }) =>
-    request<TokenPair>({ url: '/auth/login', method: 'POST', data, shipyard: authFormShipyard }),
+    request<TokenPair>({ url: '/auth/login', method: 'POST', data, shipyard: authPublicShipyard }),
 
   refresh: (rt: string) =>
     rawRequest<TokenPair>({
@@ -45,7 +46,7 @@ export const authApi = {
       url: '/auth/forgot-password',
       method: 'POST',
       data: { email },
-      shipyard: authFormShipyard,
+      shipyard: authPublicShipyard,
     }),
 
   resetPassword: (token: string, password: string) =>
@@ -53,7 +54,7 @@ export const authApi = {
       url: '/auth/reset-password',
       method: 'POST',
       data: { token, password },
-      shipyard: authFormShipyard,
+      shipyard: authPublicShipyard,
     }),
 
   changePassword: (oldPassword: string, newPassword: string) =>
@@ -61,6 +62,5 @@ export const authApi = {
       url: '/auth/change-password',
       method: 'POST',
       data: { oldPassword, newPassword },
-      shipyard: { silent: true },
     }),
 };

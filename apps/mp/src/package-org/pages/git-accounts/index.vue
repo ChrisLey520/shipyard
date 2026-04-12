@@ -37,7 +37,6 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as gitApi from '@/api/git-accounts';
 import type { GitAccountItem } from '@/api/git-accounts';
-import { HttpError } from '@/api/http';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
@@ -62,8 +61,8 @@ async function load() {
   loading.value = true;
   try {
     accounts.value = await gitApi.listGitAccounts(orgSlug.value);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     loading.value = false;
   }
@@ -89,8 +88,8 @@ async function submit() {
     showCreate.value = false;
     form.value = { name: '', gitProvider: 'github', baseUrl: '', gitUsername: '', accessToken: '' };
     await load();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }
@@ -105,8 +104,8 @@ function confirmDelete(g: GitAccountItem) {
         await gitApi.deleteGitAccount(orgSlug.value, g.id);
         uni.showToast({ title: '已删除', icon: 'success' });
         await load();
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });

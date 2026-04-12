@@ -40,6 +40,8 @@ async function handleSubmit() {
   try {
     await requestResetEmail(email.value);
     sent.value = true;
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     loading.value = false;
   }

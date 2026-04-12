@@ -86,9 +86,8 @@ async function handleInvite() {
     await sendInvite(inviteForm.value);
     message.success('邀请已发送');
     showInvite.value = false;
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '邀请失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 

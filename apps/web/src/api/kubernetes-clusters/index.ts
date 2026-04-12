@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios';
 import { http } from '../client';
 
 export interface KubernetesClusterRow {
@@ -7,8 +8,10 @@ export interface KubernetesClusterRow {
   updatedAt: string;
 }
 
-export async function listKubernetesClusters(orgSlug: string) {
-  return http.get<KubernetesClusterRow[]>(`/orgs/${orgSlug}/kubernetes-clusters`).then((r) => r.data);
+export async function listKubernetesClusters(orgSlug: string, config?: AxiosRequestConfig) {
+  return http
+    .get<KubernetesClusterRow[]>(`/orgs/${orgSlug}/kubernetes-clusters`, config)
+    .then((r) => r.data);
 }
 
 export async function createKubernetesCluster(

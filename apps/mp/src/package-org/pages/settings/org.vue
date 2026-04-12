@@ -50,7 +50,6 @@ import * as settingsApi from '@/api/settings';
 import type { OrgSettings } from '@/api/settings';
 import * as k8sApi from '@/api/kubernetes-clusters';
 import type { KubernetesClusterRow } from '@/api/kubernetes-clusters';
-import { HttpError } from '@/api/http';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 import OrgFeatureFlagsBlock from '@/package-org/components/OrgFeatureFlagsBlock.vue';
 
@@ -73,7 +72,7 @@ onLoad((q) => {
 async function loadK8s() {
   if (!orgSlug.value) return;
   try {
-    k8sClusters.value = await k8sApi.listKubernetesClusters(orgSlug.value);
+    k8sClusters.value = await k8sApi.listKubernetesClusters(orgSlug.value, { silent: true });
   } catch {
     k8sClusters.value = [];
   }
@@ -90,8 +89,8 @@ watch(
       buildConcurrencyStr.value = String(o.buildConcurrency);
       retentionStr.value = String(o.artifactRetention);
       await loadK8s();
-    } catch (e) {
-      uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+    } catch {
+      // 全局 request 已提示
     } finally {
       loading.value = false;
     }
@@ -118,8 +117,8 @@ async function saveK8s() {
     uni.showToast({ title: '已保存', icon: 'success' });
     showK8s.value = false;
     await loadK8s();
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     k8sSaving.value = false;
   }
@@ -135,8 +134,8 @@ function removeK8s(id: string) {
         await k8sApi.deleteKubernetesCluster(orgSlug.value, id);
         uni.showToast({ title: '已删除', icon: 'success' });
         await loadK8s();
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });
@@ -185,8 +184,8 @@ async function save() {
       });
     }
     uni.showToast({ title: '已保存', icon: 'success' });
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }

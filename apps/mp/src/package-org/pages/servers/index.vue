@@ -50,7 +50,6 @@ import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import * as serversApi from '@/api/servers';
 import type { ServerItem } from '@/api/servers';
-import { HttpError } from '@/api/http';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
@@ -79,8 +78,8 @@ watch(
     loading.value = true;
     try {
       servers.value = await serversApi.listServers(s);
-    } catch (e) {
-      uni.showToast({ title: e instanceof HttpError ? e.message : '加载失败', icon: 'none' });
+    } catch {
+      // 全局 request 已提示
     } finally {
       loading.value = false;
     }
@@ -123,8 +122,8 @@ function confirmDelete(s: ServerItem) {
         await serversApi.deleteServer(orgSlug.value, s.id);
         uni.showToast({ title: '已删除', icon: 'success' });
         servers.value = await serversApi.listServers(orgSlug.value);
-      } catch (e) {
-        uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+      } catch {
+        // 全局 request 已提示
       }
     },
   });
@@ -167,8 +166,8 @@ async function submit() {
     }
     closeForm();
     servers.value = await serversApi.listServers(orgSlug.value);
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   } finally {
     saving.value = false;
   }
@@ -178,8 +177,8 @@ async function testConn(id: string) {
   try {
     const r = await serversApi.testServer(orgSlug.value, id);
     uni.showToast({ title: r.success ? r.message : r.message, icon: r.success ? 'success' : 'none' });
-  } catch (e) {
-    uni.showToast({ title: e instanceof HttpError ? e.message : '测试失败', icon: 'none' });
+  } catch {
+    // 全局 request 已提示
   }
 }
 </script>

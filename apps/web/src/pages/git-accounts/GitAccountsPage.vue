@@ -158,12 +158,8 @@ async function load() {
   loading.value = true;
   try {
     accounts.value = await gitApi.listGitAccounts();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(
-      e?.response?.data?.message ??
-        '加载失败。若刚升级过代码，请在服务器执行：pnpm --filter @shipyard/server db:migrate',
-    );
+  } catch {
+    accounts.value = [];
   } finally {
     loading.value = false;
   }
@@ -173,9 +169,8 @@ async function oauthConnect(provider: string) {
   try {
     const url = await gitApi.startGitOAuth(provider);
     window.location.href = url;
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '无法发起 OAuth（请检查服务端环境变量与回调地址）');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
@@ -229,9 +224,8 @@ async function save() {
     }
     showModal.value = false;
     await load();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '操作失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     saving.value = false;
   }
@@ -242,9 +236,8 @@ async function testRepos(acc: GitAccountItem) {
   try {
     const repos = await gitApi.listReposForGitAccount(acc.id);
     message.success(`连通成功（可访问 ${repos.length} 个仓库）`);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '连通测试失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     testingId.value = null;
   }
