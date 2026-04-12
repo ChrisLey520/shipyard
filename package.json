@@ -6,6 +6,8 @@
   "scripts": {
     "dev:server": "pnpm --filter @shipyard/server dev",
     "dev:web": "pnpm --filter @shipyard/web dev",
+    "dev:mp": "pnpm --filter @shipyard/mp dev:mp-weixin",
+    "build:mp-weixin": "pnpm --filter @shipyard/mp build:mp-weixin",
     "dev:worker": "pnpm --filter @shipyard/server worker",
     "build": "pnpm -r build",
     "lint": "eslint apps/web/src apps/server/src packages/shared/src --cache --max-warnings 0",

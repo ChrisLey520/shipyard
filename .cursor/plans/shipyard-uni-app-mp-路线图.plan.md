@@ -4,31 +4,31 @@ overview: 在 monorepo 新增 apps/mp（Vue3+Vite+TS+uni-app），按 DDD 与 ap
 todos:
   - id: scaffold-mp
     content: 新增 apps/mp（uni-app Vue3+Vite+TS），接入 pnpm、Pinia、TanStack Query、Wot Design Uni、UnoCSS+unocss-applet
-    status: pending
+    status: completed
   - id: http-auth
     content: 实现 uni.request 封装 + JWT/refresh 拦截器（对齐 apps/web/src/api/client.ts 与 stores/auth）
-    status: pending
+    status: completed
   - id: pages-auth-orgs
     content: 落地认证四页 + 组织列表/上下文 + pages.json 分包结构
-    status: pending
+    status: completed
   - id: pages-project-env
     content: 镜像 api/projects、environments 与 composables，实现项目列表/新建/详情/环境页
-    status: pending
+    status: completed
   - id: deployment-logs
     content: PR4 前完成 Socket PoC；部署详情页按定案实现实时日志或轮询/新 API；弃用 xterm 改为只读日志列表
-    status: pending
+    status: completed
   - id: pages-infra
     content: 服务器、团队、审批、Git 账户、组织设置、个人设置等与其余 api/* 全面对齐
-    status: pending
+    status: completed
   - id: charts-i18n
     content: 仪表盘 ECharts 小程序适配 + vue-i18n 消息对齐 Web
-    status: pending
+    status: completed
   - id: docs-release
     content: README 小程序域名与构建说明；CHANGELOG/必要时 ADR 记录日志方案与 breaking
-    status: pending
+    status: completed
   - id: root-scripts-ci
     content: 根 package.json 增加 dev:mp / build:mp-weixin 等；CI 自动上传微信为可选（首版以本地构建+体验版为主）
-    status: pending
+    status: completed
 isProject: false
 ---
 

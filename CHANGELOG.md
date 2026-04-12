@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mini program**：`apps/mp`（uni-app + 微信小程序），`uni.request` 防腐层、JWT refresh 队列、组织分包与仪表盘/项目/环境/部署日志（轮询）/服务器/团队/审批/Git 账户/组织与个人设置；构建入口 `pnpm dev:mp` / `pnpm build:mp-weixin`。仪表盘近 7 日部署量为 **CSS 柱状图**（非 ECharts；后续可接 `lime-echart` 等小程序图表方案）。
 - **Deploy（SSR + blue_green）**：Linux 且配置域名时，常规环境与预览对齐：**双槽 PM2**（`sh-env-<slug>-<env>-bg0/bg1`）、**按环境稳定本地端口**、rsync 至 `.shipyard-bg*`，**Nginx 原子切换**；**外网健康检查与 Prometheus 门禁通过后再摘除旧槽/direct 进程**，失败时回滚 Nginx 并删除候选 PM2。
 - **Docs**：ADR [docs/adr/0001-kubernetes-secrets-and-deploy-worker.md](docs/adr/0001-kubernetes-secrets-and-deploy-worker.md)（kubeconfig 临时文件、Worker 权限边界、RBAC 建议）。
 

@@ -1,0 +1,64 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^wd-(.*)": "wot-design-uni/components/wd-$1/wd-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/auth/login",
+      "style": { "navigationBarTitleText": "登录" }
+    },
+    {
+      "path": "pages/auth/register",
+      "style": { "navigationBarTitleText": "注册" }
+    },
+    {
+      "path": "pages/auth/forgot",
+      "style": { "navigationBarTitleText": "忘记密码" }
+    },
+    {
+      "path": "pages/auth/reset",
+      "style": { "navigationBarTitleText": "重置密码" }
+    },
+    {
+      "path": "pages/orgs/list",
+      "style": { "navigationBarTitleText": "组织" }
+    },
+    {
+      "path": "pages/settings/personal",
+      "style": { "navigationBarTitleText": "个人设置" }
+    }
+  ],
+  "subPackages": [
+    {
+      "root": "package-org",
+      "pages": [
+        { "path": "pages/dashboard/index", "style": { "navigationBarTitleText": "仪表盘" } },
+        { "path": "pages/projects/list", "style": { "navigationBarTitleText": "项目" } },
+        { "path": "pages/projects/new", "style": { "navigationBarTitleText": "新建项目" } },
+        { "path": "pages/projects/detail", "style": { "navigationBarTitleText": "项目详情" } },
+        { "path": "pages/projects/environments", "style": { "navigationBarTitleText": "环境" } },
+        { "path": "pages/projects/deployment-detail", "style": { "navigationBarTitleText": "部署" } },
+        { "path": "pages/servers/index", "style": { "navigationBarTitleText": "服务器" } },
+        { "path": "pages/team/index", "style": { "navigationBarTitleText": "团队" } },
+        { "path": "pages/approvals/index", "style": { "navigationBarTitleText": "审批" } },
+        { "path": "pages/git-accounts/index", "style": { "navigationBarTitleText": "Git 账户" } },
+        { "path": "pages/settings/org", "style": { "navigationBarTitleText": "组织设置" } }
+      ]
+    }
+  ],
+  "preloadRule": {
+    "pages/orgs/list": {
+      "network": "all",
+      "packages": ["package-org"]
+    }
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "Shipyard",
+    "navigationBarBackgroundColor": "#F8F8F8",
+    "backgroundColor": "#F8F8F8"
+  }
+}
