@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import App from './App.vue';
 import { setupI18n } from './i18n';
+import { setupMonitoring } from './lib/setupMonitoring';
 import 'virtual:uno.css';
 
 const queryClient = new QueryClient({
@@ -16,5 +17,6 @@ export function createApp() {
   app.use(createPinia());
   app.use(VueQueryPlugin, { queryClient });
   app.use(setupI18n());
+  setupMonitoring(app);
   return { app };
 }

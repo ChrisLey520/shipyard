@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("MONITORING_DATABASE_URL")
+}
+
+model MonitoringProject {
+  id          String            @id @default(cuid())
+  projectKey  String            @unique
+  ingestToken String
+  createdAt   DateTime          @default(now())
+  events      MonitoringEvent[]
+}
+
+model MonitoringEvent {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    MonitoringProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  eventId    String
+  receivedAt DateTime @default(now())
+  clientTs   String?
+  type       String
+  platform   String
+  release    String?
+  route      String?
+  message    String?
+  payload    String
+  raw        String
+
+  @@unique([projectId, eventId])
+  @@index([projectId, receivedAt])
+}

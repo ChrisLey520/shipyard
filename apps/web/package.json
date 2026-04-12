@@ -11,6 +11,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@shipyard/monitoring-sdk": "workspace:*",
     "@shipyard/shared": "workspace:*",
     "@tanstack/vue-query": "^5.51.0",
     "@vicons/ionicons5": "^0.13.0",

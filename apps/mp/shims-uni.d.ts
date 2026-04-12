@@ -1,6 +1,16 @@
 /// <reference types='@dcloudio/types' />
 import 'vue'
 
+interface ImportMetaEnv {
+  readonly VITE_MONITORING_ENABLED?: string;
+  readonly VITE_MONITORING_DISABLED?: string;
+  readonly VITE_MONITORING_ENDPOINT?: string;
+  readonly VITE_MONITORING_PROJECT_KEY?: string;
+  readonly VITE_MONITORING_INGEST_TOKEN?: string;
+  readonly VITE_MONITORING_RELEASE?: string;
+  readonly UNI_PLATFORM?: string;
+}
+
 declare module '@vue/runtime-core' {
   type Hooks = App.AppInstance & Page.PageInstance;
 

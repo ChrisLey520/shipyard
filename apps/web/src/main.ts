@@ -6,6 +6,7 @@ import App from './App.vue';
 import router from './router';
 import { i18n } from './i18n';
 import { useLocaleStore } from './stores/locale';
+import { setupMonitoring } from './lib/setupMonitoring';
 
 const app = createApp(App);
 
@@ -25,4 +26,5 @@ app.use(VueQueryPlugin, {
 });
 
 useLocaleStore(pinia).initLocale();
+setupMonitoring(app);
 app.mount('#app');
