@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { User } from '@prisma/client';
+import { Prisma, type User } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import type {
   AuthPersistence,
@@ -26,11 +26,18 @@ export class PrismaAuthPersistence implements AuthPersistence {
   }
 
   async findUserByEmail(email: string): Promise<AuthUserCredentials | null> {
-    const u = await this.prisma.user.findUnique({
-      where: { email },
-      select: { id: true, email: true, passwordHash: true },
-    });
-    return u;
+    const key = email.trim().toLowerCase();
+    const rows = await this.prisma.$queryRaw<{ id: string; email: string; passwordHash: string | null }[]>(
+      Prisma.sql`
+        SELECT id, email, "passwordHash"
+        FROM "User"
+        WHERE LOWER(TRIM(email)) = ${key}
+        LIMIT 1
+      `,
+    );
+    const u = rows[0];
+    if (!u) return null;
+    return { id: u.id, email: u.email, passwordHash: u.passwordHash };
   }
 
   async createUser(data: {
@@ -126,6 +133,8 @@ export class PrismaAuthPersistence implements AuthPersistence {
         email: true,
         avatarUrl: true,
         locale: true,
+        themeId: true,
+        colorMode: true,
         createdAt: true,
       },
     });

@@ -15,8 +15,8 @@ import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
 import { mkdirSync } from 'fs';
 import type { Request } from 'express';
-import { IsIn, IsString } from 'class-validator';
-import { supportedLocales } from '@shipyard/shared';
+import { IsIn, IsOptional, IsString } from 'class-validator';
+import { supportedLocales, USER_COLOR_MODES, USER_THEME_IDS } from '@shipyard/shared';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
@@ -29,9 +29,20 @@ function ensureAvatarDir() {
 }
 
 class UpdateMeBody {
+  @IsOptional()
   @IsString()
   @IsIn([...supportedLocales])
-  locale!: string;
+  locale?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...USER_THEME_IDS])
+  themeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...USER_COLOR_MODES])
+  colorMode?: string;
 }
 
 @ApiTags('用户')
@@ -42,9 +53,18 @@ export class UsersController {
   @Patch('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '更新当前用户信息（语言）' })
+  @ApiOperation({ summary: '更新当前用户偏好（语言 / 主题色调 / 深浅模式，至少一项）' })
   async updateMe(@CurrentUser() user: User, @Body() body: UpdateMeBody) {
-    return this.usersApplication.updateLocale(user.id, body.locale);
+    const has =
+      body.locale !== undefined || body.themeId !== undefined || body.colorMode !== undefined;
+    if (!has) {
+      throw new BadRequestException('请至少提供 locale、themeId、colorMode 之一');
+    }
+    return this.usersApplication.updateMe(user.id, {
+      locale: body.locale,
+      themeId: body.themeId,
+      colorMode: body.colorMode,
+    });
   }
 
   @Post('me/avatar')

@@ -7,10 +7,21 @@ export class UsersApplicationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async updateLocale(userId: string, locale: string) {
+    return this.updateMe(userId, { locale });
+  }
+
+  async updateMe(
+    userId: string,
+    patch: { locale?: string; themeId?: string; colorMode?: string },
+  ) {
     return this.prisma.user.update({
       where: { id: userId },
-      data: { locale },
-      select: { locale: true },
+      data: {
+        ...(patch.locale !== undefined ? { locale: patch.locale } : {}),
+        ...(patch.themeId !== undefined ? { themeId: patch.themeId } : {}),
+        ...(patch.colorMode !== undefined ? { colorMode: patch.colorMode } : {}),
+      },
+      select: { locale: true, themeId: true, colorMode: true },
     });
   }
 

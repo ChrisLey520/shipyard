@@ -16,6 +16,8 @@ model User {
   passwordHash String?
   avatarUrl    String?
   locale       String?
+  themeId      String? // fresh | ocean | violet，与 Web/MP 主题 store 对齐
+  colorMode    String? // auto | light | dark
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

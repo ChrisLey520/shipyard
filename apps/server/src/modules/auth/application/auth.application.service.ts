@@ -26,11 +26,16 @@ export class AuthApplicationService {
   ) {}
 
   async register(name: string, email: string, password: string) {
-    const existing = await this.persistence.findUserByEmail(email);
+    const normEmail = email.trim().toLowerCase();
+    const existing = await this.persistence.findUserByEmail(normEmail);
     if (existing) throw new ConflictException('邮箱已被注册');
 
     const passwordHash = await this.passwordHasher.hash(password, 12);
-    const user = await this.persistence.createUser({ name, email, passwordHash });
+    const user = await this.persistence.createUser({
+      name: name.trim(),
+      email: normEmail,
+      passwordHash,
+    });
 
     return this.issueTokens(user.id, user.email);
   }
@@ -76,7 +81,7 @@ export class AuthApplicationService {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await this.persistence.insertPasswordReset({ userId: user.id, token, expiresAt });
 
-    await this.mailer.sendPasswordReset(email, token);
+    await this.mailer.sendPasswordReset(user.email, token);
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
