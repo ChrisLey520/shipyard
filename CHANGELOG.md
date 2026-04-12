@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **API 错误契约（@shipyard/shared）**：`ShipyardErrorResponse` / `ShipyardApiErrorBody` 支持可选 **`errorDisplay`**（`message` | `modal` | `silent` | `redirect`）与 **`redirectPath`**；`isShipyardAuthPublicApiPath` 统一公开鉴权路径判断。Web **`axios` 拦截器**按契约与 HTTP 状态展示 **Naive message / dialog**、**401 刷新失败后整页跳转登录**（登录/注册等公开接口 **不误触发 refresh**）；请求可设 **`shipyard.silent` / `errorDisplay` / `skipAuthRefresh`**。小程序 **`request`** 对齐 **`uni.showToast` / `showModal`**、会话失效 **`reLaunch` 登录**；鉴权 API 默认 **silent** 避免与表单提示重复。
 - **Mini program**：对齐 Web 的项目治理能力——项目详情 **概览 / 部署 / 通知 / 特性** Tab，项目与流水线/构建变量编辑，项目通知 API；组织设置 **Kubernetes 集群** 与 **组织级特性开关**、slug 可改；服务器 **编辑/删除**；登录支持 **`redirect` 回跳**（路径白名单）；**access 刷新失败** 时跳转登录并携带当前页回跳意图。
 - **FeatureFlag**：数据库 **部分唯一索引**（组织级 `organizationId + key` 且 `projectId IS NULL`；项目级 `projectId + key` 且 `projectId IS NOT NULL`）。
 - **releaseConfig / 门禁**：Prometheus `gates.prometheus.queryUrl` **仅允许 `https://`**（Zod + 运行时校验）。

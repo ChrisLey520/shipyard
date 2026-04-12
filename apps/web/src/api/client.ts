@@ -1,5 +1,22 @@
-import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import axios, { type AxiosInstance, type InternalAxiosRequestConfig, isAxiosError } from 'axios';
+import { isShipyardAuthPublicApiPath } from '@shipyard/shared';
 import { useAuthStore } from '../stores/auth';
+import {
+  applyShipyardAxiosError,
+  applyShipyardNetworkError,
+  applyShipyardSessionExpiredRedirect,
+  type ShipyardAxiosMeta,
+} from '../common/http-error-ui';
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /** Shipyard 统一错误呈现与鉴权刷新策略 */
+    shipyard?: ShipyardAxiosMeta;
+  }
+  export interface InternalAxiosRequestConfig {
+    _retry?: boolean;
+  }
+}
 
 export const http: AxiosInstance = axios.create({
   baseURL: '/api',
@@ -7,7 +24,13 @@ export const http: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 请求拦截：自动附加 JWT
+function shouldSkipAuthRefresh(config: InternalAxiosRequestConfig | undefined): boolean {
+  if (!config) return true;
+  if (config.shipyard?.skipAuthRefresh) return true;
+  const url = config.url ?? '';
+  return isShipyardAuthPublicApiPath(url);
+}
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) {
@@ -16,19 +39,17 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截：401 时尝试刷新 Token
 let isRefreshing = false;
 let refreshQueue: Array<(token: string | null) => void> = [];
-
-interface RetryableConfig extends InternalAxiosRequestConfig {
-  _retry?: boolean;
-}
 
 http.interceptors.response.use(
   (res) => res,
   async (error: unknown) => {
-    const axiosError = error as { response?: { status: number }; config?: RetryableConfig };
-    if (axiosError.response?.status === 401 && !axiosError.config?._retry) {
+    const axiosError = isAxiosError(error) ? error : null;
+    const cfg = axiosError?.config;
+    const status = axiosError?.response?.status;
+
+    if (axiosError && status === 401 && cfg && !cfg._retry && !shouldSkipAuthRefresh(cfg)) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           refreshQueue.push((token) => {
@@ -55,10 +76,23 @@ http.interceptors.response.use(
           axiosError.config.headers.set('Authorization', `Bearer ${newToken}`);
           return http(axiosError.config);
         }
+
+        applyShipyardSessionExpiredRedirect();
       } finally {
         isRefreshing = false;
       }
+
+      return Promise.reject(error);
     }
+
+    if (axiosError) {
+      if (axiosError.response) {
+        applyShipyardAxiosError(axiosError);
+      } else {
+        applyShipyardNetworkError();
+      }
+    }
+
     return Promise.reject(error);
   },
 );

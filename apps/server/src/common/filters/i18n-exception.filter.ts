@@ -26,6 +26,7 @@ export class I18nHttpExceptionFilter implements ExceptionFilter {
       if (isErrorCode(code)) {
         const locale = resolveSupportedLocale(request.user?.locale);
         const message = tError(code, locale);
+        // 透传契约字段 errorDisplay / redirectPath，供前端统一错误呈现
         response.status(status).json({ ...payload, message, statusCode: status });
         return;
       }

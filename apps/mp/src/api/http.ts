@@ -1,5 +1,7 @@
 import { getApiBase } from '@/config/env';
+import { isShipyardAuthPublicApiPath } from '@shipyard/shared';
 import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
+import { applyMpHttpErrorUi, applyMpNetworkErrorUi, type MpRequestShipyardMeta } from '@/utils/apiErrorUi';
 import { storage } from '@/utils/storage';
 
 export class HttpError extends Error {
@@ -7,19 +9,22 @@ export class HttpError extends Error {
     message: string,
     readonly statusCode?: number,
     readonly body?: unknown,
+    /** 已处理跳转/会话清理，禁止再弹全局提示 */
+    readonly skipGlobalUi = false,
   ) {
     super(message);
     this.name = 'HttpError';
   }
 }
 
-interface UniRequestOptions {
+export interface UniRequestOptions {
   url: string;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   data?: Record<string, unknown>;
   header?: Record<string, string>;
   skipAuth?: boolean;
   _retry?: boolean;
+  shipyard?: MpRequestShipyardMeta;
 }
 
 function joinUrl(path: string): string {
@@ -33,13 +38,18 @@ function joinUrl(path: string): string {
   return `${base}${p}`;
 }
 
+function shouldSkipAuthRefresh(opts: UniRequestOptions): boolean {
+  if (opts.skipAuth) return true;
+  if (opts.shipyard?.skipAuthRefresh) return true;
+  return isShipyardAuthPublicApiPath(opts.url);
+}
+
 /** 无 401 拦截，用于 refresh */
 export function rawRequest<T>(opts: UniRequestOptions): Promise<T> {
   const url = joinUrl(opts.url);
   return new Promise((resolve, reject) => {
     uni.request({
       url,
-      // uni-app 类型定义未包含 PATCH，运行时各端支持情况以官方文档为准
       method: (opts.method ?? 'GET') as UniApp.RequestOptions['method'],
       data: opts.data,
       header: {
@@ -73,6 +83,7 @@ async function refreshAccessToken(): Promise<string | null> {
       method: 'POST',
       data: { refreshToken: rt },
       skipAuth: true,
+      shipyard: { silent: true },
     });
     storage.setTokens(pair.accessToken, pair.refreshToken);
     return pair.accessToken;
@@ -117,8 +128,21 @@ export async function request<T>(opts: UniRequestOptions): Promise<T> {
   try {
     return await uniRequestOnce<T>(opts);
   } catch (e) {
-    if (!(e instanceof HttpError) || e.statusCode !== 401 || opts.skipAuth || opts._retry) {
-      throw e;
+    const err = e instanceof HttpError ? e : new HttpError(String(e));
+
+    const canTryRefresh =
+      err.statusCode === 401 &&
+      !opts.skipAuth &&
+      !opts._retry &&
+      !shouldSkipAuthRefresh(opts);
+
+    if (!canTryRefresh) {
+      if (err.statusCode !== undefined) {
+        applyMpHttpErrorUi(err, { url: opts.url, shipyard: opts.shipyard });
+      } else {
+        applyMpNetworkErrorUi(err.message);
+      }
+      throw err;
     }
 
     if (isRefreshing) {
@@ -127,7 +151,7 @@ export async function request<T>(opts: UniRequestOptions): Promise<T> {
       });
       if (!token) {
         reLaunchToLoginWithRedirect();
-        throw new HttpError('未授权', 401);
+        throw new HttpError('未授权', 401, undefined, true);
       }
       return request<T>({ ...opts, _retry: true });
     }
@@ -139,7 +163,7 @@ export async function request<T>(opts: UniRequestOptions): Promise<T> {
       refreshQueue = [];
       if (!newToken) {
         reLaunchToLoginWithRedirect();
-        throw new HttpError('未授权', 401);
+        throw new HttpError('未授权', 401, undefined, true);
       }
       return request<T>({ ...opts, _retry: true });
     } finally {
