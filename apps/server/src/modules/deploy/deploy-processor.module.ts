@@ -6,9 +6,16 @@ import { GitModule } from '../git/git.module';
 import { RedisModule } from '../../common/redis/redis.module';
 import { PreviewPortPoolService } from './application/preview-port-pool.service';
 import { NotificationsEnqueueModule } from '../notifications/notifications-enqueue.module';
+import { KubernetesClustersModule } from '../kubernetes-clusters/kubernetes-clusters.module';
 
 @Module({
-  imports: [CryptoModule, GitModule, RedisModule, NotificationsEnqueueModule],
+  imports: [
+    CryptoModule,
+    GitModule,
+    RedisModule,
+    NotificationsEnqueueModule,
+    KubernetesClustersModule,
+  ],
   providers: [DeployWorkerService, DeployService, PreviewPortPoolService],
 })
 export class DeployProcessorModule {}
