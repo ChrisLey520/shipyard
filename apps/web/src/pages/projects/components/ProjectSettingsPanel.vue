@@ -1,17 +1,8 @@
 <template>
-  <div style="max-width: 720px">
-    <n-page-header
-      title="项目设置"
-      @back="router.push(`/orgs/${orgSlug}/projects/${projectSlug}`)"
-    >
-      <template #subtitle>
-        <n-text depth="3">{{ project?.name ?? '...' }} · {{ project?.repoFullName ?? '' }}</n-text>
-      </template>
-    </n-page-header>
-
+  <div class="project-settings-panel">
     <n-spin :show="detailLoading && !project">
       <template v-if="project">
-        <n-card title="仓库与 Git" size="small" style="margin-top: 16px">
+        <n-card title="仓库与 Git" size="small" style="margin-top: 8px">
           <n-descriptions label-placement="left" :column="1" size="small">
             <n-descriptions-item label="仓库">{{ project.repoFullName }}</n-descriptions-item>
             <n-descriptions-item label="Provider">{{ project.gitConnection?.gitProvider ?? '—' }}</n-descriptions-item>
@@ -38,7 +29,12 @@
           <n-data-table :columns="buildEnvColumns" :data="buildEnvVars" size="small" />
           <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
             <n-input v-model:value="newBuildEnv.key" placeholder="KEY" style="width: 200px" />
-            <n-input v-model:value="newBuildEnv.value" type="password" placeholder="value" style="flex: 1; min-width: 160px" />
+            <n-input
+              v-model:value="newBuildEnv.value"
+              type="password"
+              placeholder="value"
+              style="flex: 1; min-width: 160px"
+            />
             <n-button type="primary" @click="addBuildEnv">添加</n-button>
           </div>
         </n-card>
@@ -58,7 +54,6 @@
 import { ref, reactive, computed, watch, h } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
-  NPageHeader,
   NCard,
   NButton,
   NText,
@@ -72,12 +67,12 @@ import {
   type DataTableColumns,
 } from 'naive-ui';
 import { useQueryClient } from '@tanstack/vue-query';
-import ProjectSettingsFormFields from './components/ProjectSettingsFormFields.vue';
+import ProjectSettingsFormFields from './ProjectSettingsFormFields.vue';
 import {
   emptyProjectEditForm,
   projectDetailToEditForm,
   type ProjectEditFormValues,
-} from './projectEditForm';
+} from '../projectEditForm';
 import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
 import {
@@ -198,7 +193,7 @@ async function onSave() {
       refetchDeployments: () => deploymentsQuery.refetch(),
       loadBuildEnv,
       pathAfterSlugChange: (newSlug) =>
-        `/orgs/${orgSlug.value}/projects/${newSlug}/settings`,
+        `/orgs/${orgSlug.value}/projects/${newSlug}?tab=settings`,
     });
   } finally {
     saving.value = false;
@@ -222,3 +217,9 @@ function confirmDeleteProject() {
   });
 }
 </script>
+
+<style scoped>
+.project-settings-panel {
+  max-width: 720px;
+}
+</style>

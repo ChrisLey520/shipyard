@@ -1,14 +1,6 @@
 <template>
   <div>
     <n-page-header :title="project?.name ?? '...'" @back="router.push(`/orgs/${orgSlug}/projects`)">
-      <template #extra>
-        <n-space>
-          <n-button @click="openEditProject">快速编辑</n-button>
-          <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/settings`)">
-            设置
-          </n-button>
-        </n-space>
-      </template>
       <template #subtitle>
         <n-text depth="3">{{ project?.repoFullName }}</n-text>
       </template>
@@ -165,16 +157,11 @@
           style="margin-top: 8px"
         />
       </n-tab-pane>
-    </n-tabs>
 
-    <project-edit-modal
-      v-model:show="showEditProject"
-      :saving="savingProject"
-      :initial="editProjectInitial"
-      :server-options="previewServerOptions"
-      :show-pr-preview-section="project?.gitConnection?.gitProvider === 'github'"
-      @save="saveProject"
-    />
+      <n-tab-pane name="settings" tab="设置">
+        <project-settings-panel />
+      </n-tab-pane>
+    </n-tabs>
 
     <environment-modal
       v-model:show="showEnvModal"
@@ -212,17 +199,12 @@ import {
   NModal, NInput,
   type DataTableColumns,
 } from 'naive-ui';
-import ProjectEditModal from './components/ProjectEditModal.vue';
-import {
-  emptyProjectEditForm,
-  projectDetailToEditForm,
-  type ProjectEditFormValues,
-} from './projectEditForm';
 import { deploymentStatusKey, formatDuration } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from './components/EnvironmentModal.vue';
 import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
 import ProjectFeatureFlagsPanel from './components/ProjectFeatureFlagsPanel.vue';
+import ProjectSettingsPanel from './components/ProjectSettingsPanel.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
 import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
@@ -234,8 +216,6 @@ import {
 } from '@/composables/projects/useProjectDetailActions';
 import type { Env, EnvVar } from '@/api/projects/environments';
 import { useEnvironmentsProjectActions } from '@/composables/projects/useEnvironmentsProjectActions';
-import { listServers } from '@/api/servers';
-import { saveProjectSettings } from '@/composables/projects/useProjectSettingsSave';
 import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
@@ -259,7 +239,7 @@ const checkedDeploymentIds = ref<Array<string | number>>([]);
 
 /** 与路由 ?tab= 同步，避免刷新后总是回到「概览」 */
 const activeProjectTab = ref<
-  'overview' | 'environments' | 'deployments' | 'notifications' | 'feature-flags'
+  'overview' | 'settings' | 'environments' | 'deployments' | 'notifications' | 'feature-flags'
 >('overview');
 
 function syncProjectTabFromRoute() {
@@ -268,6 +248,7 @@ function syncProjectTabFromRoute() {
   else if (tab === 'notifications') activeProjectTab.value = 'notifications';
   else if (tab === 'feature-flags') activeProjectTab.value = 'feature-flags';
   else if (tab === 'environments') activeProjectTab.value = 'environments';
+  else if (tab === 'settings') activeProjectTab.value = 'settings';
   else activeProjectTab.value = 'overview';
 }
 
@@ -570,56 +551,11 @@ async function loadBuildEnv() {
 }
 
 function goProjectSettings() {
-  void router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/settings`);
-}
-
-// ─── 项目编辑 ───────────────────────────────────────────────────────────────
-
-const showEditProject = ref(false);
-const savingProject = ref(false);
-const previewServerOptions = ref<{ label: string; value: string }[]>([]);
-const editProjectInitial = ref<ProjectEditFormValues>(emptyProjectEditForm());
-
-async function loadPreviewServerOptions() {
-  try {
-    const list = await listServers(orgSlug.value, { shipyard: { silent: true } });
-    previewServerOptions.value = list.map((s) => ({
-      label: `${s.name} (${s.host})`,
-      value: s.id,
-    }));
-  } catch {
-    previewServerOptions.value = [];
-  }
-}
-
-async function openEditProject() {
-  await loadPreviewServerOptions();
-  editProjectInitial.value = projectDetailToEditForm(project.value);
-  showEditProject.value = true;
-}
-
-async function saveProject(v: ProjectEditFormValues) {
-  savingProject.value = true;
-  try {
-    await saveProjectSettings(v, {
-      orgSlug: orgSlug.value,
-      slugBefore: projectSlug.value,
-      project: project.value,
-      api: projectApi,
-      queryClient,
-      router,
-      message,
-      refetchDetail: () => projectDetailQuery.refetch(),
-      refetchDeployments: () => refetchDeployments(),
-      loadBuildEnv,
-      pathAfterSlugChange: (slug) => `/orgs/${orgSlug.value}/projects/${slug}`,
-      onSuccess: () => {
-        showEditProject.value = false;
-      },
-    });
-  } finally {
-    savingProject.value = false;
-  }
+  void router.replace({
+    path: route.path,
+    query: { ...route.query, tab: 'settings' },
+  });
+  activeProjectTab.value = 'settings';
 }
 
 async function refetchDeployments() {
