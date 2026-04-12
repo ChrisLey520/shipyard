@@ -252,7 +252,7 @@ pnpm -r build
 | `direct` / `rolling`、多机 | SSH；`EnvironmentServer` 多行 | 按 `sortOrder` 串行 rsync；`primaryServerId` 或第一台写 Nginx/域名 |
 | `blue_green`（静态） | Linux + 域名 | 槽位目录 `.shipyard-bg0` / `.shipyard-bg1`，切换站点 Nginx root；健康失败回指旧槽 |
 | `blue_green`（SSR） | Linux + 域名 | 双槽目录 `.shipyard-bg0`/`1`、稳定本地端口、PM2 名 `sh-env-<slug>-<env>-bg*`，Nginx 反代切换；外网健康与 Prometheus 通过后再摘除旧槽；多机时仅入口机执行（与静态蓝绿一致） |
-| `canary` | 提供 `nginxCanaryPath` + `nginxCanaryBody` | 原子写片段并重载；未配置时仅记录降级说明 |
+| `canary` | SSH；Linux 入口机；`nginxCanaryPath` | **生成模式**：`canaryPercent` + `nginxCanaryStableUpstream` + `nginxCanaryCandidateUpstream`（主配置中须已有同名 `upstream`），写入 `split_clients`，`server` 内 `proxy_pass http://$shipyard_canary_pool;`。**手写模式**：非空 `nginxCanaryBody` 覆盖生成结果。`nginx -t` 失败时恢复备份文件。详见 [docs/runbooks/canary-nginx.md](docs/runbooks/canary-nginx.md) |
 | Prometheus 门禁 | `gates.prometheus.queryUrl` | GET 后解析 JSON 向量样本；与通知出站相同的 SSRF 校验 |
 | pre/post hooks | SSH | 在入口机 `deployPath` 下 `timeout 120 bash -lc …` |
 | Kubernetes | 组织「Kubernetes 集群」+ 流水线开启镜像推送 | `kubectl set image` + `rollout status`；Worker 需本机 `kubectl` 与可访问集群；凭据面见 [docs/adr/0001-kubernetes-secrets-and-deploy-worker.md](docs/adr/0001-kubernetes-secrets-and-deploy-worker.md) |

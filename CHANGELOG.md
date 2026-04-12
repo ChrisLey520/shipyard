@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Deploy（Canary）**：SSH `strategy: canary` 支持 **`canaryPercent` + `nginxCanaryStableUpstream` + `nginxCanaryCandidateUpstream` 生成** Nginx `split_clients` 片段（`$shipyard_canary_pool`）；非空 **`nginxCanaryBody` 手写优先**；片段写入前 **备份**，**`nginx -t` 失败则恢复** 后再判失败。保存环境时 **`kubernetes` + `canary` 拒绝（400）**。
+- **Web**：环境对话框 **执行器 / 发布策略** 与金丝雀字段，与 JSON 合并写入 `releaseConfig`。
+- **Docs**：金丝雀运维 [docs/runbooks/canary-nginx.md](docs/runbooks/canary-nginx.md)；规划 [.cursor/plans/shipyard-金丝雀发布-需求规格.md](.cursor/plans/shipyard-金丝雀发布-需求规格.md)、[.cursor/plans/shipyard-金丝雀发布-路线图.plan.md](.cursor/plans/shipyard-金丝雀发布-路线图.plan.md)。
+
 ## [0.7.0] - 2026-04-11
 
 ### Added

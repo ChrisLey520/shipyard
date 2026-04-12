@@ -3,7 +3,7 @@
     v-model:show="showProxy"
     :title="modalTitle"
     preset="card"
-    style="width: 540px"
+    style="width: 600px"
     :mask-closable="false"
     :close-on-esc="false"
   >
@@ -104,6 +104,51 @@
         />
       </n-form-item>
 
+      <n-form-item label="执行器">
+        <n-select
+          v-model:value="envForm.executor"
+          :options="executorOptions"
+          placeholder="SSH 或 Kubernetes"
+        />
+      </n-form-item>
+      <n-form-item label="发布策略">
+        <n-select v-model:value="envForm.strategy" :options="strategyOptions" placeholder="direct / 蓝绿 / 滚动 / 金丝雀" />
+      </n-form-item>
+
+      <template v-if="envForm.strategy === 'canary' && envForm.executor === 'ssh'">
+        <n-form-item label="金丝雀片段路径">
+          <n-input
+            v-model:value="envForm.canaryPath"
+            placeholder="/etc/nginx/snippets/myapp-canary.conf"
+          />
+        </n-form-item>
+        <n-form-item label="流量百分比">
+          <n-input-number
+            v-model:value="envForm.canaryPercent"
+            :min="0"
+            :max="100"
+            :step="1"
+            style="width: 100%"
+            placeholder="生成 split_clients 时用；手写片段可忽略"
+          />
+        </n-form-item>
+        <n-form-item label="stable upstream">
+          <n-input v-model:value="envForm.stableUpstream" placeholder="与主配置中 upstream 名一致" />
+        </n-form-item>
+        <n-form-item label="candidate upstream">
+          <n-input v-model:value="envForm.candidateUpstream" placeholder="候选版本 upstream 名" />
+        </n-form-item>
+        <n-form-item label="自定义片段（可选）">
+          <n-input
+            v-model:value="envForm.canaryBodyAdvanced"
+            type="textarea"
+            placeholder="非空则完全使用此处内容，忽略上方百分比与 upstream；仍写入「金丝雀片段路径」"
+            :rows="3"
+            :autosize="{ minRows: 2, maxRows: 8 }"
+          />
+        </n-form-item>
+      </template>
+
       <n-form-item :show-feedback="false">
         <template #label>
           <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%">
@@ -115,8 +160,10 @@
                 </n-button>
               </template>
               <div style="font-size: 12px; line-height: 1.6">
-                可选。缺省与留空等价于 <n-text code>ssh</n-text> + <n-text code>direct</n-text>。
-                Kubernetes 须先在组织下登记集群（API）。
+                可与上方执行器/策略合并保存。缺省与留空等价于 <n-text code>ssh</n-text> +
+                <n-text code>direct</n-text>。金丝雀生成模式须主配置
+                <n-text code>include</n-text> 片段并在 <n-text code>server</n-text> 内使用
+                <n-text code>proxy_pass http://$shipyard_canary_pool;</n-text>。
               </div>
             </n-popover>
           </div>
@@ -155,6 +202,7 @@ import {
   NSpace,
   NPopover,
   NText,
+  NInputNumber,
   useMessage,
 } from 'naive-ui';
 import { serverOsLabel } from '@shipyard/shared';
@@ -180,6 +228,18 @@ const message = useMessage();
 
 const envApi = useEnvironmentsProjectActions(toRef(props, 'orgSlug'), toRef(props, 'projectSlug'));
 
+const executorOptions = [
+  { label: 'SSH', value: 'ssh' },
+  { label: 'Kubernetes', value: 'kubernetes' },
+];
+
+const strategyOptions = [
+  { label: 'direct（直连）', value: 'direct' },
+  { label: 'blue_green（蓝绿）', value: 'blue_green' },
+  { label: 'rolling（滚动/多机）', value: 'rolling' },
+  { label: 'canary（金丝雀）', value: 'canary' },
+];
+
 const showProxy = computed({
   get: () => props.show,
   set: (v: boolean) => emit('update:show', v),
@@ -197,6 +257,13 @@ type EnvFormState = {
   healthCheckUrl: string;
   protected: boolean;
   extraServerIds: string[];
+  executor: 'ssh' | 'kubernetes';
+  strategy: 'direct' | 'blue_green' | 'rolling' | 'canary';
+  canaryPath: string;
+  canaryPercent: number;
+  stableUpstream: string;
+  candidateUpstream: string;
+  canaryBodyAdvanced: string;
   releaseConfigJson: string;
 };
 
@@ -209,6 +276,13 @@ const envForm = ref<EnvFormState>({
   healthCheckUrl: '',
   protected: false,
   extraServerIds: [],
+  executor: 'ssh',
+  strategy: 'direct',
+  canaryPath: '',
+  canaryPercent: 10,
+  stableUpstream: '',
+  candidateUpstream: '',
+  canaryBodyAdvanced: '',
   releaseConfigJson: '',
 });
 
@@ -221,6 +295,40 @@ const extraServerOptions = computed(() =>
   serverOptions.value.filter((o) => o.value !== envForm.value.serverId),
 );
 
+function releaseConfigFormMeta(rc: unknown) {
+  if (!rc || typeof rc !== 'object') {
+    return {
+      executor: 'ssh' as const,
+      strategy: 'direct' as const,
+      canaryPath: '',
+      canaryPercent: 10,
+      stableUpstream: '',
+      candidateUpstream: '',
+      canaryBodyAdvanced: '',
+    };
+  }
+  const o = rc as Record<string, unknown>;
+  const executor = o.executor === 'kubernetes' ? ('kubernetes' as const) : ('ssh' as const);
+  const s = o.strategy;
+  const strategy: EnvFormState['strategy'] =
+    s === 'blue_green' || s === 'rolling' || s === 'canary' ? s : 'direct';
+  const ssh =
+    o.ssh && typeof o.ssh === 'object' && o.ssh !== null
+      ? (o.ssh as Record<string, unknown>)
+      : {};
+  return {
+    executor,
+    strategy,
+    canaryPath: typeof ssh.nginxCanaryPath === 'string' ? ssh.nginxCanaryPath : '',
+    canaryPercent: typeof ssh.canaryPercent === 'number' ? ssh.canaryPercent : 10,
+    stableUpstream:
+      typeof ssh.nginxCanaryStableUpstream === 'string' ? ssh.nginxCanaryStableUpstream : '',
+    candidateUpstream:
+      typeof ssh.nginxCanaryCandidateUpstream === 'string' ? ssh.nginxCanaryCandidateUpstream : '',
+    canaryBodyAdvanced: typeof ssh.nginxCanaryBody === 'string' ? ssh.nginxCanaryBody : '',
+  };
+}
+
 function resetFromInitial() {
   const e = props.initialEnv;
   if (props.mode === 'edit' && e) {
@@ -231,6 +339,7 @@ function resetFromInitial() {
     const extras = targets
       .map((t) => t.serverId)
       .filter((id): id is string => typeof id === 'string' && id.length > 0 && id !== primaryId);
+    const meta = releaseConfigFormMeta(e.releaseConfig);
     envForm.value = {
       name: e.name,
       triggerBranch: e.triggerBranch,
@@ -240,6 +349,13 @@ function resetFromInitial() {
       healthCheckUrl: e.healthCheckUrl ?? '',
       protected: e.protected,
       extraServerIds: extras,
+      executor: meta.executor,
+      strategy: meta.strategy,
+      canaryPath: meta.canaryPath,
+      canaryPercent: meta.canaryPercent,
+      stableUpstream: meta.stableUpstream,
+      candidateUpstream: meta.candidateUpstream,
+      canaryBodyAdvanced: meta.canaryBodyAdvanced,
       releaseConfigJson: releaseConfigToJsonString(e.releaseConfig),
     };
     return;
@@ -253,6 +369,13 @@ function resetFromInitial() {
     healthCheckUrl: '',
     protected: false,
     extraServerIds: [],
+    executor: 'ssh',
+    strategy: 'direct',
+    canaryPath: '',
+    canaryPercent: 10,
+    stableUpstream: '',
+    candidateUpstream: '',
+    canaryBodyAdvanced: '',
     releaseConfigJson: '',
   };
 }
@@ -299,23 +422,74 @@ watch(
   },
 );
 
-/** 编辑时清空文本表示将 releaseConfig 置空；新建时留空表示不传 */
-function parseReleaseConfigField():
+/** 合并 JSON 文本框与执行器/策略/金丝雀表单字段 */
+function composeReleaseConfigForSubmit():
   | { ok: true; value: unknown | undefined | null }
   | { ok: false } {
   const rawTrim = envForm.value.releaseConfigJson.trim();
-  if (!rawTrim) {
-    if (props.mode === 'edit' && props.initialEnv?.releaseConfig != null) {
-      return { ok: true, value: null };
+  let base: Record<string, unknown> = {};
+  if (rawTrim) {
+    try {
+      base = JSON.parse(rawTrim) as Record<string, unknown>;
+    } catch {
+      message.error('发布配置 JSON 无法解析');
+      return { ok: false };
     }
+  }
+
+  const { executor, strategy } = envForm.value;
+
+  if (!rawTrim && props.mode === 'create' && executor === 'ssh' && strategy === 'direct') {
     return { ok: true, value: undefined };
   }
-  try {
-    return { ok: true, value: JSON.parse(rawTrim) as unknown };
-  } catch {
-    message.error('发布配置 JSON 无法解析');
-    return { ok: false };
+
+  if (
+    !rawTrim &&
+    props.mode === 'edit' &&
+    props.initialEnv?.releaseConfig != null &&
+    executor === 'ssh' &&
+    strategy === 'direct'
+  ) {
+    return { ok: true, value: null };
   }
+
+  const out: Record<string, unknown> = { ...base, executor, strategy };
+
+  if (strategy === 'canary' && executor === 'ssh') {
+    const prev =
+      out.ssh && typeof out.ssh === 'object' && out.ssh !== null
+        ? { ...(out.ssh as Record<string, unknown>) }
+        : {};
+    const ssh: Record<string, unknown> = { ...prev };
+    const pathTrim = envForm.value.canaryPath.trim();
+    if (pathTrim) ssh.nginxCanaryPath = pathTrim;
+    else delete ssh.nginxCanaryPath;
+    const adv = envForm.value.canaryBodyAdvanced.trim();
+    if (adv) {
+      ssh.nginxCanaryBody = adv;
+    } else {
+      delete ssh.nginxCanaryBody;
+      ssh.canaryPercent = envForm.value.canaryPercent;
+      const su = envForm.value.stableUpstream.trim();
+      const cu = envForm.value.candidateUpstream.trim();
+      if (su) ssh.nginxCanaryStableUpstream = su;
+      else delete ssh.nginxCanaryStableUpstream;
+      if (cu) ssh.nginxCanaryCandidateUpstream = cu;
+      else delete ssh.nginxCanaryCandidateUpstream;
+    }
+    out.ssh = ssh;
+  } else if (out.ssh && typeof out.ssh === 'object' && out.ssh !== null) {
+    const ssh = { ...(out.ssh as Record<string, unknown>) };
+    delete ssh.nginxCanaryPath;
+    delete ssh.nginxCanaryBody;
+    delete ssh.canaryPercent;
+    delete ssh.nginxCanaryStableUpstream;
+    delete ssh.nginxCanaryCandidateUpstream;
+    if (Object.keys(ssh).length === 0) delete out.ssh;
+    else out.ssh = ssh;
+  }
+
+  return { ok: true, value: out };
 }
 
 function buildEnvironmentTargets(primary: string): Array<{ serverId: string; sortOrder: number }> {
@@ -345,7 +519,12 @@ async function handleSubmit() {
     return;
   }
 
-  const rcParsed = parseReleaseConfigField();
+  if (envForm.value.strategy === 'canary' && envForm.value.executor === 'kubernetes') {
+    message.warning('Kubernetes 执行器不支持金丝雀策略，请改为 SSH 或调整策略');
+    return;
+  }
+
+  const rcParsed = composeReleaseConfigForSubmit();
   if (!rcParsed.ok) return;
 
   submitting.value = true;

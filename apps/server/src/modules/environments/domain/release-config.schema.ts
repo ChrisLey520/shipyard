@@ -5,6 +5,13 @@ const sshTargetSchema = z.object({
   weight: z.number().min(0).max(100).optional(),
 });
 
+/** 与主配置中 upstream 块名称一致 */
+const nginxUpstreamNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, '须为合法 Nginx upstream 名（字母/数字/下划线，不以数字开头）');
+
 export const releaseConfigSchema = z
   .object({
     executor: z.enum(['ssh', 'kubernetes']).default('ssh'),
@@ -15,6 +22,10 @@ export const releaseConfigSchema = z
         canaryPercent: z.number().min(0).max(100).optional(),
         targets: z.array(sshTargetSchema).max(32).optional(),
         primaryServerId: z.string().uuid().optional(),
+        /** split_clients 生成模式：稳定版 upstream 名 */
+        nginxCanaryStableUpstream: nginxUpstreamNameSchema.optional(),
+        /** split_clients 生成模式：候选版 upstream 名 */
+        nginxCanaryCandidateUpstream: nginxUpstreamNameSchema.optional(),
         /** 高级：金丝雀时自定义 Nginx 片段全文（原子写入 nginxCanaryPath） */
         nginxCanaryBody: z.string().max(64_000).optional(),
         nginxCanaryPath: z.string().max(512).optional(),
@@ -51,7 +62,66 @@ export const releaseConfigSchema = z
       })
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((cfg, ctx) => {
+    if (cfg.executor === 'kubernetes' && cfg.strategy === 'canary') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Kubernetes 执行器暂不支持 strategy=canary，请改为 direct/rolling 或使用 SSH',
+        path: ['strategy'],
+      });
+    }
+
+    if (cfg.strategy !== 'canary' || cfg.executor !== 'ssh') return;
+
+    const ssh = cfg.ssh;
+    const path = ssh?.nginxCanaryPath?.trim() ?? '';
+    if (!path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'canary 策略须配置 ssh.nginxCanaryPath',
+        path: ['ssh', 'nginxCanaryPath'],
+      });
+      return;
+    }
+
+    const body = ssh?.nginxCanaryBody?.trim() ?? '';
+    if (body.length > 0) {
+      return;
+    }
+
+    const p = ssh?.canaryPercent;
+    const su = ssh?.nginxCanaryStableUpstream?.trim() ?? '';
+    const cu = ssh?.nginxCanaryCandidateUpstream?.trim() ?? '';
+    if (p === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'canary 生成模式须配置 ssh.canaryPercent（0–100）',
+        path: ['ssh', 'canaryPercent'],
+      });
+    }
+    if (!su) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'canary 生成模式须配置 ssh.nginxCanaryStableUpstream',
+        path: ['ssh', 'nginxCanaryStableUpstream'],
+      });
+    }
+    if (!cu) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'canary 生成模式须配置 ssh.nginxCanaryCandidateUpstream',
+        path: ['ssh', 'nginxCanaryCandidateUpstream'],
+      });
+    }
+    if (su && cu && su === cu) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'stable 与 candidate upstream 名不得相同',
+        path: ['ssh', 'nginxCanaryCandidateUpstream'],
+      });
+    }
+  });
 
 export type ReleaseConfig = z.infer<typeof releaseConfigSchema>;
 

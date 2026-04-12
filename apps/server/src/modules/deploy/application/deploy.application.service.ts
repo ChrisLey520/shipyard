@@ -21,6 +21,7 @@ import { NotificationEvent } from '@shipyard/shared';
 import { PreviewPortPoolService } from './preview-port-pool.service';
 import { KubernetesClustersApplicationService } from '../../kubernetes-clusters/application/kubernetes-clusters.application.service';
 import { envReleaseConfig } from '../domain/env-release-config';
+import { resolveCanaryNginxBodyForDeploy } from '../domain/canary-nginx-fragment';
 import type { ReleaseConfig } from '../../environments/domain/release-config.schema';
 import { assertSafeOutboundHttpUrl } from '../../notifications/outbound-url-guard';
 import { Client as SshClient } from 'ssh2';
@@ -240,6 +241,9 @@ export class DeployApplicationService {
 
       try {
         if (rc.executor === 'kubernetes') {
+          if (rc.strategy === 'canary') {
+            throw new Error('Kubernetes 执行器不支持 strategy=canary，请在环境中改用 SSH 或调整 strategy');
+          }
           await this.performKubernetesRollout({
             deploymentId,
             orgId: data.orgId,
@@ -279,10 +283,11 @@ export class DeployApplicationService {
             deployPath: env.deployPath,
           });
 
-          if (rc.strategy === 'canary' && (!rc.ssh?.nginxCanaryPath || !rc.ssh?.nginxCanaryBody)) {
+          const canaryResolved = resolveCanaryNginxBodyForDeploy(rc);
+          if (rc.strategy === 'canary' && canaryResolved.kind === 'none') {
             await this.appendLogLine(
               deploymentId,
-              '[deploy] canary：未配置 nginxCanaryPath/nginxCanaryBody；无独立入口 LB 时须依赖外部流量控制，本次跳过片段写入',
+              '[deploy] canary：配置不足以生成或手写片段（须 nginxCanaryPath，且手写 body 或生成模式字段齐全），本次跳过片段写入',
             );
           }
 
@@ -377,22 +382,30 @@ export class DeployApplicationService {
               if (isPrimary) macStaticPort = sshResult.macStaticPort;
             }
 
-            if (
-              rc.strategy === 'canary' &&
-              rc.ssh?.nginxCanaryPath &&
-              rc.ssh.nginxCanaryBody &&
-              primaryServer.os === ServerOs.LINUX
-            ) {
-              await this.appendLogLine(deploymentId, '[deploy] traffic_switch 写入金丝雀 Nginx 片段');
-              await this.sshWriteCanaryNginxAtomic({
-                deploymentId,
-                host: primaryServer.host,
-                port: primaryServer.port,
-                username: primaryServer.user,
-                privateKey: primaryKey,
-                fragmentPath: rc.ssh.nginxCanaryPath,
-                body: rc.ssh.nginxCanaryBody,
-              });
+            if (rc.strategy === 'canary' && canaryResolved.body && primaryServer.os === ServerOs.LINUX) {
+              const fragPath = rc.ssh?.nginxCanaryPath?.trim();
+              if (!fragPath) {
+                await this.appendLogLine(deploymentId, '[deploy] canary：缺少 nginxCanaryPath，跳过片段写入');
+              } else {
+                if (canaryResolved.kind === 'generated') {
+                  await this.appendLogLine(
+                    deploymentId,
+                    '[deploy] canary_fragment_generated split_clients',
+                  );
+                } else {
+                  await this.appendLogLine(deploymentId, '[deploy] canary_fragment_manual');
+                }
+                await this.appendLogLine(deploymentId, '[deploy] traffic_switch 写入金丝雀 Nginx 片段');
+                await this.sshWriteCanaryNginxAtomic({
+                  deploymentId,
+                  host: primaryServer.host,
+                  port: primaryServer.port,
+                  username: primaryServer.user,
+                  privateKey: primaryKey,
+                  fragmentPath: fragPath,
+                  body: canaryResolved.body,
+                });
+              }
             }
           }
 
@@ -1215,16 +1228,25 @@ export class DeployApplicationService {
       }
       const qDir = this.shellSingleQuote(dir);
       const qFinal = this.shellSingleQuote(opts.fragmentPath);
+      const qBak = this.shellSingleQuote(`${opts.fragmentPath}.shipyard-canary-prev`);
       const tmpQuoted = this.shellSingleQuote(`${opts.fragmentPath}.tmp.shipyard$$`);
       const inner = [
         'set -euo pipefail',
         `mkdir -p ${qDir}`,
         `tmp=${tmpQuoted}`,
+        `final=${qFinal}`,
+        `bak=${qBak}`,
+        'if [ -f "$final" ]; then cp -a "$final" "$bak"; fi',
         `cat > "$tmp" <<'${tag}'`,
         opts.body,
         tag,
-        `mv -f "$tmp" ${qFinal}`,
-        'nginx -t && nginx -s reload',
+        'mv -f "$tmp" "$final"',
+        'if ! nginx -t; then',
+        '  if [ -f "$bak" ]; then mv -f "$bak" "$final"; else rm -f "$final"; fi',
+        '  exit 1',
+        'fi',
+        'nginx -s reload',
+        'rm -f "$bak"',
       ].join('\n');
       await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
       await this.appendLogLine(opts.deploymentId, '[deploy] 金丝雀 Nginx 片段已原子更新并重载');
