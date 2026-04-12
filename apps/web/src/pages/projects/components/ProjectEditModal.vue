@@ -92,11 +92,23 @@
               placeholder="选择用于 SSH 部署预览的 Linux 服务器"
             />
           </n-form-item>
-          <n-form-item label="预览父域">
+          <n-form-item>
+            <template #label>
+              <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%">
+                <span style="line-height: 1">预览父域</span>
+                <n-popover trigger="hover" placement="top" :width="360">
+                  <template #trigger>
+                    <n-button size="tiny" secondary circle style="width: 18px; height: 18px; padding: 0">
+                      <span style="font-size: 12px; line-height: 1">i</span>
+                    </n-button>
+                  </template>
+                  <div style="font-size: 12px; line-height: 1.6">
+                    访问地址形如 pr-编号-项目id前8位.该父域；需泛解析 *.父域 与 Nginx include（见 README）。
+                  </div>
+                </n-popover>
+              </div>
+            </template>
             <n-input v-model:value="form.previewBaseDomain" placeholder="如 preview.example.com" />
-            <n-text depth="3" style="display: block; margin-top: 6px; font-size: 12px">
-              访问地址形如 pr-编号-项目id前8位.该父域；需泛解析 *.父域 与 Nginx include（见 README）。
-            </n-text>
           </n-form-item>
         </template>
       </n-form>
@@ -123,6 +135,7 @@ import {
   NSpace,
   NButton,
   NDivider,
+  NPopover,
   NText,
 } from 'naive-ui';
 

@@ -21,7 +21,12 @@
           <n-switch v-model:value="form.enabled" />
         </n-form-item>
         <n-form-item label="JSON 值">
-          <n-input v-model:value="form.valueJson" type="textarea" placeholder="可选，如 {\"rollout\":10}" :rows="4" />
+          <n-input
+            v-model:value="form.valueJson"
+            type="textarea"
+            placeholder='可选，如 {"rollout":10}'
+            :rows="4"
+          />
         </n-form-item>
       </n-form>
       <template #footer>

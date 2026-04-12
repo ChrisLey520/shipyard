@@ -2,9 +2,7 @@
   <div class="mt-2 flex flex-col gap-4">
     <n-card title="通知消息模板（项目级）" size="small">
       <n-text depth="3" class="mb-2 block text-sm">
-        留空则使用各事件的系统默认文案。填写后整段作为骨架，仍走占位符渲染；可用
-        {{ '{{projectSlug}}' }}、{{ '{{orgSlug}}' }}、{{ '{{event}}' }}、{{ '{{detailUrl}}' }}、{{ '{{deploymentId}}' }}、{{ '{{approvalId}}' }}，以及
-        {{ '{{message}}' }}（或 {{ '{{body}}' }}，表示系统默认那句全文）。
+        {{ templateHelpText }}
       </n-text>
       <n-input
         v-model:value="msgTemplateDraft"
@@ -151,6 +149,10 @@ const props = defineProps<{
   orgSlug: string;
   projectSlug: string;
 }>();
+
+/** 占位符说明（整段在脚本里拼接，避免模板中 `}}` 提前结束插值） */
+const templateHelpText =
+  '留空则使用各事件的系统默认文案。填写后整段作为骨架，仍走占位符渲染；可用 {{projectSlug}}、{{orgSlug}}、{{event}}、{{detailUrl}}、{{deploymentId}}、{{approvalId}}，以及 {{message}}（或 {{body}}，表示系统默认那句全文）。';
 
 /** 占位符示例（避免在属性里写 `{{` 被 Vue 当成插值） */
 const templatePlaceholder = '示例：[{{orgSlug}}/{{projectSlug}}] {{event}}：{{message}}';
