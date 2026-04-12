@@ -335,9 +335,21 @@ const orgOptions = computed(() =>
   orgStore.orgs.map((o) => ({ label: o.name, value: o.slug })),
 );
 
+/** 侧栏组织菜单所用的 slug：在组织内路由用路径参数；在个人设置等全局页用当前选中的组织（与账号全局设置并存） */
+const menuOrgSlug = computed(() => {
+  const param = orgSlugParam.value;
+  if (param) return param;
+  if (route.path === '/settings') {
+    return (currentOrgSlug.value || orgStore.currentOrgSlug || '').trim();
+  }
+  return '';
+});
+
 const menuOptions = computed<MenuOption[]>(() => {
-  const slug = orgSlugParam.value;
-  if (!slug || orgGateLoading.value || orgGateError.value) return [];
+  const slug = menuOrgSlug.value;
+  if (!slug) return [];
+  // 仅在「当前 URL 属于某组织」时，组织门禁未通过则不展示菜单；个人设置页用记忆组织，不受另一 URL 门禁影响
+  if (orgSlugParam.value && (orgGateLoading.value || orgGateError.value)) return [];
   return [
     { label: t('nav.dashboard'), key: `/orgs/${slug}`, icon: menuIcon(StatsChartOutline) },
     { label: t('nav.projects'), key: `/orgs/${slug}/projects`, icon: menuIcon(CubeOutline) },
