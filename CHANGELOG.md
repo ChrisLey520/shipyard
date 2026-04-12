@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Deploy（Canary）**：SSH `strategy: canary` 支持 **`canaryPercent` + `nginxCanaryStableUpstream` + `nginxCanaryCandidateUpstream` 生成** Nginx `split_clients` 片段（`$shipyard_canary_pool`）；非空 **`nginxCanaryBody` 手写优先**；片段写入前 **备份**，**`nginx -t` 失败则恢复** 后再判失败。保存环境时 **`kubernetes` + `canary` 拒绝（400）**。
-- **Web**：环境对话框 **执行器 / 发布策略** 与金丝雀字段，与 JSON 合并写入 `releaseConfig`。
-- **Docs**：金丝雀运维 [docs/runbooks/canary-nginx.md](docs/runbooks/canary-nginx.md)；规划 [.cursor/plans/shipyard-金丝雀发布-需求规格.md](.cursor/plans/shipyard-金丝雀发布-需求规格.md)、[.cursor/plans/shipyard-金丝雀发布-路线图.plan.md](.cursor/plans/shipyard-金丝雀发布-路线图.plan.md)。
+- **Deploy（顺架构扩展）**：金丝雀 **`nginxCanaryTemplate: upstream_weight`**（双 `server` + `weight` 的 `upstream` 块）；**Kubernetes** 可选 **`rolloutTimeoutSeconds`**、`strategy: rolling` 时 **`rollingUpdateMaxSurge` / `MaxUnavailable`** strategic patch；**保存拒绝** `kubernetes` + **`blue_green`**；**`executor: object_storage`**（S3）解压产物后 **`aws s3 sync`**，可选 **`credentialsEncrypted`**。
+- **Web**：环境对话框 **执行器 / 发布策略** 与金丝雀 / K8s rollout / S3 字段，与 JSON 合并写入 `releaseConfig`。
+- **Docs**：金丝雀 [docs/runbooks/canary-nginx.md](docs/runbooks/canary-nginx.md)、对象存储 [docs/runbooks/object-storage-s3.md](docs/runbooks/object-storage-s3.md)；规划 [.cursor/plans/shipyard-金丝雀发布-需求规格.md](.cursor/plans/shipyard-金丝雀发布-需求规格.md)、[.cursor/plans/shipyard-顺架构发布策略-需求规格.md](.cursor/plans/shipyard-顺架构发布策略-需求规格.md)。
 
 ## [0.7.0] - 2026-04-11
 

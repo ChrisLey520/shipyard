@@ -166,10 +166,11 @@ The following items are the **next phase** priorities (ordered by “works end-t
 | `direct` / `rolling`, multi-host | SSH; `EnvironmentServer` rows | Serial rsync by `sortOrder`; `primaryServerId` or first host owns Nginx/domain |
 | `blue_green` (static) | Linux + domain | Slot dirs `.shipyard-bg0` / `.shipyard-bg1`, switch Nginx root; failed health rolls root back |
 | `blue_green` (SSR, etc.) | — | Logged and deployed like `direct` multi-host until aligned with preview dual-slot |
-| `canary` | SSH; Linux primary; `nginxCanaryPath` | **Generated**: `canaryPercent` + `nginxCanaryStableUpstream` + `nginxCanaryCandidateUpstream` (must match existing `upstream` names), writes `split_clients`; use `proxy_pass http://$shipyard_canary_pool;` in `server`. **Manual**: non-empty `nginxCanaryBody` overrides generation. On `nginx -t` failure, restores backup. See [docs/runbooks/canary-nginx.md](docs/runbooks/canary-nginx.md) |
+| `canary` | SSH; Linux primary; `nginxCanaryPath` | **split_clients** (default): upstream names + `canaryPercent`, `proxy_pass http://$shipyard_canary_pool;`. **upstream_weight**: `nginxCanaryTemplate`, `nginxCanaryUpstreamName`, stable/candidate `host:port` backends + percent weights. **Manual** `nginxCanaryBody` wins. Backup on `nginx -t` failure. See [docs/runbooks/canary-nginx.md](docs/runbooks/canary-nginx.md) |
 | Prometheus gate | `gates.prometheus.queryUrl` | GET + JSON parse; same SSRF rules as notification outbound |
 | pre/post hooks | SSH | `timeout 120 bash -lc` under `deployPath` on the primary host |
-| Kubernetes | Org cluster registry + image push in pipeline | `kubectl set image` + `rollout status`; worker needs `kubectl` |
+| Kubernetes | Org cluster + image push | `kubectl set image` + `rollout status`; optional `rolloutTimeoutSeconds` (default 600s); with `strategy: rolling`, optional `rollingUpdateMaxSurge` / `rollingUpdateMaxUnavailable` patched before set image. **Not** `canary` or `blue_green` (use SSH). GitOps may overwrite patches — see repo `.cursor/plans/shipyard-顺架构发布策略-需求规格.md`. |
+| `object_storage` (S3) | Worker has `aws` CLI; `strategy` must be `direct` | After extract, `aws s3 sync` to `objectStorage.bucket`/`prefix`; optional encrypted credentials JSON else default AWS credential chain. See [docs/runbooks/object-storage-s3.md](docs/runbooks/object-storage-s3.md) |
 | Feature flags | — | Org- or project-scoped CRUD, decoupled from deploy |
 
 **Acceptance**: omitting `releaseConfig` keeps legacy single-server behavior. Migration seeds one `EnvironmentServer` per existing environment.

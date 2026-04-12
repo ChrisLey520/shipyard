@@ -1,4 +1,4 @@
-# SSH 金丝雀（Nginx split_clients）运维说明
+# SSH 金丝雀（Nginx split_clients / upstream_weight）运维说明
 
 ## 适用条件
 
@@ -7,9 +7,9 @@
 
 ## 两种配置方式
 
-### 1. 生成模式（推荐）
+### 1a. 生成模式 — `split_clients`（默认）
 
-在 `ssh` 下配置：
+在 `ssh` 下配置（可不设 `nginxCanaryTemplate`，或设为 `split_clients`）：
 
 - `nginxCanaryPath`：片段文件绝对路径（如 `/etc/nginx/snippets/myapp-canary.conf`）。
 - `canaryPercent`：0–100，进入候选 upstream 的流量比例。
@@ -30,6 +30,13 @@ location / {
 
 可选：客户端携带请求头 `Shipyard-Canary-Seed`（对应 Nginx 变量 `$http_shipyard_canary_seed`）可参与哈希，便于压测或固定分流；不携带时该段为空。生成逻辑使用 `"${remote_addr}${http_shipyard_canary_seed}"` 作为 `split_clients` 的哈希输入。
 
+### 1b. 生成模式 — `upstream_weight`
+
+- `nginxCanaryTemplate`: `"upstream_weight"`
+- `nginxCanaryUpstreamName`：本片段内 `upstream` 块名，与主配置 `proxy_pass http://<同名>;` 一致。
+- `nginxCanaryStableBackend` / `nginxCanaryCandidateBackend`：`host:port`（支持 `[::1]:8080` 形式 IPv6）。
+- `canaryPercent`：候选后端权重比例；`0%` 仅 stable；`100%` 仅 candidate；中间值为双 `server` + `weight=`。
+
 ### 2. 手写模式
 
 配置 `nginxCanaryPath` 与非空的 `nginxCanaryBody`。**完全采用手写正文**，忽略 `canaryPercent` 与双 upstream 字段（可不填）。
@@ -42,6 +49,6 @@ location / {
 
 ## 日志关键字
 
-- `[deploy] canary_fragment_generated split_clients`：使用生成片段。
+- `[deploy] canary_fragment_generated split_clients` / `upstream_weight`：使用对应生成片段。
 - `[deploy] canary_fragment_manual`：使用手写片段。
 - `[deploy] traffic_switch 写入金丝雀 Nginx 片段`：即将原子写入。

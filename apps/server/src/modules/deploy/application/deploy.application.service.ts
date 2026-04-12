@@ -244,6 +244,9 @@ export class DeployApplicationService {
           if (rc.strategy === 'canary') {
             throw new Error('Kubernetes 执行器不支持 strategy=canary，请在环境中改用 SSH 或调整 strategy');
           }
+          if (rc.strategy === 'blue_green') {
+            throw new Error('Kubernetes 执行器不支持 strategy=blue_green，请在环境中改用 SSH 或调整 strategy');
+          }
           await this.performKubernetesRollout({
             deploymentId,
             orgId: data.orgId,
@@ -252,6 +255,14 @@ export class DeployApplicationService {
             rc,
           });
           await this.appendLogLine(deploymentId, '[deploy] 远端 Kubernetes 步骤已完成');
+        } else if (rc.executor === 'object_storage') {
+          tmpExtractDir = path.join('/tmp', `deploy-${deploymentId}`);
+          mkdirSync(tmpExtractDir, { recursive: true });
+          await this.appendLogLine(deploymentId, '[deploy] object_storage：解压产物包…');
+          await tar.extract({ file: deployment.artifact.storagePath, cwd: tmpExtractDir });
+          await this.appendLogLine(deploymentId, '[deploy] object_storage：开始 S3 同步…');
+          await this.performObjectStorageSync({ deploymentId, localDir: tmpExtractDir, rc });
+          await this.appendLogLine(deploymentId, '[deploy] object_storage：同步完成');
         } else {
           const targets = this.resolveDeployTargetServers(env);
           const primaryId = this.resolvePrimaryServerId(env, rc);
@@ -388,9 +399,13 @@ export class DeployApplicationService {
                 await this.appendLogLine(deploymentId, '[deploy] canary：缺少 nginxCanaryPath，跳过片段写入');
               } else {
                 if (canaryResolved.kind === 'generated') {
+                  const sub =
+                    canaryResolved.generatedTemplate === 'upstream_weight'
+                      ? 'upstream_weight'
+                      : 'split_clients';
                   await this.appendLogLine(
                     deploymentId,
-                    '[deploy] canary_fragment_generated split_clients',
+                    `[deploy] canary_fragment_generated ${sub}`,
                   );
                 } else {
                   await this.appendLogLine(deploymentId, '[deploy] canary_fragment_manual');
@@ -1255,6 +1270,46 @@ export class DeployApplicationService {
     }
   }
 
+  /** 对象存储：本地目录同步至 S3（Worker 须安装 aws CLI；凭证见 objectStorage 与 IAM） */
+  private async performObjectStorageSync(opts: {
+    deploymentId: string;
+    localDir: string;
+    rc: ReleaseConfig;
+  }): Promise<void> {
+    const { deploymentId, localDir, rc } = opts;
+    const os = rc.objectStorage;
+    if (!os) throw new Error('缺少 objectStorage 配置');
+    const bucket = os.bucket.trim();
+    const prefix = (os.prefix ?? '').trim().replace(/^\/+/, '');
+    const s3Uri = prefix
+      ? `s3://${bucket}/${prefix.endsWith('/') ? prefix : `${prefix}/`}`
+      : `s3://${bucket}/`;
+
+    const extraEnv: NodeJS.ProcessEnv = {};
+    if (os.region?.trim()) {
+      const r = os.region.trim();
+      extraEnv.AWS_DEFAULT_REGION = r;
+      extraEnv.AWS_REGION = r;
+    }
+    if (os.credentialsEncrypted?.trim()) {
+      try {
+        const raw = this.crypto.decrypt(os.credentialsEncrypted.trim());
+        const j = JSON.parse(raw) as { accessKeyId?: string; secretAccessKey?: string };
+        if (typeof j.accessKeyId === 'string' && j.accessKeyId) {
+          extraEnv.AWS_ACCESS_KEY_ID = j.accessKeyId;
+        }
+        if (typeof j.secretAccessKey === 'string' && j.secretAccessKey) {
+          extraEnv.AWS_SECRET_ACCESS_KEY = j.secretAccessKey;
+        }
+      } catch {
+        throw new Error('objectStorage.credentialsEncrypted 解密或解析失败');
+      }
+    }
+
+    await this.appendLogLine(deploymentId, `[deploy] object_storage s3 sync → ${s3Uri}`);
+    await this.execLocalEnv('aws', ['s3', 'sync', localDir, s3Uri, '--delete'], extraEnv);
+  }
+
   /** K8s：set image + rollout status；健康检查与收尾由调用方与 SSH 路径共用 */
   private async performKubernetesRollout(opts: {
     deploymentId: string;
@@ -1278,11 +1333,46 @@ export class DeployApplicationService {
     }
     const kubeconfig = await this.k8sClusters.getDecryptedKubeconfig(orgId, k.clusterId);
     const kubePath = path.join('/tmp', `shipyard-kube-${deploymentId}.yaml`);
-    await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
+      await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
     try {
       const ns = k.namespace;
       const depName = k.deploymentName;
       const container = (k.containerName ?? k.deploymentName).trim();
+      const timeoutSec = k.rolloutTimeoutSeconds ?? 600;
+
+      if (
+        rc.strategy === 'rolling' &&
+        (k.rollingUpdateMaxSurge?.trim() || k.rollingUpdateMaxUnavailable?.trim())
+      ) {
+        const ru: Record<string, string> = {};
+        if (k.rollingUpdateMaxSurge?.trim()) ru.maxSurge = k.rollingUpdateMaxSurge.trim();
+        if (k.rollingUpdateMaxUnavailable?.trim()) {
+          ru.maxUnavailable = k.rollingUpdateMaxUnavailable.trim();
+        }
+        const patch = {
+          spec: {
+            strategy: {
+              type: 'RollingUpdate',
+              rollingUpdate: ru,
+            },
+          },
+        };
+        await this.appendLogLine(
+          deploymentId,
+          `[deploy] k8s patch rollingUpdate surge=${ru.maxSurge ?? '—'} unavail=${ru.maxUnavailable ?? '—'}`,
+        );
+        await this.execLocal('kubectl', [
+          `--kubeconfig=${kubePath}`,
+          '-n',
+          ns,
+          'patch',
+          `deployment/${depName}`,
+          '-p',
+          JSON.stringify(patch),
+          '--type=strategic',
+        ]);
+      }
+
       await this.appendLogLine(
         deploymentId,
         `[deploy] k8s candidate_up set-image ns=${ns} deploy=${depName} container=${container}`,
@@ -1296,7 +1386,10 @@ export class DeployApplicationService {
         `deployment/${depName}`,
         `${container}=${image}`,
       ]);
-      await this.appendLogLine(deploymentId, '[deploy] k8s rollout status…');
+      await this.appendLogLine(
+        deploymentId,
+        `[deploy] k8s rollout status timeout=${timeoutSec}s…`,
+      );
       await this.execLocal('kubectl', [
         `--kubeconfig=${kubePath}`,
         '-n',
@@ -1304,7 +1397,7 @@ export class DeployApplicationService {
         'rollout',
         'status',
         `deployment/${depName}`,
-        '--timeout=10m',
+        `--timeout=${timeoutSec}s`,
       ]);
       await this.appendLogLine(deploymentId, '[deploy] traffic_switch k8s rollout 完成');
       await this.prisma.deployment.update({
@@ -2148,6 +2241,37 @@ server.listen(PORT, '0.0.0.0', () => {
           if (code === 0) resolve(output);
           else reject(new Error(`SSH 命令失败 (exit ${code}): ${output}`));
         });
+      });
+    });
+  }
+
+  private execLocalEnv(
+    cmd: string,
+    args: string[],
+    extraEnv: NodeJS.ProcessEnv,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let combined = '';
+      const child = spawn(cmd, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ...extraEnv },
+      });
+      child.stdout?.on('data', (c: Buffer) => {
+        combined += c.toString();
+      });
+      child.stderr?.on('data', (c: Buffer) => {
+        combined += c.toString();
+      });
+      child.on('close', (code: number | null) => {
+        if (code === 0) resolve();
+        else {
+          const tail = combined.trim().slice(-2000);
+          reject(
+            new Error(
+              tail ? `${cmd} exited with code ${code}: ${tail}` : `${cmd} exited with code ${code}`,
+            ),
+          );
+        }
       });
     });
   }

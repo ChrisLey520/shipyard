@@ -30,6 +30,13 @@ export async function validateAndNormalizeReleaseConfig(
     if (!cluster) throw new BadRequestException('Kubernetes 集群不存在或不属于当前组织');
   }
 
+  if (cfg.executor === 'object_storage') {
+    const os = cfg.objectStorage;
+    if (!os?.bucket?.trim() || os.provider !== 's3') {
+      throw new BadRequestException('object_storage 执行器须配置 objectStorage.provider=s3 与 bucket');
+    }
+  }
+
   const ssh = cfg.ssh;
   if (ssh?.targets?.length) {
     const ids = [...new Set(ssh.targets.map((t) => t.serverId))];

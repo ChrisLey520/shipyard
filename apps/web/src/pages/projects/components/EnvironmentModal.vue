@@ -112,10 +112,53 @@
         />
       </n-form-item>
       <n-form-item label="发布策略">
-        <n-select v-model:value="envForm.strategy" :options="strategyOptions" placeholder="direct / 蓝绿 / 滚动 / 金丝雀" />
+        <n-select
+          v-model:value="envForm.strategy"
+          :options="strategyOptionsForExecutor"
+          placeholder="direct / 蓝绿 / 滚动 / 金丝雀"
+        />
       </n-form-item>
 
+      <template v-if="envForm.executor === 'kubernetes'">
+        <n-form-item label="rollout 超时(秒)">
+          <n-input-number
+            v-model:value="envForm.k8sRolloutTimeoutSeconds"
+            :min="60"
+            :max="3600"
+            :step="30"
+            clearable
+            placeholder="默认 600；留空用默认"
+            style="width: 100%"
+          />
+        </n-form-item>
+        <n-form-item label="rolling maxSurge">
+          <n-input v-model:value="envForm.k8sMaxSurge" placeholder="如 25% 或 1；策略为 rolling 且 set image 前 patch" />
+        </n-form-item>
+        <n-form-item label="rolling maxUnavailable">
+          <n-input v-model:value="envForm.k8sMaxUnavailable" placeholder="如 25% 或 0" />
+        </n-form-item>
+      </template>
+
+      <template v-if="envForm.executor === 'object_storage'">
+        <n-form-item label="S3 Bucket">
+          <n-input v-model:value="envForm.ossBucket" placeholder="my-static-bucket" />
+        </n-form-item>
+        <n-form-item label="对象前缀">
+          <n-input v-model:value="envForm.ossPrefix" placeholder="可选，如 prod/app/" />
+        </n-form-item>
+        <n-form-item label="区域">
+          <n-input v-model:value="envForm.ossRegion" placeholder="如 ap-northeast-1，可选" />
+        </n-form-item>
+      </template>
+
       <template v-if="envForm.strategy === 'canary' && envForm.executor === 'ssh'">
+        <n-form-item label="金丝雀生成模板">
+          <n-select
+            v-model:value="envForm.canaryTemplate"
+            :options="canaryTemplateOptions"
+            style="width: 100%"
+          />
+        </n-form-item>
         <n-form-item label="金丝雀片段路径">
           <n-input
             v-model:value="envForm.canaryPath"
@@ -129,15 +172,28 @@
             :max="100"
             :step="1"
             style="width: 100%"
-            placeholder="生成 split_clients 时用；手写片段可忽略"
+            placeholder="生成片段用；手写片段可忽略"
           />
         </n-form-item>
-        <n-form-item label="stable upstream">
-          <n-input v-model:value="envForm.stableUpstream" placeholder="与主配置中 upstream 名一致" />
-        </n-form-item>
-        <n-form-item label="candidate upstream">
-          <n-input v-model:value="envForm.candidateUpstream" placeholder="候选版本 upstream 名" />
-        </n-form-item>
+        <template v-if="envForm.canaryTemplate === 'split_clients'">
+          <n-form-item label="stable upstream">
+            <n-input v-model:value="envForm.stableUpstream" placeholder="与主配置中 upstream 名一致" />
+          </n-form-item>
+          <n-form-item label="candidate upstream">
+            <n-input v-model:value="envForm.candidateUpstream" placeholder="候选版本 upstream 名" />
+          </n-form-item>
+        </template>
+        <template v-else>
+          <n-form-item label="upstream 块名称">
+            <n-input v-model:value="envForm.canaryUpstreamName" placeholder="与 proxy_pass 中名称一致" />
+          </n-form-item>
+          <n-form-item label="stable 后端 host:port">
+            <n-input v-model:value="envForm.stableBackend" placeholder="如 127.0.0.1:3001 或 [::1]:8080" />
+          </n-form-item>
+          <n-form-item label="candidate 后端 host:port">
+            <n-input v-model:value="envForm.candidateBackend" placeholder="候选实例地址" />
+          </n-form-item>
+        </template>
         <n-form-item label="自定义片段（可选）">
           <n-input
             v-model:value="envForm.canaryBodyAdvanced"
@@ -163,7 +219,9 @@
                 可与上方执行器/策略合并保存。缺省与留空等价于 <n-text code>ssh</n-text> +
                 <n-text code>direct</n-text>。金丝雀生成模式须主配置
                 <n-text code>include</n-text> 片段并在 <n-text code>server</n-text> 内使用
-                <n-text code>proxy_pass http://$shipyard_canary_pool;</n-text>。
+                <n-text code>proxy_pass http://$shipyard_canary_pool;</n-text>
+                （split_clients）；upstream_weight 时 include 后为同名 upstream 的
+                <n-text code>proxy_pass http://…;</n-text>。
               </div>
             </n-popover>
           </div>
@@ -190,7 +248,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from 'vue';
+import { computed, ref, toRef, watch, watchEffect } from 'vue';
 import {
   NModal,
   NForm,
@@ -231,6 +289,7 @@ const envApi = useEnvironmentsProjectActions(toRef(props, 'orgSlug'), toRef(prop
 const executorOptions = [
   { label: 'SSH', value: 'ssh' },
   { label: 'Kubernetes', value: 'kubernetes' },
+  { label: '对象存储 S3', value: 'object_storage' },
 ];
 
 const strategyOptions = [
@@ -238,6 +297,11 @@ const strategyOptions = [
   { label: 'blue_green（蓝绿）', value: 'blue_green' },
   { label: 'rolling（滚动/多机）', value: 'rolling' },
   { label: 'canary（金丝雀）', value: 'canary' },
+];
+
+const canaryTemplateOptions = [
+  { label: 'split_clients（按 upstream 名分流）', value: 'split_clients' },
+  { label: 'upstream_weight（双 server 权重）', value: 'upstream_weight' },
 ];
 
 const showProxy = computed({
@@ -257,13 +321,23 @@ type EnvFormState = {
   healthCheckUrl: string;
   protected: boolean;
   extraServerIds: string[];
-  executor: 'ssh' | 'kubernetes';
+  executor: 'ssh' | 'kubernetes' | 'object_storage';
   strategy: 'direct' | 'blue_green' | 'rolling' | 'canary';
+  canaryTemplate: 'split_clients' | 'upstream_weight';
   canaryPath: string;
   canaryPercent: number;
   stableUpstream: string;
   candidateUpstream: string;
+  canaryUpstreamName: string;
+  stableBackend: string;
+  candidateBackend: string;
   canaryBodyAdvanced: string;
+  k8sRolloutTimeoutSeconds: number | null;
+  k8sMaxSurge: string;
+  k8sMaxUnavailable: string;
+  ossBucket: string;
+  ossPrefix: string;
+  ossRegion: string;
   releaseConfigJson: string;
 };
 
@@ -278,12 +352,40 @@ const envForm = ref<EnvFormState>({
   extraServerIds: [],
   executor: 'ssh',
   strategy: 'direct',
+  canaryTemplate: 'split_clients',
   canaryPath: '',
   canaryPercent: 10,
   stableUpstream: '',
   candidateUpstream: '',
+  canaryUpstreamName: '',
+  stableBackend: '',
+  candidateBackend: '',
   canaryBodyAdvanced: '',
+  k8sRolloutTimeoutSeconds: null,
+  k8sMaxSurge: '',
+  k8sMaxUnavailable: '',
+  ossBucket: '',
+  ossPrefix: '',
+  ossRegion: '',
   releaseConfigJson: '',
+});
+
+const strategyOptionsForExecutor = computed(() => {
+  const ex = envForm.value.executor;
+  if (ex === 'kubernetes') {
+    return strategyOptions.filter((s) => s.value === 'direct' || s.value === 'rolling');
+  }
+  if (ex === 'object_storage') {
+    return strategyOptions.filter((s) => s.value === 'direct');
+  }
+  return strategyOptions;
+});
+
+watchEffect(() => {
+  const allowed = strategyOptionsForExecutor.value.map((o) => o.value);
+  if (!allowed.includes(envForm.value.strategy)) {
+    envForm.value.strategy = 'direct';
+  }
 });
 
 const submitting = ref(false);
@@ -296,19 +398,35 @@ const extraServerOptions = computed(() =>
 );
 
 function releaseConfigFormMeta(rc: unknown) {
+  const defaults = {
+    executor: 'ssh' as EnvFormState['executor'],
+    strategy: 'direct' as EnvFormState['strategy'],
+    canaryTemplate: 'split_clients' as EnvFormState['canaryTemplate'],
+    canaryPath: '',
+    canaryPercent: 10,
+    stableUpstream: '',
+    candidateUpstream: '',
+    canaryUpstreamName: '',
+    stableBackend: '',
+    candidateBackend: '',
+    canaryBodyAdvanced: '',
+    k8sRolloutTimeoutSeconds: null as number | null,
+    k8sMaxSurge: '',
+    k8sMaxUnavailable: '',
+    ossBucket: '',
+    ossPrefix: '',
+    ossRegion: '',
+  };
   if (!rc || typeof rc !== 'object') {
-    return {
-      executor: 'ssh' as const,
-      strategy: 'direct' as const,
-      canaryPath: '',
-      canaryPercent: 10,
-      stableUpstream: '',
-      candidateUpstream: '',
-      canaryBodyAdvanced: '',
-    };
+    return defaults;
   }
   const o = rc as Record<string, unknown>;
-  const executor = o.executor === 'kubernetes' ? ('kubernetes' as const) : ('ssh' as const);
+  const executor: EnvFormState['executor'] =
+    o.executor === 'object_storage'
+      ? 'object_storage'
+      : o.executor === 'kubernetes'
+        ? 'kubernetes'
+        : 'ssh';
   const s = o.strategy;
   const strategy: EnvFormState['strategy'] =
     s === 'blue_green' || s === 'rolling' || s === 'canary' ? s : 'direct';
@@ -316,16 +434,41 @@ function releaseConfigFormMeta(rc: unknown) {
     o.ssh && typeof o.ssh === 'object' && o.ssh !== null
       ? (o.ssh as Record<string, unknown>)
       : {};
+  const k =
+    o.kubernetes && typeof o.kubernetes === 'object' && o.kubernetes !== null
+      ? (o.kubernetes as Record<string, unknown>)
+      : {};
+  const os =
+    o.objectStorage && typeof o.objectStorage === 'object' && o.objectStorage !== null
+      ? (o.objectStorage as Record<string, unknown>)
+      : {};
+  const tmpl: EnvFormState['canaryTemplate'] =
+    ssh.nginxCanaryTemplate === 'upstream_weight' ? 'upstream_weight' : 'split_clients';
   return {
     executor,
     strategy,
+    canaryTemplate: tmpl,
     canaryPath: typeof ssh.nginxCanaryPath === 'string' ? ssh.nginxCanaryPath : '',
     canaryPercent: typeof ssh.canaryPercent === 'number' ? ssh.canaryPercent : 10,
     stableUpstream:
       typeof ssh.nginxCanaryStableUpstream === 'string' ? ssh.nginxCanaryStableUpstream : '',
     candidateUpstream:
       typeof ssh.nginxCanaryCandidateUpstream === 'string' ? ssh.nginxCanaryCandidateUpstream : '',
+    canaryUpstreamName:
+      typeof ssh.nginxCanaryUpstreamName === 'string' ? ssh.nginxCanaryUpstreamName : '',
+    stableBackend:
+      typeof ssh.nginxCanaryStableBackend === 'string' ? ssh.nginxCanaryStableBackend : '',
+    candidateBackend:
+      typeof ssh.nginxCanaryCandidateBackend === 'string' ? ssh.nginxCanaryCandidateBackend : '',
     canaryBodyAdvanced: typeof ssh.nginxCanaryBody === 'string' ? ssh.nginxCanaryBody : '',
+    k8sRolloutTimeoutSeconds:
+      typeof k.rolloutTimeoutSeconds === 'number' ? k.rolloutTimeoutSeconds : null,
+    k8sMaxSurge: typeof k.rollingUpdateMaxSurge === 'string' ? k.rollingUpdateMaxSurge : '',
+    k8sMaxUnavailable:
+      typeof k.rollingUpdateMaxUnavailable === 'string' ? k.rollingUpdateMaxUnavailable : '',
+    ossBucket: typeof os.bucket === 'string' ? os.bucket : '',
+    ossPrefix: typeof os.prefix === 'string' ? os.prefix : '',
+    ossRegion: typeof os.region === 'string' ? os.region : '',
   };
 }
 
@@ -351,11 +494,21 @@ function resetFromInitial() {
       extraServerIds: extras,
       executor: meta.executor,
       strategy: meta.strategy,
+      canaryTemplate: meta.canaryTemplate,
       canaryPath: meta.canaryPath,
       canaryPercent: meta.canaryPercent,
       stableUpstream: meta.stableUpstream,
       candidateUpstream: meta.candidateUpstream,
+      canaryUpstreamName: meta.canaryUpstreamName,
+      stableBackend: meta.stableBackend,
+      candidateBackend: meta.candidateBackend,
       canaryBodyAdvanced: meta.canaryBodyAdvanced,
+      k8sRolloutTimeoutSeconds: meta.k8sRolloutTimeoutSeconds,
+      k8sMaxSurge: meta.k8sMaxSurge,
+      k8sMaxUnavailable: meta.k8sMaxUnavailable,
+      ossBucket: meta.ossBucket,
+      ossPrefix: meta.ossPrefix,
+      ossRegion: meta.ossRegion,
       releaseConfigJson: releaseConfigToJsonString(e.releaseConfig),
     };
     return;
@@ -371,11 +524,21 @@ function resetFromInitial() {
     extraServerIds: [],
     executor: 'ssh',
     strategy: 'direct',
+    canaryTemplate: 'split_clients',
     canaryPath: '',
     canaryPercent: 10,
     stableUpstream: '',
     candidateUpstream: '',
+    canaryUpstreamName: '',
+    stableBackend: '',
+    candidateBackend: '',
     canaryBodyAdvanced: '',
+    k8sRolloutTimeoutSeconds: null,
+    k8sMaxSurge: '',
+    k8sMaxUnavailable: '',
+    ossBucket: '',
+    ossPrefix: '',
+    ossRegion: '',
     releaseConfigJson: '',
   };
 }
@@ -455,6 +618,43 @@ function composeReleaseConfigForSubmit():
 
   const out: Record<string, unknown> = { ...base, executor, strategy };
 
+  if (executor === 'object_storage') {
+    delete out.kubernetes;
+    delete out.ssh;
+    const b = envForm.value.ossBucket.trim();
+    out.objectStorage = {
+      provider: 's3',
+      bucket: b,
+      ...(envForm.value.ossPrefix.trim() ? { prefix: envForm.value.ossPrefix.trim() } : {}),
+      ...(envForm.value.ossRegion.trim() ? { region: envForm.value.ossRegion.trim() } : {}),
+    };
+    return { ok: true, value: out };
+  }
+
+  delete out.objectStorage;
+
+  if (executor === 'kubernetes') {
+    const prev =
+      out.kubernetes && typeof out.kubernetes === 'object' && out.kubernetes !== null
+        ? { ...(out.kubernetes as Record<string, unknown>) }
+        : {};
+    if (envForm.value.k8sRolloutTimeoutSeconds != null) {
+      prev.rolloutTimeoutSeconds = envForm.value.k8sRolloutTimeoutSeconds;
+    } else {
+      delete prev.rolloutTimeoutSeconds;
+    }
+    const ms = envForm.value.k8sMaxSurge.trim();
+    const mu = envForm.value.k8sMaxUnavailable.trim();
+    if (ms) prev.rollingUpdateMaxSurge = ms;
+    else delete prev.rollingUpdateMaxSurge;
+    if (mu) prev.rollingUpdateMaxUnavailable = mu;
+    else delete prev.rollingUpdateMaxUnavailable;
+    out.kubernetes = prev;
+    delete out.ssh;
+  } else {
+    delete out.kubernetes;
+  }
+
   if (strategy === 'canary' && executor === 'ssh') {
     const prev =
       out.ssh && typeof out.ssh === 'object' && out.ssh !== null
@@ -470,21 +670,43 @@ function composeReleaseConfigForSubmit():
     } else {
       delete ssh.nginxCanaryBody;
       ssh.canaryPercent = envForm.value.canaryPercent;
-      const su = envForm.value.stableUpstream.trim();
-      const cu = envForm.value.candidateUpstream.trim();
-      if (su) ssh.nginxCanaryStableUpstream = su;
-      else delete ssh.nginxCanaryStableUpstream;
-      if (cu) ssh.nginxCanaryCandidateUpstream = cu;
-      else delete ssh.nginxCanaryCandidateUpstream;
+      ssh.nginxCanaryTemplate = envForm.value.canaryTemplate;
+      if (envForm.value.canaryTemplate === 'upstream_weight') {
+        const uw = envForm.value.canaryUpstreamName.trim();
+        const sb = envForm.value.stableBackend.trim();
+        const cb = envForm.value.candidateBackend.trim();
+        if (uw) ssh.nginxCanaryUpstreamName = uw;
+        else delete ssh.nginxCanaryUpstreamName;
+        if (sb) ssh.nginxCanaryStableBackend = sb;
+        else delete ssh.nginxCanaryStableBackend;
+        if (cb) ssh.nginxCanaryCandidateBackend = cb;
+        else delete ssh.nginxCanaryCandidateBackend;
+        delete ssh.nginxCanaryStableUpstream;
+        delete ssh.nginxCanaryCandidateUpstream;
+      } else {
+        const su = envForm.value.stableUpstream.trim();
+        const cu = envForm.value.candidateUpstream.trim();
+        if (su) ssh.nginxCanaryStableUpstream = su;
+        else delete ssh.nginxCanaryStableUpstream;
+        if (cu) ssh.nginxCanaryCandidateUpstream = cu;
+        else delete ssh.nginxCanaryCandidateUpstream;
+        delete ssh.nginxCanaryUpstreamName;
+        delete ssh.nginxCanaryStableBackend;
+        delete ssh.nginxCanaryCandidateBackend;
+      }
     }
     out.ssh = ssh;
   } else if (out.ssh && typeof out.ssh === 'object' && out.ssh !== null) {
     const ssh = { ...(out.ssh as Record<string, unknown>) };
     delete ssh.nginxCanaryPath;
     delete ssh.nginxCanaryBody;
+    delete ssh.nginxCanaryTemplate;
     delete ssh.canaryPercent;
     delete ssh.nginxCanaryStableUpstream;
     delete ssh.nginxCanaryCandidateUpstream;
+    delete ssh.nginxCanaryUpstreamName;
+    delete ssh.nginxCanaryStableBackend;
+    delete ssh.nginxCanaryCandidateBackend;
     if (Object.keys(ssh).length === 0) delete out.ssh;
     else out.ssh = ssh;
   }
@@ -521,6 +743,14 @@ async function handleSubmit() {
 
   if (envForm.value.strategy === 'canary' && envForm.value.executor === 'kubernetes') {
     message.warning('Kubernetes 执行器不支持金丝雀策略，请改为 SSH 或调整策略');
+    return;
+  }
+  if (envForm.value.strategy === 'blue_green' && envForm.value.executor === 'kubernetes') {
+    message.warning('Kubernetes 执行器不支持蓝绿策略，请改为 SSH 或调整策略');
+    return;
+  }
+  if (envForm.value.executor === 'object_storage' && !envForm.value.ossBucket.trim()) {
+    message.warning('请填写 S3 Bucket');
     return;
   }
 
