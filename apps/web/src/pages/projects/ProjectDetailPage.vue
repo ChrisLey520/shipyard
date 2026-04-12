@@ -3,7 +3,7 @@
     <n-page-header :title="project?.name ?? '...'" @back="router.push(`/orgs/${orgSlug}/projects`)">
       <template #extra>
         <n-space>
-          <n-button @click="openEditProject">编辑</n-button>
+          <n-button @click="openEditProject">快速编辑</n-button>
           <n-button type="error" @click="confirmDeleteProject">移除</n-button>
           <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
             环境管理
@@ -77,7 +77,7 @@
         <n-card title="构建环境变量（项目级）" size="small" style="margin-top: 16px">
           <n-space justify="space-between" align="center">
             <n-text depth="3">用于构建阶段（install/build）。环境级变量会覆盖同名项目变量。</n-text>
-            <n-button size="small" @click="openBuildEnvModal">管理</n-button>
+            <n-button size="small" @click="goProjectSettings">前往项目设置</n-button>
           </n-space>
           <div style="margin-top: 8px">
             <n-tag size="small">{{ buildEnvVars.length }} keys</n-tag>
@@ -181,27 +181,12 @@
       </n-tab-pane>
     </n-tabs>
 
-    <n-modal
-      v-model:show="showBuildEnvModal"
-      title="构建环境变量（项目级）"
-      preset="card"
-      style="width: 620px"
-      :mask-closable="false"
-      :close-on-esc="false"
-    >
-      <n-data-table :columns="buildEnvColumns" :data="buildEnvVars" size="small" />
-      <div style="margin-top: 12px; display: flex; gap: 8px">
-        <n-input v-model:value="newBuildEnv.key" placeholder="KEY" style="width: 200px" />
-        <n-input v-model:value="newBuildEnv.value" type="password" placeholder="value" style="flex:1" />
-        <n-button type="primary" @click="addBuildEnv">添加</n-button>
-      </div>
-    </n-modal>
-
     <project-edit-modal
       v-model:show="showEditProject"
       :saving="savingProject"
       :initial="editProjectInitial"
       :server-options="previewServerOptions"
+      :show-pr-preview-section="project?.gitConnection?.gitProvider === 'github'"
       @save="saveProject"
     />
 
@@ -217,21 +202,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, h, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
   NTag, NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
   type DataTableColumns,
-  NModal, NInput, useDialog,
+  useDialog,
 } from 'naive-ui';
-import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
+import ProjectEditModal from './components/ProjectEditModal.vue';
 import {
-  URL_SLUG_VALIDATION_MESSAGE,
-  deploymentStatusKey,
-  formatDuration,
-  isValidUrlSlug,
-} from '@shipyard/shared';
+  emptyProjectEditForm,
+  projectDetailToEditForm,
+  type ProjectEditFormValues,
+} from './projectEditForm';
+import { deploymentStatusKey, formatDuration } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
 import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
@@ -246,6 +231,7 @@ import {
   type ProjectDetail,
 } from '@/composables/projects/useProjectDetailActions';
 import { listServers } from '@/api/servers';
+import { saveProjectSettings } from '@/composables/projects/useProjectSettingsSave';
 
 const route = useRoute();
 const router = useRouter();
@@ -287,17 +273,7 @@ function onProjectTabChange(name: string) {
   void router.replace({ path: route.path, query: next });
 }
 
-const showBuildEnvModal = ref(false);
 const buildEnvVars = ref<ProjectBuildEnvVar[]>([]);
-const newBuildEnv = ref({ key: '', value: '' });
-
-const buildEnvColumns: DataTableColumns<ProjectBuildEnvVar> = [
-  { title: 'KEY', key: 'key' },
-  {
-    title: '操作', key: 'actions', width: 80,
-    render: (r) => h(NButton, { size: 'tiny', type: 'error', onClick: () => deleteBuildEnv(r.id) }, { default: () => '删除' }),
-  },
-];
 
 const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
   success: 'success',
@@ -493,27 +469,12 @@ async function retryFailed(deploymentId: string) {
   }
 }
 
-function openBuildEnvModal() {
-  showBuildEnvModal.value = true;
-  void loadBuildEnv();
-}
-
 async function loadBuildEnv() {
   buildEnvVars.value = await projectApi.listProjectBuildEnv();
 }
 
-async function addBuildEnv() {
-  if (!newBuildEnv.value.key || !newBuildEnv.value.value) return;
-  await projectApi.upsertProjectBuildEnv(newBuildEnv.value);
-  newBuildEnv.value = { key: '', value: '' };
-  await loadBuildEnv();
-  message.success('已添加');
-}
-
-async function deleteBuildEnv(varId: string) {
-  await projectApi.deleteProjectBuildEnv(varId);
-  await loadBuildEnv();
-  message.success('已删除');
+function goProjectSettings() {
+  void router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/settings`);
 }
 
 // ─── 项目编辑 / 移除 ─────────────────────────────────────────────────────────
@@ -521,28 +482,7 @@ async function deleteBuildEnv(varId: string) {
 const showEditProject = ref(false);
 const savingProject = ref(false);
 const previewServerOptions = ref<{ label: string; value: string }[]>([]);
-const editProjectInitial = ref<ProjectEditFormValues>({
-  name: '',
-  slug: '',
-  frameworkType: 'static',
-  installCommand: 'pnpm install',
-  buildCommand: 'pnpm build',
-  lintCommand: '',
-  testCommand: '',
-  outputDir: 'dist',
-  nodeVersion: '20',
-  cacheEnabled: true,
-  timeoutSeconds: 900,
-  ssrEntryPoint: 'dist/index.js',
-  previewHealthCheckPath: '',
-  previewEnabled: false,
-  previewServerId: null,
-  previewBaseDomain: '',
-  containerImageEnabled: false,
-  containerImageName: '',
-  registryUsername: '',
-  registryPassword: '',
-});
+const editProjectInitial = ref<ProjectEditFormValues>(emptyProjectEditForm());
 
 async function loadPreviewServerOptions() {
   try {
@@ -558,112 +498,29 @@ async function loadPreviewServerOptions() {
 
 async function openEditProject() {
   await loadPreviewServerOptions();
-  const pc = project.value?.pipelineConfig;
-  const p = project.value;
-  editProjectInitial.value = {
-    name: p?.name ?? '',
-    slug: p?.slug ?? '',
-    frameworkType: p?.frameworkType ?? 'static',
-    installCommand: pc?.installCommand ?? 'pnpm install',
-    buildCommand: pc?.buildCommand ?? 'pnpm build',
-    lintCommand: pc?.lintCommand ?? '',
-    testCommand: pc?.testCommand ?? '',
-    outputDir: pc?.outputDir ?? 'dist',
-    nodeVersion: pc?.nodeVersion ?? '20',
-    cacheEnabled: pc?.cacheEnabled ?? true,
-    timeoutSeconds: pc?.timeoutSeconds ?? 900,
-    ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
-    previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
-    previewEnabled: p?.previewEnabled ?? false,
-    previewServerId: p?.previewServerId ?? null,
-    previewBaseDomain: p?.previewBaseDomain ?? '',
-    containerImageEnabled: pc?.containerImageEnabled ?? false,
-    containerImageName: pc?.containerImageName ?? '',
-    registryUsername: '',
-    registryPassword: '',
-  };
+  editProjectInitial.value = projectDetailToEditForm(project.value);
   showEditProject.value = true;
 }
 
 async function saveProject(v: ProjectEditFormValues) {
-  if (!v.name || !v.slug) return;
-  if (!isValidUrlSlug(v.slug)) {
-    message.error(URL_SLUG_VALIDATION_MESSAGE);
-    return;
-  }
-  if (!v.installCommand.trim() || !v.buildCommand.trim() || !v.outputDir.trim()) {
-    message.error('请填写安装命令、构建命令与输出目录');
-    return;
-  }
-  if (v.timeoutSeconds == null || v.timeoutSeconds < 60) {
-    message.error('构建超时至少 60 秒');
-    return;
-  }
-  if (v.previewEnabled) {
-    if (!v.previewServerId) {
-      message.error('启用 PR 预览时请选择一个预览服务器');
-      return;
-    }
-    if (!v.previewBaseDomain.trim()) {
-      message.error('请填写预览父域（如 preview.example.com）');
-      return;
-    }
-  }
   savingProject.value = true;
-  const slugBefore = projectSlug.value;
   try {
-    await projectApi.updateProject(slugBefore, {
-      name: v.name,
-      slug: v.slug,
-      frameworkType: v.frameworkType,
-      previewEnabled: v.previewEnabled,
-      previewServerId: v.previewEnabled ? v.previewServerId : null,
-      previewBaseDomain: v.previewEnabled ? v.previewBaseDomain.trim() : null,
+    await saveProjectSettings(v, {
+      orgSlug: orgSlug.value,
+      slugBefore: projectSlug.value,
+      project: project.value,
+      api: projectApi,
+      queryClient,
+      router,
+      message,
+      refetchDetail: () => projectDetailQuery.refetch(),
+      refetchDeployments: () => refetchDeployments(),
+      loadBuildEnv,
+      pathAfterSlugChange: (slug) => `/orgs/${orgSlug.value}/projects/${slug}`,
+      onSuccess: () => {
+        showEditProject.value = false;
+      },
     });
-    const slugAfter = v.slug;
-
-    if (project.value?.pipelineConfig) {
-      await projectApi.updatePipelineConfig(slugAfter, {
-        installCommand: v.installCommand.trim(),
-        buildCommand: v.buildCommand.trim(),
-        outputDir: v.outputDir.trim(),
-        nodeVersion: v.nodeVersion,
-        cacheEnabled: v.cacheEnabled,
-        timeoutSeconds: v.timeoutSeconds,
-        lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
-        testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
-        ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
-        previewHealthCheckPath:
-          v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
-            ? v.previewHealthCheckPath.trim()
-            : null,
-        containerImageEnabled: v.containerImageEnabled,
-        containerImageName: v.containerImageEnabled ? v.containerImageName.trim() || null : null,
-        ...(v.registryPassword.trim()
-          ? {
-              containerRegistryAuth: {
-                username: v.registryUsername.trim() || undefined,
-                password: v.registryPassword.trim(),
-              },
-            }
-          : {}),
-      });
-    }
-
-    showEditProject.value = false;
-    message.success('已保存');
-    void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
-    if (v.slug !== slugBefore) {
-      void queryClient.invalidateQueries({ queryKey: ['projects', 'detail', orgSlug.value, slugBefore] });
-      void queryClient.invalidateQueries({ queryKey: ['projects', 'deployments', orgSlug.value, slugBefore] });
-      await router.replace(`/orgs/${orgSlug.value}/projects/${v.slug}`);
-      await nextTick();
-    }
-    await projectDetailQuery.refetch();
-    await refetchDeployments();
-    await loadBuildEnv();
-  } catch {
-    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     savingProject.value = false;
   }

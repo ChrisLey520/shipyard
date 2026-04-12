@@ -41,6 +41,7 @@
       :saving="saving"
       :initial="editInitial"
       :server-options="previewServerOptions"
+      :show-pr-preview-section="editingDetail?.gitConnection?.gitProvider === 'github'"
       @save="saveEdit"
     />
   </div>

@@ -37,6 +37,10 @@ const routes: RouteRecordRaw[] = [
       // 项目
       { path: 'projects', component: () => import('../pages/projects/ProjectListPage.vue') },
       { path: 'projects/new', component: () => import('../pages/projects/ProjectNewPage.vue') },
+      {
+        path: 'projects/:projectSlug/settings',
+        component: () => import('../pages/projects/ProjectSettingsPage.vue'),
+      },
       { path: 'projects/:projectSlug', component: () => import('../pages/projects/ProjectDetailPage.vue') },
       {
         path: 'projects/:projectSlug/environments',
