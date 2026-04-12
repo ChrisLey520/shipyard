@@ -4,10 +4,6 @@
       <template #extra>
         <n-space>
           <n-button @click="openEditProject">快速编辑</n-button>
-          <n-button type="error" @click="confirmDeleteProject">移除</n-button>
-          <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-            环境管理
-          </n-button>
           <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/settings`)">
             设置
           </n-button>
@@ -83,63 +79,62 @@
             <n-tag size="small">{{ buildEnvVars.length }} keys</n-tag>
           </div>
         </n-card>
+      </n-tab-pane>
 
-        <n-card title="环境" size="small" style="margin-top: 16px">
+      <n-tab-pane name="environments" tab="环境">
+        <n-card title="部署环境" size="small" style="margin-top: 8px">
           <template #header-extra>
             <n-button size="small" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
               环境管理
             </n-button>
           </template>
-        <n-empty
-          v-if="!project || project.environments.length === 0"
-          description="还没有部署环境"
-          style="margin-top: 8px"
-        >
-          <template #extra>
-            <n-button type="primary" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-              去创建环境
-            </n-button>
-          </template>
-        </n-empty>
-
-        <!-- 环境列表 -->
-        <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
-          <n-grid-item v-for="env in project.environments" :key="env.id">
-            <n-card
-              :title="env.name"
-              size="small"
-              style="cursor: pointer"
-              @click="goEnvDetail(env.id)"
-            >
-              <div style="display: flex; gap: 8px; flex-wrap: wrap">
-                <n-tag size="small">{{ env.triggerBranch }}</n-tag>
-                <n-tag size="small" :type="env.protected ? 'error' : 'default'">
-                  {{ env.protected ? '🔒 受保护' : '开放' }}
-                </n-tag>
-              </div>
-              <n-text depth="3" style="display:block;margin-top:8px;font-size:12px">
-                {{ env.server?.name }} ({{ env.server?.host }}) · {{ env.deployPath }}
-              </n-text>
-              <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
-                访问地址：
-                <template v-if="envAccessUrls[env.id]">
-                  <n-a :href="envAccessUrls[env.id]!" target="_blank" rel="noopener noreferrer" @click.stop>
-                    {{ envAccessUrls[env.id] }}
-                  </n-a>
-                </template>
-                <template v-else> - </template>
-              </n-text>
-              <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end">
-                <n-button size="small" type="primary" @click.stop="triggerDeploy(env.id)">
-                  立即部署
-                </n-button>
-                <n-button size="small" secondary @click.stop="openEditEnv(env.id)">
-                  编辑
-                </n-button>
-              </div>
-            </n-card>
-          </n-grid-item>
-        </n-grid>
+          <n-empty
+            v-if="!project || project.environments.length === 0"
+            description="还没有部署环境"
+          >
+            <template #extra>
+              <n-button type="primary" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
+                去创建环境
+              </n-button>
+            </template>
+          </n-empty>
+          <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
+            <n-grid-item v-for="env in project.environments" :key="env.id">
+              <n-card
+                :title="env.name"
+                size="small"
+                style="cursor: pointer"
+                @click="goEnvDetail(env.id)"
+              >
+                <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                  <n-tag size="small">{{ env.triggerBranch }}</n-tag>
+                  <n-tag size="small" :type="env.protected ? 'error' : 'default'">
+                    {{ env.protected ? '🔒 受保护' : '开放' }}
+                  </n-tag>
+                </div>
+                <n-text depth="3" style="display:block;margin-top:8px;font-size:12px">
+                  {{ env.server?.name }} ({{ env.server?.host }}) · {{ env.deployPath }}
+                </n-text>
+                <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
+                  访问地址：
+                  <template v-if="envAccessUrls[env.id]">
+                    <n-a :href="envAccessUrls[env.id]!" target="_blank" rel="noopener noreferrer" @click.stop>
+                      {{ envAccessUrls[env.id] }}
+                    </n-a>
+                  </template>
+                  <template v-else> - </template>
+                </n-text>
+                <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end">
+                  <n-button size="small" type="primary" @click.stop="triggerDeploy(env.id)">
+                    立即部署
+                  </n-button>
+                  <n-button size="small" secondary @click.stop="openEditEnv(env.id)">
+                    编辑
+                  </n-button>
+                </div>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
         </n-card>
       </n-tab-pane>
 
@@ -253,13 +248,16 @@ const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
 
 /** 与路由 ?tab= 同步，避免刷新后总是回到「概览」 */
-const activeProjectTab = ref<'overview' | 'deployments' | 'notifications' | 'feature-flags'>('overview');
+const activeProjectTab = ref<
+  'overview' | 'environments' | 'deployments' | 'notifications' | 'feature-flags'
+>('overview');
 
 function syncProjectTabFromRoute() {
   const tab = route.query['tab'];
   if (tab === 'deployments') activeProjectTab.value = 'deployments';
   else if (tab === 'notifications') activeProjectTab.value = 'notifications';
   else if (tab === 'feature-flags') activeProjectTab.value = 'feature-flags';
+  else if (tab === 'environments') activeProjectTab.value = 'environments';
   else activeProjectTab.value = 'overview';
 }
 
@@ -437,7 +435,7 @@ watch(
       window.clearInterval(envAccessPollTimer);
       envAccessPollTimer = null;
     }
-    if (tab !== 'overview') return;
+    if (tab !== 'overview' && tab !== 'environments') return;
     void loadEnvAccessUrls();
     envAccessPollTimer = window.setInterval(() => {
       void loadEnvAccessUrls();
@@ -477,7 +475,7 @@ function goProjectSettings() {
   void router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/settings`);
 }
 
-// ─── 项目编辑 / 移除 ─────────────────────────────────────────────────────────
+// ─── 项目编辑 ───────────────────────────────────────────────────────────────
 
 const showEditProject = ref(false);
 const savingProject = ref(false);
@@ -524,21 +522,6 @@ async function saveProject(v: ProjectEditFormValues) {
   } finally {
     savingProject.value = false;
   }
-}
-
-function confirmDeleteProject() {
-  dialog.warning({
-    title: '确认移除项目？',
-    content: '项目移除后将删除其环境、部署记录等数据，且无法恢复。',
-    positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await projectApi.deleteProject();
-      message.success('项目已移除');
-      void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
-      void router.push(`/orgs/${orgSlug.value}/projects`);
-    },
-  });
 }
 
 async function refetchDeployments() {

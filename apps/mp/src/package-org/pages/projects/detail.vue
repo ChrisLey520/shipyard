@@ -20,7 +20,6 @@
       <view v-show="activeTab === 'overview'">
         <view class="flex flex-wrap gap-2 mb-3">
           <wd-button size="small" type="primary" @click="showEdit = true">编辑项目</wd-button>
-          <wd-button size="small" plain @click="goEnvs">环境管理</wd-button>
           <wd-button size="small" plain @click="showBuildEnv = true">构建变量</wd-button>
         </view>
 
@@ -71,8 +70,43 @@
           />
         </wd-cell-group>
         <view v-if="!deployments.length" class="text-center text-gray-500 py-4">暂无部署</view>
+      </view>
 
-        <wd-button block plain custom-class="mt-4" type="error" @click="confirmDelete">删除项目</wd-button>
+      <!-- 环境 -->
+      <view v-show="activeTab === 'env'">
+        <view class="flex flex-wrap gap-2 mb-3">
+          <wd-button size="small" type="primary" plain @click="goEnvs">环境管理</wd-button>
+        </view>
+        <view v-if="!project.environments.length" class="text-center text-gray-500 py-6">
+          <text class="block mb-3">还没有部署环境</text>
+          <wd-button size="small" type="primary" @click="goEnvs">去创建环境</wd-button>
+        </view>
+        <view v-else>
+          <view
+            v-for="e in project.environments"
+            :key="e.id"
+            class="mb-3 border border-gray-200 rounded-lg p-3 bg-white"
+          >
+            <text class="font-medium text-base block">{{ e.name }}</text>
+            <view class="flex flex-wrap gap-2 mt-2">
+              <text class="text-xs px-2 py-0.5 bg-gray-100 rounded">{{ e.triggerBranch }}</text>
+              <text
+                class="text-xs px-2 py-0.5 rounded"
+                :class="e.protected ? 'bg-red-100 text-red-700' : 'bg-gray-100'"
+              >
+                {{ e.protected ? '受保护' : '开放' }}
+              </text>
+            </view>
+            <text class="text-xs text-gray-500 block mt-2">
+              {{ e.server.name }}（{{ e.server.host }}）· {{ e.deployPath }}
+            </text>
+            <text v-if="e.accessUrl" class="text-xs text-primary block mt-1 break-all">访问：{{ e.accessUrl }}</text>
+            <view class="flex flex-wrap gap-2 mt-3 justify-end">
+              <wd-button size="small" type="primary" @click="doDeploy(e.id)">立即部署</wd-button>
+              <wd-button size="small" plain @click="goEnvs">编辑</wd-button>
+            </view>
+          </view>
+        </view>
       </view>
 
       <!-- 部署 -->
@@ -150,6 +184,7 @@ import ProjectFeatureFlagsTab from '@/package-org/components/ProjectFeatureFlags
 
 const tabDefs = [
   { k: 'overview' as const, label: '概览' },
+  { k: 'env' as const, label: '环境' },
   { k: 'deploy' as const, label: '部署' },
   { k: 'notify' as const, label: '通知' },
   { k: 'flags' as const, label: '特性' },
@@ -257,23 +292,6 @@ async function doDeploy(environmentId: string) {
   } catch {
     // 全局 request 已提示
   }
-}
-
-function confirmDelete() {
-  uni.showModal({
-    title: '删除项目',
-    content: '确定删除该项目？此操作不可恢复。',
-    success: async (res) => {
-      if (!res.confirm) return;
-      try {
-        await projectsApi.deleteProject(orgSlug.value, projectSlug.value);
-        uni.showToast({ title: '已删除', icon: 'success' });
-        setTimeout(() => uni.navigateBack(), 400);
-      } catch {
-        // 全局 request 已提示
-      }
-    },
-  });
 }
 
 function onProjectSaved(payload: { slugChanged: boolean; newSlug: string }) {
