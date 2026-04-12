@@ -23,7 +23,7 @@
         </view>
       </view>
     </view>
-    <view v-if="!loading && !rows.length" class="text-center text-gray-500 py-4">暂无特性开关</view>
+    <mp-page-empty v-if="!loading && !rows.length" variant="embed" dense title="暂无特性开关" />
 
     <wd-popup v-model="showModal" position="bottom" :safe-area-inset-bottom="true">
       <scroll-view scroll-y class="max-h-80vh p-4">
@@ -42,9 +42,10 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import * as featureApi from '@/api/feature-flags';
-import type { FeatureFlagRow } from '@/api/feature-flags';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import * as featureApi from '@/package-org/api/feature-flags';
+import type { FeatureFlagRow } from '@/package-org/api/feature-flags';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
 
 const props = defineProps<{ orgSlug: string }>();
 

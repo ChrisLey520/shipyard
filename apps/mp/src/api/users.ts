@@ -1,13 +1,24 @@
+import type { UserColorMode, UserThemeId } from '@shipyard/shared';
 import { getApiBase } from '@/config/env';
 import { storage } from '@/utils/storage';
 import { HttpError, request } from './http';
 
-export async function updateMyLocale(locale: string) {
-  return request<{ locale: string }>({
+export type UpdateMeBody = {
+  locale?: string;
+  themeId?: UserThemeId;
+  colorMode?: UserColorMode;
+};
+
+export async function updateMe(body: UpdateMeBody) {
+  return request<Partial<{ locale: string; themeId: string; colorMode: string }>>({
     url: '/users/me',
     method: 'PATCH',
-    data: { locale },
+    data: body,
   });
+}
+
+export async function updateMyLocale(locale: string) {
+  return updateMe({ locale });
 }
 
 /** 小程序使用本地临时路径上传头像（chooseImage 的 tempFilePaths） */

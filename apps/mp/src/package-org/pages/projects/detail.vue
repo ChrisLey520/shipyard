@@ -1,6 +1,15 @@
 <template>
-  <view class="p-3">
-    <OrgNavGrid v-if="orgSlug" :org-slug="orgSlug" />
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar">
+    <OrgNavGrid v-if="orgSlug" scope="deployment" :org-slug="orgSlug" />
     <wd-loading v-if="loading && !project" />
     <view v-else-if="project">
       <view class="flex flex-wrap gap-2 mb-3">
@@ -69,7 +78,7 @@
             @click="openDep(d.id)"
           />
         </wd-cell-group>
-        <view v-if="!deployments.length" class="text-center text-gray-500 py-4">暂无部署</view>
+        <mp-page-empty v-if="!deployments.length" variant="embed" class="mt-2" title="暂无部署" />
       </view>
 
       <!-- 环境 -->
@@ -77,10 +86,15 @@
         <view class="flex flex-wrap gap-2 mb-3">
           <wd-button size="small" type="primary" @click="openCreateEnv">添加环境</wd-button>
         </view>
-        <view v-if="!project.environments.length" class="text-center text-gray-500 py-6">
-          <text class="block mb-3">还没有部署环境</text>
-          <wd-button size="small" type="primary" @click="openCreateEnv">添加环境</wd-button>
-        </view>
+        <mp-page-empty
+          v-if="!project.environments.length"
+          variant="embed"
+          title="还没有部署环境"
+        >
+          <template #footer>
+            <wd-button size="small" type="primary" @click="openCreateEnv">添加环境</wd-button>
+          </template>
+        </mp-page-empty>
         <view v-else>
           <view
             v-for="e in project.environments"
@@ -126,7 +140,7 @@
             @click="openDep(d.id)"
           />
         </wd-cell-group>
-        <view v-if="!deployments.length" class="text-center text-gray-500 py-8">暂无部署</view>
+        <mp-page-empty v-if="!deployments.length" variant="embed" class="mt-2" title="暂无部署" />
       </view>
 
       <ProjectNotificationsTab
@@ -219,22 +233,28 @@
     </wd-popup>
     <typed-destructive-confirm-host />
   </view>
+  <mp-main-tab-bar :tab-index="1" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch, computed } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
-import { useProjectPageContext } from '@/composables/useProjectPageContext';
+import { useProjectPageContext } from '@/package-org/composables/useProjectPageContext';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail, DeploymentListItem, ProjectBuildEnvVar } from '@/api/projects';
-import * as envApi from '@/api/projects/environments';
-import type { EnvVar } from '@/api/projects/environments';
+import * as envApi from '@/package-org/api/projects/environments';
+import type { EnvVar } from '@/package-org/api/projects/environments';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
-import ProjectEditPopup from '@/package-org/components/ProjectEditPopup.vue';
-import ProjectNotificationsTab from '@/package-org/components/ProjectNotificationsTab.vue';
-import ProjectFeatureFlagsTab from '@/package-org/components/ProjectFeatureFlagsTab.vue';
-import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import ProjectEditPopup from '../../components/ProjectEditPopup.vue';
+import ProjectFeatureFlagsTab from '../../components/ProjectFeatureFlagsTab.vue';
+import ProjectNotificationsTab from '../../components/ProjectNotificationsTab.vue';
+import TypedDestructiveConfirmHost from '@/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
+
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
 const tabDefs = [
   { k: 'overview' as const, label: '概览' },

@@ -1,6 +1,14 @@
 <template>
-  <view class="p-3">
-    <OrgNavGrid v-if="orgSlug" :org-slug="orgSlug" />
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar">
     <wd-loading v-if="loading" />
     <view v-else-if="form">
       <wd-cell-group title="Kubernetes 集群" border>
@@ -15,7 +23,7 @@
           <text>{{ c.name }}</text>
           <wd-button size="small" plain type="error" @click="confirmRemoveK8s(c)">删除</wd-button>
         </view>
-        <view v-if="!k8sClusters.length" class="text-gray-500 text-sm py-2">暂无集群</view>
+        <mp-page-empty v-if="!k8sClusters.length" variant="embed" dense title="暂无集群" />
       </wd-cell-group>
 
       <wd-cell-group title="组织级特性开关" border custom-class="mt-3">
@@ -41,22 +49,27 @@
     </wd-popup>
     <typed-destructive-confirm-host />
   </view>
+  <mp-main-tab-bar :tab-index="3" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 import { useOrgStore } from '@/stores/org';
-import * as settingsApi from '@/api/settings';
-import type { OrgSettings } from '@/api/settings';
-import * as k8sApi from '@/api/kubernetes-clusters';
-import type { KubernetesClusterRow } from '@/api/kubernetes-clusters';
-import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
-import OrgFeatureFlagsBlock from '@/package-org/components/OrgFeatureFlagsBlock.vue';
-import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import * as settingsApi from '@/package-org/api/settings';
+import type { OrgSettings } from '@/package-org/api/settings';
+import * as k8sApi from '@/package-org/api/kubernetes-clusters';
+import type { KubernetesClusterRow } from '@/package-org/api/kubernetes-clusters';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
+import OrgFeatureFlagsBlock from '../../components/OrgFeatureFlagsBlock.vue';
+import TypedDestructiveConfirmHost from '@/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
+
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
 const orgStore = useOrgStore();
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();

@@ -1,5 +1,14 @@
 <template>
-  <view class="p-3">
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar">
     <wd-cell-group :title="t('settings.basicInfo')" border>
       <wd-cell :title="t('settings.avatar')">
         <wd-button size="small" :loading="uploadingAvatar" @click="pickAvatar">
@@ -14,11 +23,14 @@
         :value="localeLabel"
         @click="showLang = true"
       />
+      <wd-cell
+        :title="t('theme.appearance')"
+        is-link
+        ellipsis
+        :value="appearanceLabel"
+        @click="showTheme = true"
+      />
     </wd-cell-group>
-
-    <wd-button block type="primary" custom-class="mt-4" :loading="savingLocale" @click="saveLocale">
-      {{ t('common.save') }}
-    </wd-button>
 
     <wd-cell-group :title="t('settings.security')" border custom-class="mt-4">
       <wd-cell :title="t('settings.changePassword')" is-link @click="openPwd" />
@@ -29,8 +41,15 @@
     <wd-action-sheet
       v-model="showLang"
       :actions="langActions"
-      cancel-text="取消"
+      :cancel-text="t('common.cancel')"
       @select="onLangSelect"
+    />
+
+    <wd-action-sheet
+      v-model="showTheme"
+      :actions="themeActions"
+      :cancel-text="t('common.cancel')"
+      @select="onThemeSelect"
     />
 
     <wd-popup v-model="showPwd" position="bottom" :safe-area-inset-bottom="true">
@@ -46,9 +65,12 @@
       </view>
     </wd-popup>
   </view>
+  <mp-main-tab-bar :tab-index="4" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, computed, watch } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import { useI18n } from 'vue-i18n';
@@ -56,13 +78,18 @@ import { useAuthStore } from '@/stores/auth';
 import { authApi } from '@/api/auth';
 import * as usersApi from '@/api/users';
 import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
+import { storage } from '@/utils/storage';
+import { useThemeStore } from '@/stores/theme';
+import type { ColorMode, ThemeId } from '@/theme/types';
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
+const themeStore = useThemeStore();
 
 const uploadingAvatar = ref(false);
-const savingLocale = ref(false);
 const showLang = ref(false);
+const showTheme = ref(false);
 const selectedLocale = ref<'zh-CN' | 'en'>('zh-CN');
 const showPwd = ref(false);
 const changingPwd = ref(false);
@@ -75,44 +102,114 @@ const langActions = [
 
 const localeLabel = computed(() => (selectedLocale.value === 'en' ? 'English' : '中文（简体）'));
 
+const themeActions = computed(() => [
+  { name: t('theme.toneFresh'), actionKey: 'theme:fresh' as const },
+  { name: t('theme.toneOcean'), actionKey: 'theme:ocean' as const },
+  { name: t('theme.toneViolet'), actionKey: 'theme:violet' as const },
+  { name: t('theme.modeAuto'), actionKey: 'mode:auto' as const },
+  { name: t('theme.modeLight'), actionKey: 'mode:light' as const },
+  { name: t('theme.modeDark'), actionKey: 'mode:dark' as const },
+]);
+
+const toneLabel = computed(() => {
+  const id = themeStore.themeId;
+  if (id === 'ocean') return t('theme.toneOcean');
+  if (id === 'violet') return t('theme.toneViolet');
+  return t('theme.toneFresh');
+});
+
+const modeLabel = computed(() => {
+  const mode = themeStore.colorMode;
+  if (mode === 'auto') {
+    return themeStore.isDark ? t('theme.followSystemDark') : t('theme.followSystemLight');
+  }
+  return mode === 'dark' ? t('theme.dark') : t('theme.light');
+});
+
+const appearanceLabel = computed(() => `${toneLabel.value} · ${modeLabel.value}`);
+
 onShow(() => {
   if (!auth.isAuthenticated) {
     reLaunchToLoginWithRedirect();
     return;
   }
-  syncLocaleFromUser();
+  themeStore.syncHostPreferredDark();
+  applyPreferredLocale();
 });
 
 watch(
   () => auth.user?.locale,
-  () => syncLocaleFromUser(),
+  () => applyPreferredLocale(),
 );
 
-function syncLocaleFromUser() {
+/** 本地 storage 优先于服务端：选语言未点保存时也能全局生效 */
+function applyPreferredLocale() {
+  const s = storage.getLocale();
+  if (s === 'en' || s === 'zh-CN') {
+    selectedLocale.value = s;
+    locale.value = s;
+    return;
+  }
   const l = auth.user?.locale;
   selectedLocale.value = l === 'en' ? 'en' : 'zh-CN';
   locale.value = selectedLocale.value;
 }
 
-function onLangSelect(payload: { index: number }) {
-  const opt = langActions[payload.index];
-  if (!opt) return;
-  selectedLocale.value = opt.value;
-  locale.value = opt.value;
+function userLocaleNormalized(): 'zh-CN' | 'en' {
+  return auth.user?.locale === 'en' ? 'en' : 'zh-CN';
 }
 
-async function saveLocale() {
-  savingLocale.value = true;
+function onThemeSelect(payload: { item: { actionKey?: string } }) {
+  const k = payload.item.actionKey;
+  if (!k) return;
+  if (k.startsWith('theme:')) {
+    themeStore.setThemeId(k.slice('theme:'.length) as ThemeId);
+  } else if (k.startsWith('mode:')) {
+    themeStore.setColorMode(k.slice('mode:'.length) as ColorMode);
+  }
+  showTheme.value = false;
+}
+
+/** 选择语言后立即 PATCH /users/me，与 Web 端 persist 行为对齐（无需再点保存） */
+async function onLangSelect(payload: { index: number }) {
+  const opt = langActions[payload.index];
+  if (!opt) return;
+  if (
+    opt.value === userLocaleNormalized() &&
+    opt.value === storage.getLocale() &&
+    opt.value === locale.value
+  ) {
+    showLang.value = false;
+    return;
+  }
+
+  const snapshot = {
+    selected: selectedLocale.value,
+    i18n: locale.value,
+    storage: storage.getLocale(),
+  };
+
+  selectedLocale.value = opt.value;
+  locale.value = opt.value;
+  storage.setLocale(opt.value);
+  showLang.value = false;
+
+  uni.showLoading({ title: t('common.loading'), mask: true });
   try {
-    await usersApi.updateMyLocale(selectedLocale.value);
-    locale.value = selectedLocale.value;
+    await usersApi.updateMyLocale(opt.value);
     await auth.fetchMe();
-    syncLocaleFromUser();
     uni.showToast({ title: t('common.saved'), icon: 'success' });
   } catch {
-    // 全局 request 已提示
+    selectedLocale.value = snapshot.selected;
+    locale.value = snapshot.i18n;
+    if (snapshot.storage === 'en' || snapshot.storage === 'zh-CN') {
+      storage.setLocale(snapshot.storage);
+    } else {
+      storage.clearLocale();
+    }
+    applyPreferredLocale();
   } finally {
-    savingLocale.value = false;
+    uni.hideLoading();
   }
 }
 

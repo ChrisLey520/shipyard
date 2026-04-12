@@ -1,5 +1,14 @@
 <template>
-  <view class="p-3">
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar">
     <wd-loading v-if="loading && !detail" />
     <view v-else-if="detail">
       <wd-cell-group title="部署" border>
@@ -21,20 +30,30 @@
         </wd-button>
       </view>
       <scroll-view scroll-y class="log-box">
-        <text v-for="line in logLines" :key="line.seq" class="log-line">{{ line.content }}</text>
-        <view v-if="!logLines.length" class="text-gray-500 text-sm">暂无日志</view>
+        <template v-if="logLines.length">
+          <text v-for="line in logLines" :key="line.seq" class="log-line">{{ line.content }}</text>
+        </template>
+        <view v-else class="log-box-empty">
+          <mp-page-empty variant="embed" dense title="暂无日志" />
+        </view>
       </scroll-view>
     </view>
   </view>
+  <mp-main-tab-bar :tab-index="1" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch, computed, onUnmounted } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
-import { useProjectPageContext } from '@/composables/useProjectPageContext';
-import * as pipelineApi from '@/api/pipeline';
-import type { DeploymentDetail, DeploymentLogLine } from '@/api/pipeline';
+import { useProjectPageContext } from '@/package-org/composables/useProjectPageContext';
+import * as pipelineApi from '@/package-org/api/pipeline';
+import type { DeploymentDetail, DeploymentLogLine } from '@/package-org/api/pipeline';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
 import * as projectsApi from '@/api/projects';
+
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 const { orgSlug, projectSlug, initProjectFromQuery } = useProjectPageContext();
 const deploymentId = ref('');
 const loading = ref(true);
@@ -161,5 +180,13 @@ async function retry() {
   white-space: pre-wrap;
   word-break: break-all;
   margin-bottom: 4rpx;
+}
+
+.log-box-empty {
+  min-height: 360rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 0;
 }
 </style>

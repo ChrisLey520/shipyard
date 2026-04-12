@@ -42,7 +42,7 @@
         </view>
       </view>
     </view>
-    <view v-if="!loading && !rows.length" class="text-center text-gray-500 py-4">暂无通知配置</view>
+    <mp-page-empty v-if="!loading && !rows.length" variant="embed" dense title="暂无通知配置" />
 
     <wd-popup v-model="showWh" position="bottom" :safe-area-inset-bottom="true">
       <scroll-view scroll-y class="max-h-85vh p-4">
@@ -67,9 +67,10 @@
 import { ref, watch } from 'vue';
 import { NotificationChannel, NotificationEvent } from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
-import * as notifApi from '@/api/projects/notifications';
-import type { ProjectNotificationRow } from '@/api/projects/notifications';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import * as notifApi from '@/package-org/api/projects/notifications';
+import type { ProjectNotificationRow } from '@/package-org/api/projects/notifications';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
 
 const props = defineProps<{ orgSlug: string; projectSlug: string }>();
 

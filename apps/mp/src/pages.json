@@ -8,11 +8,26 @@
   "pages": [
     {
       "path": "pages/auth/login",
-      "style": { "navigationBarTitleText": "登录" }
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationBarBackgroundColor": "#eaedf6",
+        "navigationBarTextStyle": "black",
+        "backgroundColor": "#eaedf6",
+        "backgroundTextStyle": "dark",
+        "mp-weixin": {
+          "handleWebviewPreload": "manual"
+        }
+      }
     },
     {
       "path": "pages/auth/register",
-      "style": { "navigationBarTitleText": "注册" }
+      "style": {
+        "navigationBarTitleText": "注册",
+        "navigationBarBackgroundColor": "#eaedf6",
+        "navigationBarTextStyle": "black",
+        "backgroundColor": "#eaedf6",
+        "backgroundTextStyle": "dark"
+      }
     },
     {
       "path": "pages/auth/forgot",
@@ -21,6 +36,18 @@
     {
       "path": "pages/auth/reset",
       "style": { "navigationBarTitleText": "重置密码" }
+    },
+    {
+      "path": "pages/workspace/dashboard",
+      "style": { "navigationBarTitleText": "首页" }
+    },
+    {
+      "path": "pages/deployment/index",
+      "style": { "navigationBarTitleText": "部署" }
+    },
+    {
+      "path": "pages/collaboration/index",
+      "style": { "navigationBarTitleText": "协作" }
     },
     {
       "path": "pages/orgs/list",
@@ -35,29 +62,65 @@
     {
       "root": "package-org",
       "pages": [
-        { "path": "pages/dashboard/index", "style": { "navigationBarTitleText": "仪表盘" } },
-        { "path": "pages/projects/list", "style": { "navigationBarTitleText": "项目" } },
         { "path": "pages/projects/new", "style": { "navigationBarTitleText": "新建项目" } },
         { "path": "pages/projects/detail", "style": { "navigationBarTitleText": "项目详情" } },
         { "path": "pages/projects/deployment-detail", "style": { "navigationBarTitleText": "部署" } },
         { "path": "pages/servers/index", "style": { "navigationBarTitleText": "服务器" } },
-        { "path": "pages/team/index", "style": { "navigationBarTitleText": "团队" } },
         { "path": "pages/approvals/index", "style": { "navigationBarTitleText": "审批" } },
         { "path": "pages/git-accounts/index", "style": { "navigationBarTitleText": "Git 账户" } },
         { "path": "pages/settings/org", "style": { "navigationBarTitleText": "组织设置" } }
       ]
     }
   ],
-  "preloadRule": {
-    "pages/orgs/list": {
-      "network": "all",
-      "packages": ["package-org"]
-    }
+  "tabBar": {
+    // #ifdef MP-WEIXIN
+    "custom": true,
+    // #endif
+    "color": "#666666",
+    "selectedColor": "#16a34a",
+    "borderStyle": "black",
+    "backgroundColor": "#eaedf6",
+    "list": [
+      {
+        "pagePath": "pages/workspace/dashboard",
+        "text": "首页",
+        "iconPath": "/static/tabbar/work.png",
+        "selectedIconPath": "/static/tabbar/work-active.png"
+      },
+      {
+        "pagePath": "pages/deployment/index",
+        "text": "部署",
+        "iconPath": "/static/tabbar/deploy.png",
+        "selectedIconPath": "/static/tabbar/deploy-active.png"
+      },
+      {
+        "pagePath": "pages/collaboration/index",
+        "text": "协作",
+        "iconPath": "/static/tabbar/collab.png",
+        "selectedIconPath": "/static/tabbar/collab-active.png"
+      },
+      {
+        "pagePath": "pages/orgs/list",
+        "text": "组织",
+        "iconPath": "/static/tabbar/org.png",
+        "selectedIconPath": "/static/tabbar/org-active.png"
+      },
+      {
+        "pagePath": "pages/settings/personal",
+        "text": "我的",
+        "iconPath": "/static/tabbar/me.png",
+        "selectedIconPath": "/static/tabbar/me-active.png"
+      }
+    ]
   },
   "globalStyle": {
+    "navigationStyle": "custom",
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "Shipyard",
-    "navigationBarBackgroundColor": "#F8F8F8",
-    "backgroundColor": "#F8F8F8"
+    "navigationBarBackgroundColor": "#eaedf6",
+    "backgroundColor": "#eaedf6",
+    "backgroundTextStyle": "dark",
+    "backgroundColorTop": "#eaedf6",
+    "backgroundColorBottom": "#eaedf6"
   }
 }

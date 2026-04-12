@@ -1,5 +1,5 @@
 import type { ServerOs } from '@shipyard/shared';
-import { request } from './http';
+import { request } from '@/api/http';
 
 export interface ServerItem {
   id: string;

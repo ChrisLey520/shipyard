@@ -1,4 +1,4 @@
-import { request } from './http';
+import { request } from '@/api/http';
 
 export interface FeatureFlagRow {
   id: string;

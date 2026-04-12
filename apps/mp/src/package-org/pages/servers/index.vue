@@ -1,11 +1,20 @@
 <template>
-  <view class="p-3">
-    <OrgNavGrid v-if="orgSlug" :org-slug="orgSlug" />
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar mp-page-column-fill">
+    <OrgNavGrid v-if="orgSlug" scope="deployment" :org-slug="orgSlug" />
     <view class="flex justify-end mb-2">
       <wd-button size="small" type="primary" @click="openCreate">添加服务器</wd-button>
     </view>
     <wd-loading v-if="loading" />
-    <view v-else>
+    <view v-else-if="servers.length">
       <view
         v-for="s in servers"
         :key="s.id"
@@ -22,7 +31,9 @@
         </view>
       </view>
     </view>
-    <view v-if="!loading && !servers.length" class="text-center text-gray-500 py-8">暂无服务器</view>
+    <view v-else class="mp-page-column-fill__grow">
+      <mp-page-empty variant="page" title="暂无服务器" />
+    </view>
 
     <wd-popup v-model="showCreate" position="bottom" :safe-area-inset-bottom="true">
       <view class="p-4">
@@ -43,17 +54,23 @@
     </wd-popup>
     <typed-destructive-confirm-host />
   </view>
+  <mp-main-tab-bar :tab-index="1" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
-import * as serversApi from '@/api/servers';
-import type { ServerItem } from '@/api/servers';
+import * as serversApi from '@/package-org/api/servers';
+import type { ServerItem } from '@/package-org/api/servers';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
-import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import TypedDestructiveConfirmHost from '@/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
+
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
 const loading = ref(false);

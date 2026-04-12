@@ -1,6 +1,7 @@
 import { ref } from 'vue';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
 
+/** 仅组织分包内项目页使用，避免打入主包 */
 export function useProjectPageContext() {
   const { orgSlug, initOrgFromQuery } = useOrgPageContext();
   const projectSlug = ref('');

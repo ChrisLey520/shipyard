@@ -23,16 +23,26 @@ export const useAuthStore = defineStore('auth', () => {
     storage.clearTokens();
   }
 
+  /** 登录/注册后拉取资料：失败时清会话并向上抛出，便于页面结束 loading 且走全局错误提示 */
+  async function fetchMeOrThrow() {
+    try {
+      user.value = await authApi.me();
+    } catch (e) {
+      clearTokens();
+      throw e;
+    }
+  }
+
   async function login(email: string, password: string) {
     const tokens = await authApi.login({ email, password });
     setTokens(tokens);
-    await fetchMe();
+    await fetchMeOrThrow();
   }
 
   async function register(name: string, email: string, password: string) {
     const tokens = await authApi.register({ name, email, password });
     setTokens(tokens);
-    await fetchMe();
+    await fetchMeOrThrow();
   }
 
   async function logout() {

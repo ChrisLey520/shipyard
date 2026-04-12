@@ -1,15 +1,30 @@
 <template>
-  <view class="p-4">
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-4 auth-page-fill" :class="{ 'auth-page-fill--dark': isDark }">
     <wd-input v-model="password" label="新密码" type="text" show-password clearable />
     <wd-button block type="primary" custom-class="mt-4" :loading="loading" @click="submit">重置密码</wd-button>
   </view>
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { authApi } from '@/api/auth';
+import { useAuthDarkRoot } from '@/composables/useAuthDarkRoot';
 
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
+
+const { isDark } = useAuthDarkRoot();
 const token = ref('');
 const password = ref('');
 const loading = ref(false);
@@ -35,3 +50,10 @@ async function submit() {
   }
 }
 </script>
+
+<style scoped>
+.auth-page-fill {
+  min-height: 100%;
+  box-sizing: border-box;
+}
+</style>

@@ -1,11 +1,20 @@
 <template>
-  <view class="p-3">
-    <OrgNavGrid v-if="orgSlug" :org-slug="orgSlug" />
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar mp-page-column-fill">
+    <OrgNavGrid v-if="orgSlug" scope="collaboration" :org-slug="orgSlug" />
     <view class="flex justify-end mb-2">
       <wd-button size="small" type="primary" @click="showInvite = true">邀请成员</wd-button>
     </view>
     <wd-loading v-if="loading" />
-    <wd-cell-group v-else border>
+    <wd-cell-group v-else-if="members.length" border>
       <wd-cell
         v-for="m in members"
         :key="m.userId"
@@ -15,7 +24,9 @@
         @click="confirmRemove(m)"
       />
     </wd-cell-group>
-    <view v-if="!loading && !members.length" class="text-center text-gray-500 py-8">暂无成员</view>
+    <view v-else class="mp-page-column-fill__grow">
+      <mp-page-empty variant="page" title="暂无成员" />
+    </view>
 
     <wd-popup v-model="showInvite" position="bottom" :safe-area-inset-bottom="true">
       <view class="p-4">
@@ -27,28 +38,34 @@
     </wd-popup>
     <typed-destructive-confirm-host />
   </view>
+  <mp-main-tab-bar :tab-index="2" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch } from 'vue';
-import { onLoad } from '@dcloudio/uni-app';
-import { useOrgPageContext } from '@/composables/useOrgPageContext';
+import { onLoad, onShow } from '@dcloudio/uni-app';
+import { useI18n } from 'vue-i18n';
+import { useOrgTabEntryPage } from '@/composables/useOrgTabEntryPage';
 import * as teamApi from '@/api/team';
 import type { TeamMember } from '@/api/team';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
-import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import TypedDestructiveConfirmHost from '@/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
 
-const { orgSlug, initOrgFromQuery } = useOrgPageContext();
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
+const { t } = useI18n();
+const { orgSlug, onShowEntry, onLoadEntry } = useOrgTabEntryPage(t);
 const loading = ref(false);
 const members = ref<TeamMember[]>([]);
 const showInvite = ref(false);
 const saving = ref(false);
 const invite = ref({ email: '', role: 'member' });
 
-onLoad((q) => {
-  initOrgFromQuery(q as Record<string, string | undefined>);
-});
+onShow(onShowEntry);
+onLoad((q) => onLoadEntry(q as Record<string, string | undefined>));
 
 async function load() {
   if (!orgSlug.value) return;

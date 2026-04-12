@@ -37,7 +37,7 @@ import {
   typedDestructivePayloadMp,
   typedDestructiveShowMp,
   typedDestructiveSubmittingMp,
-} from '@/package-org/composables/typedDestructiveConfirmMp';
+} from '@/composables/typedDestructiveConfirmMp';
 
 const payload = computed(() => typedDestructivePayloadMp.value);
 

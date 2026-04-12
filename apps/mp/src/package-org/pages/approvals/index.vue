@@ -1,8 +1,17 @@
 <template>
-  <view class="p-3">
-    <OrgNavGrid v-if="orgSlug" :org-slug="orgSlug" />
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar mp-page-column-fill">
+    <OrgNavGrid v-if="orgSlug" scope="collaboration" :org-slug="orgSlug" />
     <wd-loading v-if="loading" />
-    <wd-cell-group v-else border>
+    <wd-cell-group v-else-if="items.length" border>
       <wd-cell
         v-for="a in items"
         :key="a.id"
@@ -12,7 +21,9 @@
         @click="openReview(a)"
       />
     </wd-cell-group>
-    <view v-if="!loading && !items.length" class="text-center text-gray-500 py-8">暂无审批</view>
+    <view v-else class="mp-page-column-fill__grow">
+      <mp-page-empty variant="page" title="暂无审批" />
+    </view>
 
     <wd-popup v-model="showReview" position="bottom" :safe-area-inset-bottom="true">
       <view class="p-4">
@@ -28,15 +39,21 @@
       </view>
     </wd-popup>
   </view>
+  <mp-main-tab-bar :tab-index="2" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
-import * as approvalsApi from '@/api/approvals';
-import type { ApprovalItem } from '@/api/approvals';
+import * as approvalsApi from '@/package-org/api/approvals';
+import type { ApprovalItem } from '@/package-org/api/approvals';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
+
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
 const loading = ref(false);

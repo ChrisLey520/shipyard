@@ -52,6 +52,7 @@ export function rawRequest<T>(opts: UniRequestOptions): Promise<T> {
       url,
       method: (opts.method ?? 'GET') as UniApp.RequestOptions['method'],
       data: opts.data,
+      timeout: 60_000,
       header: {
         'Content-Type': 'application/json',
         ...opts.header,
@@ -105,6 +106,7 @@ function uniRequestOnce<T>(opts: UniRequestOptions): Promise<T> {
       url,
       method: (opts.method ?? 'GET') as UniApp.RequestOptions['method'],
       data: opts.data,
+      timeout: 60_000,
       header: {
         'Content-Type': 'application/json',
         ...headers,

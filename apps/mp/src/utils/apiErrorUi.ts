@@ -6,7 +6,7 @@ import {
   type ApiErrorDisplay,
   type ShipyardApiErrorBody,
 } from '@shipyard/shared';
-import { reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
+import { deferMiniProgramNavigation, reLaunchToLoginWithRedirect } from '@/utils/redirectLogin';
 
 export type MpHttpErrorLike = {
   message: string;
@@ -45,7 +45,7 @@ export function applyMpHttpErrorUi(
 
   if (mode === 'redirect' || opts?.preferLoginRedirect) {
     if (body?.redirectPath?.startsWith('/')) {
-      uni.reLaunch({ url: body.redirectPath });
+      deferMiniProgramNavigation(() => uni.reLaunch({ url: body.redirectPath! }));
     } else {
       reLaunchToLoginWithRedirect();
     }

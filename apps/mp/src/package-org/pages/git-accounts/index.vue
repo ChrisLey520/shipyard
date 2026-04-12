@@ -1,11 +1,20 @@
 <template>
-  <view class="p-3">
-    <OrgNavGrid v-if="orgSlug" :org-slug="orgSlug" />
+  <page-meta
+    :background-text-style="pageMetaBgText"
+    :background-color="pageMetaBg"
+    :background-color-top="pageMetaBg"
+    :root-background-color="pageMetaBg"
+    :background-color-bottom="pageMetaBg"
+  />
+  <mp-theme-provider>
+  <mp-custom-nav-bar />
+  <view class="p-3 mp-tab-page--with-bottom-bar mp-page-column-fill">
+    <OrgNavGrid v-if="orgSlug" scope="deployment" :org-slug="orgSlug" />
     <view class="flex justify-end mb-2">
       <wd-button size="small" type="primary" @click="showCreate = true">添加账户</wd-button>
     </view>
     <wd-loading v-if="loading" />
-    <wd-cell-group v-else border>
+    <wd-cell-group v-else-if="accounts.length" border>
       <wd-cell
         v-for="g in accounts"
         :key="g.id"
@@ -15,7 +24,9 @@
         @click="confirmDelete(g)"
       />
     </wd-cell-group>
-    <view v-if="!loading && !accounts.length" class="text-center text-gray-500 py-8">暂无 Git 账户</view>
+    <view v-else class="mp-page-column-fill__grow">
+      <mp-page-empty variant="page" title="暂无 Git 账户" />
+    </view>
 
     <wd-popup v-model="showCreate" position="bottom" :safe-area-inset-bottom="true">
       <view class="p-4">
@@ -30,17 +41,23 @@
     </wd-popup>
     <typed-destructive-confirm-host />
   </view>
+  <mp-main-tab-bar :tab-index="1" />
+  </mp-theme-provider>
 </template>
 
 <script setup lang="ts">
+import { useMpPageRootMeta } from '@/composables/useMpPageRootMeta';
 import { ref, watch } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { useOrgPageContext } from '@/composables/useOrgPageContext';
-import * as gitApi from '@/api/git-accounts';
-import type { GitAccountItem } from '@/api/git-accounts';
+import * as gitApi from '@/package-org/api/git-accounts';
+import type { GitAccountItem } from '@/package-org/api/git-accounts';
+import MpPageEmpty from '@/components/MpPageEmpty.vue';
 import OrgNavGrid from '@/components/org/OrgNavGrid.vue';
-import TypedDestructiveConfirmHost from '@/package-org/components/TypedDestructiveConfirmHost.vue';
-import { openTypedDestructiveMp } from '@/package-org/composables/typedDestructiveConfirmMp';
+import TypedDestructiveConfirmHost from '@/components/TypedDestructiveConfirmHost.vue';
+import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
+
+const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
 const { orgSlug, initOrgFromQuery } = useOrgPageContext();
 const loading = ref(false);

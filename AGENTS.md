@@ -5,6 +5,7 @@
 | 场景 | 文档 |
 |------|------|
 | **版本规划、路线图、需求规格、`.cursor/plans`、发版流程** | [`.cursor/skills/shipyard-plan-workflow/SKILL.md`](.cursor/skills/shipyard-plan-workflow/SKILL.md) |
+| **实现踩坑、问题与方案备忘（非规划）** | [`.cursor/notes/README.md`](.cursor/notes/README.md) |
 | 后端模块与 DDD | [`.cursor/skills/ddd-backend/SKILL.md`](.cursor/skills/ddd-backend/SKILL.md) |
 | 前端模块与 DDD | [`.cursor/skills/ddd-frontend/SKILL.md`](.cursor/skills/ddd-frontend/SKILL.md) |
 | 管理后台 UI/UX 规范 | [`.cursor/skills/shipyard-ui-spec/SKILL.md`](.cursor/skills/shipyard-ui-spec/SKILL.md) |

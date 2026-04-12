@@ -77,7 +77,7 @@ import { ref, watch, computed } from 'vue';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail, UpdatePipelineConfigPayload } from '@/api/projects';
-import { listServers } from '@/api/servers';
+import { listServers } from '@/package-org/api/servers';
 
 const props = defineProps<{
   modelValue: boolean;

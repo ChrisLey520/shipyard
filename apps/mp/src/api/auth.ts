@@ -14,6 +14,8 @@ export interface AuthUser {
   email: string;
   avatarUrl?: string | null;
   locale?: string | null;
+  themeId?: string | null;
+  colorMode?: string | null;
 }
 
 export const authApi = {
