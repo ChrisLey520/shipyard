@@ -65,7 +65,7 @@ function deviceFromUni(): Record<string, unknown> | undefined {
  * uni-app 端初始化（微信 / H5 等）；需在 createApp 之后调用。
  */
 export function initUniMonitoring(options: UniMonitoringOptions): MonitoringClient {
-  if (options.enabled === false) {
+  if (!options.enabled) {
     return noopClient();
   }
 
