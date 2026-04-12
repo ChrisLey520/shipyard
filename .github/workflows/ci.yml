@@ -108,3 +108,52 @@ jobs:
       - run: pnpm db:migrate:deploy
       - run: pnpm exec playwright install chromium --with-deps
       - run: pnpm test:e2e
+
+  monitoring-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: shipyard_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CI: true
+      MONITORING_PORT: '3031'
+      MONITORING_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/monitoring_ci
+      MONITORING_ADMIN_TOKEN: e2e-admin-token
+      MONITORING_SEED_PROJECT_KEY: e2e_project
+      MONITORING_SEED_INGEST_TOKEN: e2e-ingest-token
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 安装 psql 客户端
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: 幂等创建 monitoring_ci 库
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" -tc "SELECT 1 FROM pg_database WHERE datname = 'monitoring_ci'" | grep -q 1 || psql "postgresql://postgres:postgres@localhost:5432/postgres" -c "CREATE DATABASE monitoring_ci;"
+
+      - run: pnpm exec playwright install chromium --with-deps
+      - run: pnpm test:e2e:monitoring

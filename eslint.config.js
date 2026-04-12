@@ -36,6 +36,12 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/.prisma/**"],
+    ignores: [
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/.prisma/**",
+      // Prisma client output（如 monitoring-server 的 output = ../src/generated/...）
+      "**/src/generated/**",
+    ],
   },
 );
