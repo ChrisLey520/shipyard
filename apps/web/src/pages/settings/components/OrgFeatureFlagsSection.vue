@@ -36,6 +36,8 @@
 
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue';
+import TableRowSwitchCell from '@/components/table/TableRowSwitchCell.vue';
+import TableRowEditDeleteCell from '@/components/table/TableRowEditDeleteCell.vue';
 import {
   NButton,
   NDataTable,
@@ -168,11 +170,11 @@ const columns = computed<DataTableColumns<FeatureFlagRow>>(() => [
     key: 'enabled',
     width: 96,
     render: (r) =>
-      h(NSwitch, {
+      h(TableRowSwitchCell, {
         value: r.enabled,
         loading: togglingId.value === r.id,
         disabled: togglingId.value === r.id,
-        onUpdateValue: (v: boolean) => void toggleEnabled(r, v),
+        'onUpdate:value': (v: boolean) => void toggleEnabled(r, v),
       }),
   },
   {
@@ -180,10 +182,10 @@ const columns = computed<DataTableColumns<FeatureFlagRow>>(() => [
     key: 'a',
     width: 140,
     render: (r) =>
-      h('div', { style: 'display:flex;gap:8px' }, [
-        h(NButton, { size: 'tiny', onClick: () => openEdit(r) }, { default: () => '编辑' }),
-        h(NButton, { size: 'tiny', type: 'error', onClick: () => confirmRemoveRow(r) }, { default: () => '删除' }),
-      ]),
+      h(TableRowEditDeleteCell, {
+        onEdit: () => void openEdit(r),
+        onDelete: () => void confirmRemoveRow(r),
+      }),
   },
 ]);
 

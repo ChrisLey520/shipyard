@@ -186,6 +186,7 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted, watch, type Component } from 'vue';
+import NIconRenderer from './NIconRenderer.vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutHeader, NLayoutContent,
@@ -213,8 +214,8 @@ import {
   SettingsOutline,
 } from '@vicons/ionicons5';
 
-function menuIcon(component: Component) {
-  return () => h(NIcon, { component });
+function menuIcon(icon: Component) {
+  return () => h(NIconRenderer, { icon });
 }
 
 const router = useRouter();

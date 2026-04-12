@@ -42,10 +42,11 @@
 
 <script setup lang="ts">
 import { ref, h, computed, watch } from 'vue';
+import NaiveTagCell from '@/components/table/NaiveTagCell.vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NList, NListItem, NThing,
-  NButton, NSpace, NEmpty, NDataTable, NTag, useMessage,
+  NButton, NSpace, NEmpty, NDataTable, useMessage,
   type DataTableColumns,
 } from 'naive-ui';
 import {
@@ -66,10 +67,11 @@ const histColumns: DataTableColumns<ApprovalItem> = [
   { title: '环境', key: 'env', render: (r) => r.deployment?.environment?.name ?? '?' },
   {
     title: '状态', key: 'status', width: 100,
-    render: (r) => h(NTag, {
-      type: r.status === 'approved' ? 'success' : 'error',
-      size: 'small',
-    }, { default: () => r.status }),
+    render: (r) =>
+      h(NaiveTagCell, {
+        tagType: r.status === 'approved' ? 'success' : 'error',
+        label: r.status,
+      }),
   },
   { title: '审批人', key: 'reviewedBy', render: (r) => r.reviewedBy?.name ?? '—' },
 ];

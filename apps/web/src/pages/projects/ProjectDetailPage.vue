@@ -192,10 +192,13 @@
 
 <script setup lang="ts">
 import { ref, h, computed, watch } from 'vue';
+import NaiveTagCell from '@/components/table/NaiveTagCell.vue';
+import DeploymentListRowActionsCell from '@/components/table/DeploymentListRowActionsCell.vue';
+import TableDeleteButtonCell from '@/components/table/TableDeleteButtonCell.vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
-  NTag, NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
+  NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
   NModal, NInput,
   type DataTableColumns,
 } from 'naive-ui';
@@ -275,11 +278,10 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
   {
     title: '状态', key: 'status', width: 120,
     render: (r) =>
-      h(
-        NTag,
-        { type: statusMap[r.status] ?? 'default', size: 'small' },
-        { default: () => t(deploymentStatusKey(r.status)) },
-      ),
+      h(NaiveTagCell, {
+        tagType: statusMap[r.status] ?? 'default',
+        label: t(deploymentStatusKey(r.status)),
+      }),
   },
   {
     title: '耗时', key: 'duration', width: 80,
@@ -292,20 +294,13 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
   {
     title: '操作', key: 'actions', width: 200,
     render: (r) =>
-      h('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' }, [
-        h(NButton, { size: 'tiny', onClick: () => router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${r.id}`) }, { default: () => '详情' }),
-        r.status === 'failed'
-          ? h(NButton, { size: 'tiny', type: 'primary', secondary: true, onClick: () => retryFailed(r.id) }, { default: () => '重试' })
-          : null,
-        r.artifactId
-          ? h(NButton, { size: 'tiny', type: 'warning', onClick: () => rollback(r.id) }, { default: () => '回滚' })
-          : h(NButton, { size: 'tiny', disabled: true }, { default: () => '回滚' }),
-        h(
-          NButton,
-          { size: 'tiny', type: 'error', secondary: true, onClick: () => confirmDeleteDeployment(r) },
-          { default: () => '删除' },
-        ),
-      ]),
+      h(DeploymentListRowActionsCell, {
+        row: r,
+        detailPath: `/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${r.id}`,
+        onRetry: () => void retryFailed(r.id),
+        onRollback: () => void rollback(r.id),
+        onDelete: () => void confirmDeleteDeployment(r),
+      }),
   },
 ];
 
@@ -425,11 +420,9 @@ const envVarColumns: DataTableColumns<EnvVar> = [
     key: 'actions',
     width: 80,
     render: (r) =>
-      h(
-        NButton,
-        { size: 'tiny', type: 'error', onClick: () => void confirmRemoveEnvVarRow(r) },
-        { default: () => '删除' },
-      ),
+      h(TableDeleteButtonCell, {
+        onDelete: () => void confirmRemoveEnvVarRow(r),
+      }),
   },
 ];
 

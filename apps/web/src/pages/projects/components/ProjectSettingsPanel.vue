@@ -52,6 +52,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, h } from 'vue';
+import TableDeleteButtonCell from '@/components/table/TableDeleteButtonCell.vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NCard,
@@ -116,7 +117,9 @@ const buildEnvColumns: DataTableColumns<ProjectBuildEnvVar> = [
     key: 'actions',
     width: 80,
     render: (r) =>
-      h(NButton, { size: 'tiny', type: 'error', onClick: () => confirmDeleteBuildEnv(r) }, { default: () => '删除' }),
+      h(TableDeleteButtonCell, {
+        onDelete: () => void confirmDeleteBuildEnv(r),
+      }),
   },
 ];
 

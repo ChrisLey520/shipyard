@@ -41,9 +41,11 @@
 
 <script setup lang="ts">
 import { ref, h, computed } from 'vue';
+import TeamMemberRoleCell from '@/components/table/TeamMemberRoleCell.vue';
+import TeamMemberActionsCell from '@/components/table/TeamMemberActionsCell.vue';
 import { useRoute } from 'vue-router';
 import {
-  NPageHeader, NDataTable, NButton, NTag, NModal, NForm, NFormItem,
+  NPageHeader, NDataTable, NButton, NModal, NForm, NFormItem,
   NInput, NSelect, NSpace, useMessage, type DataTableColumns,
 } from 'naive-ui';
 import { useOrgTeam, type TeamMember } from '@/composables/team/useOrgTeam';
@@ -72,13 +74,19 @@ const columns: DataTableColumns<TeamMember> = [
   { title: '邮箱', key: 'email', render: (r) => r.user.email },
   {
     title: '角色', key: 'role', width: 100,
-    render: (r) => h(NTag, { type: roleTypeMap[r.role] ?? 'default', size: 'small' }, { default: () => r.role }),
+    render: (r) =>
+      h(TeamMemberRoleCell, {
+        role: r.role,
+        tagType: roleTypeMap[r.role] ?? 'default',
+      }),
   },
   {
     title: '操作', key: 'actions', width: 80,
-    render: (r) => r.role !== 'owner'
-      ? h(NButton, { size: 'small', type: 'error', onClick: () => void confirmRemoveMember(r) }, { default: () => '移除' })
-      : h('span', '—'),
+    render: (r) =>
+      h(TeamMemberActionsCell, {
+        canRemove: r.role !== 'owner',
+        onRemove: () => void confirmRemoveMember(r),
+      }),
   },
 ];
 

@@ -50,10 +50,11 @@
 
 <script setup lang="ts">
 import { computed, h } from 'vue';
+import NaiveTagCell from '@/components/table/NaiveTagCell.vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NGrid, NGridItem, NStatistic, NCard,
-  NDataTable, NTag, type DataTableColumns,
+  NDataTable, type DataTableColumns,
 } from 'naive-ui';
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
@@ -110,7 +111,10 @@ const deployColumns: DataTableColumns<DashboardDeploymentRow> = [
     title: '状态',
     key: 'status',
     render: (row) =>
-      h(NTag, { type: statusType(row.status), size: 'small' }, { default: () => t(deploymentStatusKey(row.status)) }),
+      h(NaiveTagCell, {
+        tagType: statusType(row.status),
+        label: t(deploymentStatusKey(row.status)),
+      }),
   },
   {
     title: '耗时',

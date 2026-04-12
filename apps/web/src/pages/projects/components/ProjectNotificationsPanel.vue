@@ -116,6 +116,9 @@
 
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue';
+import NotificationEventTagsCell from '@/components/table/NotificationEventTagsCell.vue';
+import TableRowSwitchCell from '@/components/table/TableRowSwitchCell.vue';
+import TableRowEditDeleteCell from '@/components/table/TableRowEditDeleteCell.vue';
 import {
   NButton,
   NCard,
@@ -127,7 +130,6 @@ import {
   NModal,
   NSelect,
   NSwitch,
-  NTag,
   NText,
   useMessage,
   type DataTableColumns,
@@ -464,24 +466,20 @@ const columns = computed<DataTableColumns<ProjectNotificationRow>>(() => [
     key: 'events',
     ellipsis: { tooltip: true },
     render: (r) =>
-      h(
-        'div',
-        { class: 'flex flex-wrap gap-1' },
-        (r.events ?? []).map((ev) =>
-          h(NTag, { size: 'small' }, { default: () => EVENT_LABELS[ev as NotificationEvent] ?? ev }),
-        ),
-      ),
+      h(NotificationEventTagsCell, {
+        labels: (r.events ?? []).map((ev) => EVENT_LABELS[ev as NotificationEvent] ?? String(ev)),
+      }),
   },
   {
     title: '启用',
     key: 'enabled',
     width: 96,
     render: (r) =>
-      h(NSwitch, {
+      h(TableRowSwitchCell, {
         value: r.enabled,
         loading: togglingNotifId.value === r.id,
         disabled: togglingNotifId.value === r.id,
-        onUpdateValue: (v: boolean) => void toggleNotificationEnabled(r, v),
+        'onUpdate:value': (v: boolean) => void toggleNotificationEnabled(r, v),
       }),
   },
   {
@@ -489,14 +487,11 @@ const columns = computed<DataTableColumns<ProjectNotificationRow>>(() => [
     key: 'actions',
     width: 140,
     render: (r) =>
-      h('div', { class: 'flex flex-wrap gap-2' }, [
-        h(NButton, { size: 'tiny', onClick: () => openEdit(r) }, { default: () => '编辑' }),
-        h(
-          NButton,
-          { size: 'tiny', type: 'error', secondary: true, onClick: () => confirmDelete(r) },
-          { default: () => '删除' },
-        ),
-      ]),
+      h(TableRowEditDeleteCell, {
+        deleteSecondary: true,
+        onEdit: () => void openEdit(r),
+        onDelete: () => void confirmDelete(r),
+      }),
   },
 ]);
 

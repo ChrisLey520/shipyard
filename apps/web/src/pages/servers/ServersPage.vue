@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { ref, h, computed, watch } from 'vue';
+import ServersRowActionsCell from '@/components/table/ServersRowActionsCell.vue';
 import { useRoute } from 'vue-router';
 import {
   NPageHeader, NDataTable, NButton, NModal, NForm, NFormItem,
@@ -101,11 +102,12 @@ const columns: DataTableColumns<ServerItem> = [
   { title: '用户', key: 'user' },
   {
     title: '操作', key: 'actions', width: 220,
-    render: (row) => h('div', { style: 'display:flex;gap:8px' }, [
-      h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => '编辑' }),
-      h(NButton, { size: 'small', onClick: () => testConn(row.id) }, { default: () => '连通测试' }),
-      h(NButton, { size: 'small', type: 'error', onClick: () => confirmRemoveServer(row) }, { default: () => '删除' }),
-    ]),
+    render: (row) =>
+      h(ServersRowActionsCell, {
+        onEdit: () => void openEdit(row),
+        onTest: () => void testConn(row.id),
+        onDelete: () => void confirmRemoveServer(row),
+      }),
   },
 ];
 
