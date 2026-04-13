@@ -17,6 +17,7 @@
     "typecheck": "pnpm --filter @shipyard/shared build && pnpm --filter @shipyard/monitoring-sdk build && pnpm --filter @shipyard/server db:generate && pnpm --filter @shipyard/monitoring-server exec prisma generate && pnpm -r typecheck",
     "typecheck:build": "tsc -b",
     "test": "pnpm --filter @shipyard/shared build && pnpm --filter @shipyard/shared test && pnpm --filter @shipyard/monitoring-sdk test && pnpm --filter @shipyard/server test && pnpm --filter @shipyard/monitoring-server test && pnpm --filter @shipyard/web test",
+    "ci:prep-shipyard-e2e": "pnpm --filter @shipyard/shared build && pnpm --filter @shipyard/server db:generate && pnpm db:migrate:deploy",
     "test:e2e": "pnpm --filter @shipyard/monitoring-sdk build && playwright test --config e2e/playwright.config.ts",
     "test:e2e:monitoring": "playwright test --config e2e/playwright.monitoring.config.ts",
     "test:e2e:ui": "pnpm --filter @shipyard/monitoring-sdk build && playwright test --ui --config e2e/playwright.config.ts",

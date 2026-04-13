@@ -5,6 +5,14 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   unit:
@@ -12,16 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
+      - uses: ./.github/actions/setup-node-pnpm
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
 
@@ -81,6 +81,11 @@ jobs:
         image: redis:7-alpine
         ports:
           - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     env:
       CI: true
@@ -94,20 +99,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
+      - uses: ./.github/actions/setup-node-pnpm
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      # ts-node-dev 解析 @shipyard/shared 的 package.json main（dist），Vite dev 可走源码别名但 API 进程不能
-      - run: pnpm --filter @shipyard/shared build
-      - run: pnpm --filter @shipyard/server db:generate
-      - run: pnpm db:migrate:deploy
+      # shared dist 供 Nest/ts-node-dev；迁移准备 DB；与根目录脚本保持一致便于本地复现
+      - run: pnpm ci:prep-shipyard-e2e
       - run: pnpm exec playwright install chromium --with-deps
       - run: pnpm test:e2e
 
@@ -139,16 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-node-pnpm
 
       - name: 安装 psql 客户端
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
