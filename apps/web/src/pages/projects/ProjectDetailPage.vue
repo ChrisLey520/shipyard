@@ -206,7 +206,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, watch } from 'vue';
+import { ref, h, computed, watch, onBeforeUnmount } from 'vue';
 import NaiveTagCell from '@/components/table/NaiveTagCell.vue';
 import DeploymentListRowActionsCell from '@/components/table/DeploymentListRowActionsCell.vue';
 import TableDeleteButtonCell from '@/components/table/TableDeleteButtonCell.vue';
@@ -519,7 +519,10 @@ function confirmDeleteEnv(env: ProjectDetail['environments'][number]) {
 }
 
 async function loadEnvAccessUrls() {
+  // 离开项目详情后 interval 可能仍回调：此时 route 已无 projectSlug，但 project ref 仍可能残留缓存
+  if (!orgSlug.value || !projectSlug.value) return;
   if (!project.value) return;
+  if (project.value.slug !== projectSlug.value) return;
   try {
     envAccessUrls.value = await projectApi.fetchEnvironmentAccessUrls();
   } catch {
@@ -543,6 +546,13 @@ watch(
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  if (envAccessPollTimer != null) {
+    window.clearInterval(envAccessPollTimer);
+    envAccessPollTimer = null;
+  }
+});
 
 async function rollback(deploymentId: string) {
   try {

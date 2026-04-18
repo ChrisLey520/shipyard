@@ -306,6 +306,41 @@ const deployment = ref<DeploymentDetail | null>(null);
 const retrying = ref(false);
 const logLines = ref<string[]>([]);
 
+/**
+ * 构建 Worker 在写入 artifact 后会短暂将 status 置为 success，再入队部署并变为 queued；
+ * 若仅按 success 停止轮询/WebSocket，会永远收不到 [container]、[deploy]、[error] 等后续日志。
+ * success 且尚未出现 [done] 构建成功 时也必须继续拉（镜像推送阶段可能很长且少 DB 日志行）。
+ * 无 environment 时可能是 Preview 或仅构建，需用日志判断是否仍有未完成的发布链。
+ */
+function shouldKeepStreamingDeploymentLogs(
+  detail: DeploymentDetail | null,
+  logContents: readonly string[],
+): boolean {
+  if (!detail) return false;
+  const st = detail.status;
+  if (st === 'failed') return false;
+  if (['building', 'deploying', 'queued', 'pending_approval'].includes(st)) return true;
+  if (st !== 'success') return false;
+
+  const hasDoneBuild = logContents.some((l) => l.includes('[done] 构建成功'));
+  if (!hasDoneBuild) return true;
+
+  if (detail.environment) {
+    return !logContents.some((l) => l.includes('[deploy] 部署成功'));
+  }
+  if (logContents.some((l) => l.includes('[preview-deploy]'))) {
+    return !logContents.some((l) => l.includes('[preview-deploy] 部署成功'));
+  }
+  if (
+    logContents.some(
+      (l) => l.includes('[deploy] 开始部署') || l.includes('[deploy] executor='),
+    )
+  ) {
+    return !logContents.some((l) => l.includes('[deploy] 部署成功'));
+  }
+  return false;
+}
+
 type FlowStatus = 'process' | 'finish' | 'error' | 'wait';
 type StepStatus = 'process' | 'finish' | 'error' | 'wait';
 
@@ -360,7 +395,9 @@ const flowInfo = computed(() => {
     lint: hasLog('[lint]'),
     test: hasLog('[test]'),
     build: hasLog('[build]'),
-    archive: hasLog('[archive]'),
+    /** 勿用宽泛的「[archive]」匹配：开始日志出现后 currentIdx 会卡在 6，镜像推送等后续失败会被误标为「打包产物」失败 */
+    archiveStarted: hasLog('[archive] 开始打包产物'),
+    archiveDone: hasLog('[archive] 产物打包完成'),
     deploy: hasLog('[deploy] 开始部署') || hasLog('[deploy] rsync') || st === 'deploying',
     healthStart: hasLog('[deploy] 健康检查 '),
     healthOk: hasLog('[deploy] 健康检查通过'),
@@ -372,7 +409,8 @@ const flowInfo = computed(() => {
   const currentIdx = (() => {
     if (st === 'success' || seen.doneDeploy) return 8;
     if (seen.deploy) return 7;
-    if (seen.archive) return 6;
+    if (seen.archiveDone) return 7;
+    if (seen.archiveStarted) return 6;
     if (seen.build) return 5;
     if (seen.test) return 4;
     if (seen.lint) return 3;
@@ -428,7 +466,7 @@ const flowInfo = computed(() => {
     lint: skippedLint ? '已跳过' : stepDescByStatus(3, seen.lint ? '已完成' : '进行中/可跳过'),
     test: skippedTest ? '已跳过' : stepDescByStatus(4, seen.test ? '已完成' : '进行中/可跳过'),
     build: stepDescByStatus(5, seen.build ? '已开始' : '进行中'),
-    archive: stepDescByStatus(6, seen.archive ? '已完成' : '进行中'),
+    archive: stepDescByStatus(6, seen.archiveDone ? '已完成' : '进行中'),
     deploy: stepDescByStatus(7, seen.deploy ? (seen.doneDeploy ? '已完成' : '进行中') : '进行中'),
     done: failed
       ? '已终止'
@@ -569,7 +607,7 @@ const { pause: pauseLogPoll, resume: resumeLogPoll } = useIntervalFn(
           pollLogSeq.value = log.seq;
         }
       }
-      if (detail && ['success', 'failed'].includes(detail.status)) {
+      if (detail && !shouldKeepStreamingDeploymentLogs(detail, logLines.value)) {
         pauseLogPoll();
         socket?.disconnect();
         socket = null;
@@ -635,8 +673,7 @@ async function loadDeploymentView() {
     logLines.value.push(log.content);
   }
 
-  const st = deployment.value?.status ?? '';
-  if (['building', 'deploying', 'queued', 'pending_approval'].includes(st)) {
+  if (shouldKeepStreamingDeploymentLogs(deployment.value, logLines.value)) {
     connectLiveLogStream(id);
     resumeLogPoll();
   }
@@ -648,6 +685,23 @@ watch(
     void loadDeploymentView();
   },
   { immediate: true },
+);
+
+/** success→queued 等过渡时若轮询已停，补连 WebSocket 与轮询，避免漏掉镜像与发布日志 */
+watch(
+  () => deployment.value?.status,
+  (st, prev) => {
+    const id = deploymentId.value;
+    if (!id || !terminal) return;
+    const resume =
+      (prev === 'success' && (st === 'queued' || st === 'deploying')) ||
+      (prev === 'building' && st === 'queued') ||
+      (prev === 'queued' && st === 'deploying');
+    if (resume) {
+      connectLiveLogStream(id);
+      resumeLogPoll();
+    }
+  },
 );
 
 watch(
