@@ -115,6 +115,9 @@
               {{ e.server.name }}（{{ e.server.host }}）· {{ e.deployPath }}
             </text>
             <text v-if="e.accessUrl" class="text-xs text-primary block mt-1 break-all">访问：{{ e.accessUrl }}</text>
+            <text v-if="serverDirectSiteUrl(e)" class="text-xs text-gray-500 block mt-1 break-all">
+              服务器访问：{{ serverDirectSiteUrl(e) }}（域名未解析时可先试）
+            </text>
             <view class="flex flex-wrap gap-2 mt-3 justify-end">
               <wd-button size="small" type="primary" @click="doDeploy(e.id)">立即部署</wd-button>
               <wd-button size="small" plain @click="openRuntimeVars(e)">环境变量</wd-button>
@@ -253,8 +256,17 @@ import ProjectFeatureFlagsTab from '../../components/ProjectFeatureFlagsTab.vue'
 import ProjectNotificationsTab from '../../components/ProjectNotificationsTab.vue';
 import TypedDestructiveConfirmHost from '@/components/TypedDestructiveConfirmHost.vue';
 import { openTypedDestructiveMp } from '@/composables/typedDestructiveConfirmMp';
+import { buildDirectServerSiteAccessUrl, isSameHttpSiteHost } from '@shipyard/shared';
 
 const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
+
+function serverDirectSiteUrl(e: ProjectDetail['environments'][number]): string {
+  const primary = e.accessUrl?.trim() ?? '';
+  const direct = buildDirectServerSiteAccessUrl(e.server.host);
+  if (!direct) return '';
+  if (primary && isSameHttpSiteHost(primary, direct)) return '';
+  return direct;
+}
 
 const tabDefs = [
   { k: 'overview' as const, label: '概览' },

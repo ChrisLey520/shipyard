@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDirectServerSiteAccessUrl,
   buildPm2StaticSiteRootUrl,
   isBlockedOutboundIp,
+  isSameHttpSiteHost,
   normalizeHttpRootUrlWithSlash,
   stripTrailingSlashes,
 } from './utils';
@@ -47,6 +49,15 @@ describe('isBlockedOutboundIp', () => {
     expect(isBlockedOutboundIp('2001:db8::1')).toBe(true);
     expect(isBlockedOutboundIp('::ffff:10.0.0.1')).toBe(true);
     expect(isBlockedOutboundIp('2606:4700:4700::1111')).toBe(false);
+  });
+});
+
+describe('buildDirectServerSiteAccessUrl / isSameHttpSiteHost', () => {
+  it('直连根 URL 与主机等价判断', () => {
+    expect(buildDirectServerSiteAccessUrl('')).toBe('');
+    expect(buildDirectServerSiteAccessUrl('62.234.223.156')).toBe('http://62.234.223.156/');
+    expect(isSameHttpSiteHost('http://62.234.223.156/', '62.234.223.156')).toBe(true);
+    expect(isSameHttpSiteHost('http://app.example.com/', '62.234.223.156')).toBe(false);
   });
 });
 

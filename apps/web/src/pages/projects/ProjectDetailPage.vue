@@ -104,6 +104,17 @@
                   </template>
                   <template v-else> - </template>
                 </n-text>
+                <n-text
+                  v-if="serverDirectSiteUrl(env)"
+                  depth="3"
+                  style="display:block;margin-top:4px;font-size:12px"
+                >
+                  服务器访问：
+                  <n-a :href="serverDirectSiteUrl(env)!" target="_blank" rel="noopener noreferrer">
+                    {{ serverDirectSiteUrl(env) }}
+                  </n-a>
+                  <span style="opacity: 0.82">（域名未解析时可先试）</span>
+                </n-text>
                 <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                   <n-button class="w-full sm:w-auto" size="small" type="primary" @click="triggerDeploy(env.id)">
                     立即部署
@@ -206,7 +217,12 @@ import {
   NModal, NInput,
   type DataTableColumns,
 } from 'naive-ui';
-import { deploymentStatusKey, formatDuration } from '@shipyard/shared';
+import {
+  deploymentStatusKey,
+  formatDuration,
+  buildDirectServerSiteAccessUrl,
+  isSameHttpSiteHost,
+} from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import EnvironmentModal from './components/EnvironmentModal.vue';
 import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
@@ -311,6 +327,15 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
 
 function clearSelection() {
   checkedDeploymentIds.value = [];
+}
+
+/** 与主访问地址不同时展示 SSH 目标主机根 URL（多为公网 IP），便于域名未生效时预览 */
+function serverDirectSiteUrl(env: ProjectDetail['environments'][number]): string | null {
+  const primary = envAccessUrls.value[env.id]?.trim() ?? '';
+  const direct = buildDirectServerSiteAccessUrl(env.server?.host);
+  if (!direct) return null;
+  if (primary && isSameHttpSiteHost(primary, direct)) return null;
+  return direct;
 }
 
 function confirmDeleteDeployment(row: DeploymentListItem) {

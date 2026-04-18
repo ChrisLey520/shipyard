@@ -8,6 +8,7 @@ import {
   isLoopbackHostLabel,
   buildPm2StaticSiteRootUrl,
   normalizeHttpRootUrlWithSlash,
+  isSameHttpSiteHost,
   shortId,
 } from '@shipyard/shared';
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -78,6 +79,14 @@ export class DeployApplicationService {
     }
     if (accessHost) {
       lines.push(`[deploy] 访问地址: ${normalizeHttpRootUrlWithSlash(accessHost)}`);
+      const serverDirect = normalizeHttpRootUrlWithSlash(opts.serverHost);
+      if (
+        serverDirect &&
+        opts.serverHost.trim().length > 0 &&
+        !isSameHttpSiteHost(accessHost, opts.serverHost)
+      ) {
+        lines.push(`[deploy] 服务器直连访问（域名未解析时可先试）: ${serverDirect}`);
+      }
     }
     if (opts.staticFallback) {
       const pm2Url = buildPm2StaticSiteRootUrl(opts.staticFallback.host, opts.staticFallback.port);

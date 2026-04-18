@@ -22,6 +22,39 @@ export function normalizeHttpRootUrlWithSlash(hostOrUrl: string): string {
   return `${stripTrailingSlashes(base)}/`;
 }
 
+/** 使用 SSH 目标主机（多为公网 IP）生成的站点根 URL；域名尚未解析时可在浏览器先试此地址 */
+export function buildDirectServerSiteAccessUrl(serverSshHost: string | null | undefined): string {
+  const h = (serverSshHost ?? '').trim();
+  if (!h) return '';
+  return normalizeHttpRootUrlWithSlash(h);
+}
+
+/** 从规范根 URL 或裸主机名提取 HTTP 主机（不含端口），不依赖 DOM URL（shared 仅 ES2022 lib） */
+function extractHttpSiteHost(hostOrRoot: string): string {
+  const root = normalizeHttpRootUrlWithSlash(hostOrRoot.trim());
+  if (!root) return '';
+  const m = /^https?:\/\/([^/?#]+)/i.exec(root);
+  if (!m?.[1]) return '';
+  let host = m[1];
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
+    return end > 1 ? host.slice(1, end) : host;
+  }
+  const lastColon = host.lastIndexOf(':');
+  if (lastColon > 0 && /^\d{1,5}$/.test(host.slice(lastColon + 1))) {
+    host = host.slice(0, lastColon);
+  }
+  return host;
+}
+
+/** 两段根 URL（或裸主机名）是否指向同一 HTTP 主机，用于避免重复展示「域名」与「服务器直连」 */
+export function isSameHttpSiteHost(hostOrRootA: string, hostOrRootB: string): boolean {
+  const a = extractHttpSiteHost(hostOrRootA);
+  const b = extractHttpSiteHost(hostOrRootB);
+  if (!a || !b) return false;
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 /**
  * PM2 / 本机静态回退站点的根 URL（固定 `http://`，与 deploy 落库 accessUrl、详情页展示一致）。
  * `hostInput` 可为裸主机名、IP，或带 `http(s)://` 前缀（会去掉 scheme 与路径）。

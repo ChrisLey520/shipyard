@@ -191,6 +191,17 @@
             <n-button size="tiny" @click="copyUrl(primaryAccessUrl)">复制</n-button>
           </n-space>
         </div>
+        <div v-if="serverDirectAccessUrl">
+          <n-text depth="3" style="display: block; margin-bottom: 4px">
+            服务器直连访问（域名未解析时可先试）
+          </n-text>
+          <n-space align="center" :size="8">
+            <n-a :href="serverDirectAccessUrl" target="_blank" rel="noopener noreferrer">
+              {{ serverDirectAccessUrl }}
+            </n-a>
+            <n-button size="tiny" @click="copyUrl(serverDirectAccessUrl)">复制</n-button>
+          </n-space>
+        </div>
         <div v-if="secondaryAccessUrl">
           <n-text depth="3" style="display: block; margin-bottom: 4px">健康检查 / 其他 URL</n-text>
           <n-space align="center" :size="8">
@@ -215,7 +226,7 @@
           端口，不是前端开发服务器端口）。若页面仍空白，请检查本机是否已安装并 reload Nginx、主配置是否 include 了站点配置目录。
         </n-alert>
         <n-alert
-          v-if="!pm2StaticAccessUrl && !primaryAccessUrl && !secondaryAccessUrl"
+          v-if="!pm2StaticAccessUrl && !primaryAccessUrl && !secondaryAccessUrl && !serverDirectAccessUrl"
           type="info"
           :bordered="false"
         >
@@ -265,6 +276,8 @@ import {
   isLoopbackHostLabel,
   deploymentStatusKey,
   deploymentTriggerKey,
+  buildDirectServerSiteAccessUrl,
+  isSameHttpSiteHost,
 } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
@@ -506,6 +519,17 @@ const secondaryAccessUrl = computed(() =>
     deployment.value?.environment?.healthCheckUrl ?? '',
   ),
 );
+
+/** 域名访问与 SSH 目标主机不一致时补充展示（域名未解析可先试 IP） */
+const serverDirectAccessUrl = computed(() => {
+  if (pm2StaticAccessUrl.value) return '';
+  const env = deployment.value?.environment;
+  const direct = buildDirectServerSiteAccessUrl(env?.server?.host);
+  if (!direct) return '';
+  const primary = primaryAccessUrl.value;
+  if (primary && isSameHttpSiteHost(primary, direct)) return '';
+  return direct;
+});
 
 async function copyUrl(url: string) {
   try {
