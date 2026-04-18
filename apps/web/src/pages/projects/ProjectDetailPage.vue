@@ -202,7 +202,7 @@ import TableDeleteButtonCell from '@/components/table/TableDeleteButtonCell.vue'
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
-  NButton, NText, NDataTable, useMessage, NEmpty, NDescriptions, NDescriptionsItem, NA,
+  NButton, NText, NDataTable, useMessage, useDialog, NEmpty, NDescriptions, NDescriptionsItem, NA,
   NModal, NInput,
   type DataTableColumns,
 } from 'naive-ui';
@@ -234,6 +234,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
+const dialog = useDialog();
 const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
@@ -313,18 +314,21 @@ function clearSelection() {
 }
 
 function confirmDeleteDeployment(row: DeploymentListItem) {
-  openDestructiveNameConfirm({
+  dialog.warning({
     title: '删除该部署记录？',
-    description: `环境：${row.environment?.name ?? '—'}，分支：${row.branch}。删除后将移除该条部署记录及其日志/产物记录，且无法恢复。`,
-    expected: row.id,
-    expectedLabel: '部署 ID',
+    content: `环境：${row.environment?.name ?? '—'}，分支：${row.branch}。删除后将移除该条部署记录及其日志/产物记录，且无法恢复。`,
     positiveText: '删除',
-    onConfirm: async () => {
-      await projectApi.deleteDeployment(row.id);
-      message.success('已删除');
-      clearSelection();
-      await refetchDeployments();
-      void loadEnvAccessUrls();
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await projectApi.deleteDeployment(row.id);
+        message.success('已删除');
+        clearSelection();
+        await refetchDeployments();
+        void loadEnvAccessUrls();
+      } catch {
+        return false;
+      }
     },
   });
 }
@@ -332,37 +336,41 @@ function confirmDeleteDeployment(row: DeploymentListItem) {
 function confirmBulkDeleteDeployments() {
   const ids = checkedDeploymentIds.value.filter((x): x is string => typeof x === 'string');
   if (ids.length === 0) return;
-  const slug = projectSlug.value;
-  openDestructiveNameConfirm({
+  dialog.warning({
     title: '批量删除部署记录？',
-    description: `将删除已选中的 ${ids.length} 条部署记录，且无法恢复。`,
-    expected: slug,
-    expectedLabel: '项目 URL 标识（slug）',
+    content: `将删除已选中的 ${ids.length} 条部署记录，且无法恢复。`,
     positiveText: '删除',
-    onConfirm: async () => {
-      const res = await projectApi.bulkDeleteDeployments(ids);
-      message.success(`已删除 ${res.deleted} 条`);
-      clearSelection();
-      await refetchDeployments();
-      void loadEnvAccessUrls();
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        const res = await projectApi.bulkDeleteDeployments(ids);
+        message.success(`已删除 ${res.deleted} 条`);
+        clearSelection();
+        await refetchDeployments();
+        void loadEnvAccessUrls();
+      } catch {
+        return false;
+      }
     },
   });
 }
 
 function confirmClearDeployments() {
-  const slug = projectSlug.value;
-  openDestructiveNameConfirm({
+  dialog.warning({
     title: '清空部署历史？',
-    description: '将删除该项目的全部部署记录（含日志），且无法恢复。',
-    expected: slug,
-    expectedLabel: '项目 URL 标识（slug）',
+    content: '将删除该项目的全部部署记录（含日志），且无法恢复。',
     positiveText: '清空',
-    onConfirm: async () => {
-      const res = await projectApi.clearDeployments();
-      message.success(`已清空 ${res.deleted} 条`);
-      clearSelection();
-      await refetchDeployments();
-      void loadEnvAccessUrls();
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        const res = await projectApi.clearDeployments();
+        message.success(`已清空 ${res.deleted} 条`);
+        clearSelection();
+        await refetchDeployments();
+        void loadEnvAccessUrls();
+      } catch {
+        return false;
+      }
     },
   });
 }
