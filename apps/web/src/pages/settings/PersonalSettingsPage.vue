@@ -1,11 +1,11 @@
 <template>
-  <div style="max-width: 720px">
+  <div class="mx-auto w-full max-w-[720px] min-w-0 page-header-stack-sm">
     <n-page-header :title="t('settings.personalTitle')" />
 
-    <n-card style="margin-top: 16px" :title="t('settings.basicInfo')">
-      <n-form label-placement="left" label-width="120">
+    <n-card class="mt-4" :title="t('settings.basicInfo')">
+      <n-form :label-placement="formLabelPlacement" :label-width="formLabelWidth">
         <n-form-item :label="t('settings.avatar')" :label-style="{ lineHeight: '48px' }">
-          <div style="display: flex; align-items: center; gap: 12px; min-height: 48px">
+          <div class="flex min-h-[48px] flex-col items-start gap-3 sm:flex-row sm:items-center">
             <div ref="avatarBoxRef" style="width: 48px; height: 48px; flex: 0 0 48px">
               <n-avatar
                 v-if="avatarResolvedUrl && !avatarImgFailed"
@@ -52,8 +52,8 @@
       </template>
     </n-card>
 
-    <n-card style="margin-top: 16px" :title="t('settings.security')">
-      <n-form label-placement="left" label-width="120">
+    <n-card class="mt-4" :title="t('settings.security')">
+      <n-form :label-placement="formLabelPlacement" :label-width="formLabelWidth">
         <n-form-item :label="t('settings.changePassword')">
           <n-button @click="openChangePassword">{{ t('settings.changePassword') }}</n-button>
         </n-form-item>
@@ -64,7 +64,7 @@
       v-model:show="showChangePassword"
       :title="t('settings.changePasswordTitle')"
       preset="card"
-      style="width: 480px"
+      style="width: min(480px, calc(100vw - 32px))"
       :mask-closable="false"
       :close-on-esc="false"
     >
@@ -115,6 +115,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useMediaQuery } from '@vueuse/core';
 import { useRouter } from 'vue-router';
 import {
   NAvatar,
@@ -134,17 +135,22 @@ import {
 } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
-import { authApi } from '../../api/auth';
-import { usersApi } from '../../api/users';
+import { usePersonalProfileApi } from '@/composables/users/usePersonalProfileApi';
 import { useLocaleStore } from '../../stores/locale';
 import type { SupportedLocale } from '../../i18n';
 
 const message = useMessage();
 const auth = useAuthStore();
+const { uploadAvatar: uploadAvatarApi, changePassword: changePasswordApi } = usePersonalProfileApi();
 const router = useRouter();
 const dialog = useDialog();
 const { t } = useI18n();
 const localeStore = useLocaleStore();
+
+/** 个人设置表单：窄屏顶栏标签，避免长标签挤占输入框 */
+const settingsFormWide = useMediaQuery('(min-width: 640px)');
+const formLabelPlacement = computed(() => (settingsFormWide.value ? 'left' : 'top'));
+const formLabelWidth = computed(() => (settingsFormWide.value ? 120 : 'auto'));
 
 const selectedLocale = ref<SupportedLocale>(localeStore.locale);
 const localeOptions = computed(() => localeStore.options);
@@ -200,15 +206,18 @@ async function handleBeforeUpload(options: { file: UploadFileInfo }) {
   }
   uploadingAvatar.value = true;
   try {
-    const { avatarUrl: newAvatarUrl } = await usersApi.uploadMyAvatar(raw);
+    const { avatarUrl: newAvatarUrl } = await uploadAvatarApi(raw);
     // 立即更新 UI（避免依赖 fetchMe 或浏览器缓存）
     if (auth.user) auth.user = { ...auth.user, avatarUrl: newAvatarUrl };
     avatarBust.value = Date.now();
-    await auth.fetchMe().catch(() => {});
+    try {
+      await auth.fetchMe();
+    } catch {
+      /* 资料刷新失败可忽略，头像已本地更新 */
+    }
     message.success(t('settings.avatarUpdated'));
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? t('settings.uploadFailed'));
+  } catch {
+    /* 上传失败由全局 axios 拦截器提示 */
   } finally {
     uploadingAvatar.value = false;
   }
@@ -247,7 +256,7 @@ async function handleChangePassword() {
   changingPassword.value = true;
   try {
     const emailToPrefill = auth.user?.email ?? '';
-    await authApi.changePassword(oldPassword, newPassword);
+    await changePasswordApi(oldPassword, newPassword);
     await auth.logout();
     showChangePassword.value = false;
 
@@ -264,9 +273,8 @@ async function handleChangePassword() {
         });
       },
     });
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? t('settings.changePasswordFailed'));
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     changingPassword.value = false;
   }

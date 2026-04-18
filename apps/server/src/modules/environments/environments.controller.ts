@@ -49,7 +49,8 @@ export class EnvironmentsController {
   async create(
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
-    @Body() body: {
+    @Body()
+    body: {
       name: string;
       triggerBranch: string;
       serverId: string;
@@ -57,6 +58,8 @@ export class EnvironmentsController {
       domain?: string;
       healthCheckUrl?: string;
       protected?: boolean;
+      releaseConfig?: unknown;
+      environmentTargets?: Array<{ serverId: string; sortOrder?: number; weight?: number }>;
     },
   ) {
     const projectId = await this.getProjectId(orgId, projectSlug);
@@ -69,7 +72,18 @@ export class EnvironmentsController {
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
     @Param('envId') envId: string,
-    @Body() body: Partial<{ name: string; triggerBranch: string; serverId: string; deployPath: string; domain: string; healthCheckUrl: string; protected: boolean }>,
+    @Body()
+    body: Partial<{
+      name: string;
+      triggerBranch: string;
+      serverId: string;
+      deployPath: string;
+      domain: string;
+      healthCheckUrl: string;
+      protected: boolean;
+      releaseConfig: unknown;
+      environmentTargets: Array<{ serverId: string; sortOrder?: number; weight?: number }>;
+    }>,
   ) {
     const projectId = await this.getProjectId(orgId, projectSlug);
     return this.envs.updateEnvironment(envId, projectId, orgId, body);

@@ -1,5 +1,8 @@
 node_modules/
 dist/
+.eslintcache
+*.tsbuildinfo
+.local/
 .env
 .env.local
 *.log
@@ -8,3 +11,10 @@ dist/
 apps/server/uploads/
 apps/server/uploads/**
 apps/server/artifacts/
+test-results/
+playwright-report/
+blob-report/
+apps/monitoring-server/prisma/*.db
+apps/monitoring-server/prisma/*.db-journal
+apps/monitoring-server/src/generated/
+apps/monitoring-server/data/

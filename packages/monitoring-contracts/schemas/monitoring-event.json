@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shipyard.local/schemas/monitoring-event.json",
+  "title": "MonitoringEvent",
+  "type": "object",
+  "required": ["eventId", "type", "timestamp", "platform", "sdkVersion", "sessionId", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": { "type": "string", "minLength": 8, "maxLength": 64 },
+    "type": {
+      "type": "string",
+      "enum": [
+        "error",
+        "resource_error",
+        "http_error",
+        "http_slow",
+        "web_vital",
+        "timing",
+        "healthcheck",
+        "custom"
+      ]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "platform": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "sdkVersion": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "release": { "type": "string", "maxLength": 128 },
+    "env": { "type": "string", "maxLength": 32 },
+    "userId": { "type": "string", "maxLength": 128 },
+    "sessionId": { "type": "string", "minLength": 4, "maxLength": 128 },
+    "route": { "type": "string", "maxLength": 2048 },
+    "device": { "type": "object", "additionalProperties": true },
+    "network": { "type": "string", "maxLength": 32 },
+    "sampleRate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "breadcrumbs": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["t", "category", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "t": { "type": "string", "format": "date-time" },
+          "category": { "type": "string", "maxLength": 64 },
+          "message": { "type": "string", "maxLength": 512 },
+          "data": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "payload": { "type": "object", "additionalProperties": true }
+  }
+}

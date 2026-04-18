@@ -1,0 +1,10 @@
+{
+  "name": "@shipyard/monitoring-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "监控平台 Ingest / Sourcemap API 契约（OpenAPI + JSON Schema）",
+  "files": ["openapi", "schemas", "README.md"],
+  "scripts": {
+    "lint": "node -e \"console.log('contracts: no lint')\""
+  }
+}

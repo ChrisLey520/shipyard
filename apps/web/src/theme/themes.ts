@@ -99,16 +99,17 @@ function palette(themeId: ThemeId, isDark: boolean): ThemePalette {
         success: '#22c55e',
         warning: '#fbbf24',
         error: '#f87171',
-        baseColor: '#0b1220',
-        bodyColor: '#0b1220',
-        cardColor: '#0f1b2e',
+        // 深色底略偏青绿，与主色呼应
+        baseColor: '#0c1411',
+        bodyColor: '#0c1411',
+        cardColor: '#111f1b',
         text1: '#e6edf3',
         text2: '#cbd5e1',
         text3: '#94a3b8',
         border: 'rgba(148,163,184,0.18)',
-        siderColor: '#0a1426',
-        headerColor: '#0a1426',
-        contentColor: '#0b1220',
+        siderColor: '#0a1210',
+        headerColor: '#0a1210',
+        contentColor: '#0c1411',
       };
     case 'ocean':
       return {
@@ -117,16 +118,17 @@ function palette(themeId: ThemeId, isDark: boolean): ThemePalette {
         success: '#22c55e',
         warning: '#fbbf24',
         error: '#f87171',
-        baseColor: '#0b1220',
-        bodyColor: '#0b1220',
-        cardColor: '#0f1b2e',
+        // 深色底略偏海蓝 / 冷灰蓝
+        baseColor: '#0a1420',
+        bodyColor: '#0a1420',
+        cardColor: '#0f1c2f',
         text1: '#e6edf3',
         text2: '#cbd5e1',
         text3: '#94a3b8',
         border: 'rgba(148,163,184,0.18)',
-        siderColor: '#0a1426',
-        headerColor: '#0a1426',
-        contentColor: '#0b1220',
+        siderColor: '#08121e',
+        headerColor: '#08121e',
+        contentColor: '#0a1420',
       };
     case 'violet':
       return {
@@ -135,16 +137,17 @@ function palette(themeId: ThemeId, isDark: boolean): ThemePalette {
         success: '#22c55e',
         warning: '#fbbf24',
         error: '#f87171',
-        baseColor: '#0b1220',
-        bodyColor: '#0b1220',
-        cardColor: '#0f1b2e',
+        // 深色底略偏靛紫
+        baseColor: '#100f1a',
+        bodyColor: '#100f1a',
+        cardColor: '#161528',
         text1: '#e6edf3',
         text2: '#cbd5e1',
         text3: '#94a3b8',
         border: 'rgba(148,163,184,0.18)',
-        siderColor: '#0a1426',
-        headerColor: '#0a1426',
-        contentColor: '#0b1220',
+        siderColor: '#0d0c16',
+        headerColor: '#0d0c16',
+        contentColor: '#100f1a',
       };
     default: {
       const _exhaustive: never = themeId;

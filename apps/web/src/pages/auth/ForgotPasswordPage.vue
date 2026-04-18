@@ -27,8 +27,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { NCard, NForm, NFormItem, NInput, NButton, NAlert } from 'naive-ui';
-import { authApi } from '../../api/auth';
+import { usePasswordResetFlow } from '@/composables/auth/usePasswordResetFlow';
 
+const { requestResetEmail } = usePasswordResetFlow();
 const email = ref('');
 const loading = ref(false);
 const sent = ref(false);
@@ -37,8 +38,10 @@ async function handleSubmit() {
   if (!email.value) return;
   loading.value = true;
   try {
-    await authApi.forgotPassword(email.value);
+    await requestResetEmail(email.value);
     sent.value = true;
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     loading.value = false;
   }

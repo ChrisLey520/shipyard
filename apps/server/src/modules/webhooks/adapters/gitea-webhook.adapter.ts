@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'crypto';
-import type { ParsedPushPayload } from '../webhook-types';
+import type { ParsedPushPayload, ParsedPullRequestPayload } from '../webhook-types';
 
 export function giteaWebhookIdempotencyKey(
   headers: Record<string, string>,
@@ -52,5 +52,44 @@ export function parseGiteaPushPayload(payload: Record<string, unknown>): ParsedP
     commitSha,
     commitMessage: headCommit?.message?.trim() || '',
     commitAuthor: headCommit?.author?.name?.trim() || '',
+  };
+}
+
+/** Gitea pull_request 事件（载荷与 GitHub 相近） */
+export function parseGiteaPullRequestPayload(
+  payload: Record<string, unknown>,
+): ParsedPullRequestPayload | null {
+  const pr = payload['pull_request'] as
+    | {
+        number?: number;
+        state?: string;
+        title?: string;
+        user?: { login?: string };
+        head?: { ref?: string; sha?: string; repo?: { full_name?: string } };
+        base?: { repo?: { full_name?: string } };
+      }
+    | undefined;
+  if (!pr || typeof pr.number !== 'number') return null;
+
+  const head = pr.head;
+  const headSha = head?.sha?.trim();
+  const headBranch = head?.ref?.trim();
+  const headRepoFullName = head?.repo?.full_name?.trim();
+  const baseRepoFullName = pr.base?.repo?.full_name?.trim();
+  if (!headSha || !headBranch || !headRepoFullName || !baseRepoFullName) return null;
+
+  const action = String(payload['action'] ?? '').trim();
+  if (!action) return null;
+
+  return {
+    action,
+    prNumber: pr.number,
+    headSha,
+    headBranch,
+    headRepoFullName,
+    baseRepoFullName,
+    commitMessage: (pr.title ?? '').trim(),
+    commitAuthor: (pr.user?.login ?? '').trim(),
+    prState: (pr.state ?? 'open').trim(),
   };
 }

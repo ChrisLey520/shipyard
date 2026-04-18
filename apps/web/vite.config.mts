@@ -22,6 +22,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
+      // 经 ngrok 等隧道访问时，Host 为 *.ngrok-free.dev 等，需显式允许（见 Vite server.allowedHosts）
+      allowedHosts: ['.ngrok-free.dev', '.ngrok.app', '.ngrok.io'],
       proxy: {
         '/api': {
           target: proxyTarget,

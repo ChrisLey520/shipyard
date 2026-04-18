@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { FrameworkType, GitProvider, OrgRole, ServerOs } from './enums';
+import { URL_SLUG_MAX_LENGTH, URL_SLUG_PATTERN } from './slug-rules';
+
+const urlSlugZ = z
+  .string()
+  .min(1)
+  .max(URL_SLUG_MAX_LENGTH)
+  .regex(URL_SLUG_PATTERN);
 
 // 认证
 export const RegisterDto = z.object({
@@ -25,21 +32,12 @@ export const ResetPasswordDto = z.object({
 // 组织
 export const CreateOrgDto = z.object({
   name: z.string().min(1).max(64),
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9-]+$/),
+  slug: urlSlugZ,
 });
 
 export const UpdateOrgDto = z.object({
   name: z.string().min(1).max(64).optional(),
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9-]+$/)
-    .optional(),
+  slug: urlSlugZ.optional(),
   buildConcurrency: z.number().int().min(1).max(20).optional(),
   artifactRetention: z.number().int().min(1).max(100).optional(),
 });
@@ -57,11 +55,7 @@ export const UpdateMemberRoleDto = z.object({
 // 项目
 export const CreateProjectDto = z.object({
   name: z.string().min(1).max(64),
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9-]+$/),
+  slug: urlSlugZ,
   frameworkType: z.nativeEnum(FrameworkType),
   repoFullName: z.string().min(1),
   gitProvider: z.nativeEnum(GitProvider),
@@ -72,12 +66,7 @@ export const CreateProjectDto = z.object({
 export const UpdateProjectDto = z.object({
   name: z.string().min(1).max(64).optional(),
   frameworkType: z.nativeEnum(FrameworkType).optional(),
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9-]+$/)
-    .optional(),
+  slug: urlSlugZ.optional(),
 });
 
 // Pipeline 配置

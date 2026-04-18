@@ -1,24 +1,27 @@
 <template>
-  <div>
+  <div class="min-w-0">
     <n-page-header title="Git 账户" />
 
-    <n-card style="margin-top: 16px">
-      <div style="display: flex; justify-content: space-between; align-items: center">
-        <div style="font-weight: 600">已关联账户</div>
-        <n-space>
-          <n-button :loading="loading" @click="load">刷新</n-button>
-          <n-dropdown
-            trigger="click"
-            :options="oauthDropdownOptions"
-            @select="(k: string) => oauthConnect(k)"
-          >
-            <n-button>OAuth 授权</n-button>
-          </n-dropdown>
-          <n-button type="primary" @click="openCreate">关联 Git 账户（PAT）</n-button>
-        </n-space>
+    <!-- 工具栏控件多：窄屏纵向堆叠，避免横向溢出 -->
+    <n-card class="mt-4">
+      <div class="flex flex-col gap-3 min-w-0 md:flex-row md:items-center md:justify-between">
+        <div class="font-600 shrink-0">已关联账户</div>
+        <div class="flex w-full flex-col gap-2 min-w-0 sm:flex-row sm:flex-wrap sm:justify-end">
+          <n-button class="w-full sm:w-auto" :loading="loading" @click="load">刷新</n-button>
+          <div class="w-full sm:w-auto">
+            <n-dropdown
+              trigger="click"
+              :options="oauthDropdownOptions"
+              @select="(k: string) => oauthConnect(k)"
+            >
+              <n-button class="w-full sm:w-auto">OAuth 授权</n-button>
+            </n-dropdown>
+          </div>
+          <n-button class="w-full sm:w-auto" type="primary" @click="openCreate">关联 Git 账户（PAT）</n-button>
+        </div>
       </div>
 
-      <div v-if="!loading && accounts.length === 0" style="margin-top: 16px">
+      <div v-if="!loading && accounts.length === 0" class="mt-4">
         <n-empty description="暂无 Git 账户">
           <template #extra>
             <n-button type="primary" @click="openCreate">关联 Git 账户</n-button>
@@ -26,29 +29,32 @@
         </n-empty>
       </div>
 
-      <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+      <!-- 账户详情宽：大屏两列；中屏仍单列以免信息挤在一起 -->
+      <n-grid v-else responsive="screen" cols="1 l:2" :x-gap="16" :y-gap="16" class="mt-4">
         <n-grid-item v-for="acc in accounts" :key="acc.id">
           <n-card size="small" hoverable>
-            <n-thing :title="acc.name">
-              <template #description>
-                <n-space size="small" style="flex-wrap: wrap">
-                  <n-tag size="small">{{ providerLabel(acc.gitProvider) }}</n-tag>
-                  <n-tag v-if="acc.authType === 'oauth'" size="small" type="success">OAuth</n-tag>
-                  <n-tag v-else size="small" type="default">PAT</n-tag>
-                  <span>账号：{{ acc.gitUsername || '-' }}</span>
-                  <span>地址：{{ providerBaseUrl(acc) }}</span>
-                </n-space>
-              </template>
-              <template #action>
-                <n-space>
-                  <n-button size="tiny" @click="openEdit(acc)">编辑</n-button>
-                  <n-button size="tiny" :loading="testingId === acc.id" @click="testRepos(acc)">
-                    连通测试
-                  </n-button>
-                  <n-button size="tiny" type="error" @click="confirmDelete(acc)">移除</n-button>
-                </n-space>
-              </template>
-            </n-thing>
+            <div class="flex flex-col gap-3 min-w-0">
+              <div class="text-base font-600 leading-snug break-words">{{ acc.name }}</div>
+              <div class="flex flex-wrap gap-2 text-sm text-[var(--n-text-color-2)]">
+                <n-tag size="small">{{ gitProviderLabel(acc.gitProvider) }}</n-tag>
+                <n-tag v-if="acc.authType === 'oauth'" size="small" type="success">OAuth</n-tag>
+                <n-tag v-else size="small" type="default">PAT</n-tag>
+                <span class="break-all">账号：{{ acc.gitUsername || '-' }}</span>
+                <span class="w-full break-all sm:w-auto">地址：{{ displayGitProviderBaseUrl(acc.gitProvider, acc.baseUrl) }}</span>
+              </div>
+              <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:flex-wrap sm:justify-end">
+                <n-button class="w-full sm:w-auto" size="tiny" type="error" @click="confirmDelete(acc)">移除</n-button>
+                <n-button
+                  class="w-full sm:w-auto"
+                  size="tiny"
+                  :loading="testingId === acc.id"
+                  @click="testRepos(acc)"
+                >
+                  连通测试
+                </n-button>
+                <n-button class="w-full sm:w-auto" size="tiny" @click="openEdit(acc)">编辑</n-button>
+              </div>
+            </div>
           </n-card>
         </n-grid-item>
       </n-grid>
@@ -58,19 +64,19 @@
       v-model:show="showModal"
       :title="editing ? '编辑 Git 账户' : '关联 Git 账户（PAT）'"
       preset="card"
-      style="width: 560px"
+      style="width: min(100%, 620px)"
       :mask-closable="false"
       :close-on-esc="false"
     >
-      <n-form :model="form" label-placement="left" label-width="110">
+      <n-form :model="form" label-placement="left" :label-width="160">
         <n-form-item label="账户名称">
           <n-input v-model:value="form.name" placeholder="例如：my-github" />
         </n-form-item>
         <n-form-item label="Git Provider">
           <n-select v-model:value="form.gitProvider" :options="providerOptions" :disabled="Boolean(editing)" />
         </n-form-item>
-        <n-form-item v-if="form.gitProvider === 'gitlab' || form.gitProvider === 'gitea'" label="Base URL">
-          <n-input v-model:value="form.baseUrl" placeholder="https://gitlab.com 或 https://gitea.yourdomain.com" />
+        <n-form-item v-if="gitProviderRequiresBaseUrl(form.gitProvider)" label="Base URL">
+          <n-input v-model:value="form.baseUrl" :placeholder="baseUrlInputPlaceholder" />
         </n-form-item>
         <n-form-item :label="editing ? 'PAT（可选更新）' : 'PAT'">
           <n-input v-model:value="form.accessToken" type="password" placeholder="Personal Access Token" />
@@ -103,7 +109,6 @@ import {
   NEmpty,
   NGrid,
   NGridItem,
-  NThing,
   NTag,
   NModal,
   NForm,
@@ -112,22 +117,26 @@ import {
   NSelect,
   NDropdown,
   useMessage,
-  useDialog,
 } from 'naive-ui';
 import {
-  listGitAccounts,
-  createGitAccount,
-  updateGitAccount,
-  deleteGitAccount,
-  listReposForGitAccount,
-  startGitOAuth,
+  useOrgGitAccountsActions,
   type GitAccountItem,
-} from './api';
+} from '@/composables/git-accounts/useOrgGitAccountsActions';
+import {
+  DEFAULT_GITLAB_BASE_URL,
+  GIT_PROVIDER_OAUTH_DROPDOWN_OPTIONS,
+  GIT_PROVIDER_SELECT_OPTIONS,
+  GitProvider,
+  displayGitProviderBaseUrl,
+  gitProviderLabel,
+  gitProviderRequiresBaseUrl,
+} from '@shipyard/shared';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const message = useMessage();
-const dialog = useDialog();
+const gitApi = useOrgGitAccountsActions(orgSlug);
 
 const loading = ref(false);
 const accounts = ref<GitAccountItem[]>([]);
@@ -137,51 +146,24 @@ const saving = ref(false);
 const editing = ref<GitAccountItem | null>(null);
 const testingId = ref<string | null>(null);
 
-const providerOptions = [
-  { label: 'GitHub', value: 'github' },
-  { label: 'GitLab', value: 'gitlab' },
-  { label: 'Gitee', value: 'gitee' },
-  { label: 'Gitea', value: 'gitea' },
-];
-
-const oauthDropdownOptions = [
-  { label: 'GitHub OAuth', key: 'github' },
-  { label: 'GitLab OAuth', key: 'gitlab' },
-  { label: 'Gitee OAuth', key: 'gitee' },
-  { label: 'Gitea OAuth', key: 'gitea' },
-];
+const providerOptions = GIT_PROVIDER_SELECT_OPTIONS;
+const oauthDropdownOptions = GIT_PROVIDER_OAUTH_DROPDOWN_OPTIONS;
+const baseUrlInputPlaceholder = `${DEFAULT_GITLAB_BASE_URL} 或 https://gitea.yourdomain.com`;
 
 const form = ref({
   name: '',
-  gitProvider: 'github',
-  baseUrl: 'https://gitlab.com',
+  gitProvider: GitProvider.GITHUB,
+  baseUrl: DEFAULT_GITLAB_BASE_URL,
   accessToken: '',
   gitUsername: '',
 });
 
-function providerLabel(p: string) {
-  const found = providerOptions.find((x) => x.value === p);
-  return found?.label ?? p;
-}
-
-function providerBaseUrl(a: GitAccountItem) {
-  if (a.baseUrl) return a.baseUrl;
-  if (a.gitProvider === 'github') return 'https://github.com';
-  if (a.gitProvider === 'gitlab') return 'https://gitlab.com';
-  if (a.gitProvider === 'gitee') return 'https://gitee.com';
-  return '-';
-}
-
 async function load() {
   loading.value = true;
   try {
-    accounts.value = await listGitAccounts(orgSlug.value);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(
-      e?.response?.data?.message ??
-        '加载失败。若刚升级过代码，请在服务器执行：pnpm --filter @shipyard/server db:migrate',
-    );
+    accounts.value = await gitApi.listGitAccounts();
+  } catch {
+    accounts.value = [];
   } finally {
     loading.value = false;
   }
@@ -189,17 +171,22 @@ async function load() {
 
 async function oauthConnect(provider: string) {
   try {
-    const url = await startGitOAuth(orgSlug.value, provider);
+    const url = await gitApi.startGitOAuth(provider);
     window.location.href = url;
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '无法发起 OAuth（请检查服务端环境变量与回调地址）');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
 function openCreate() {
   editing.value = null;
-  form.value = { name: '', gitProvider: 'github', baseUrl: 'https://gitlab.com', accessToken: '', gitUsername: '' };
+  form.value = {
+    name: '',
+    gitProvider: GitProvider.GITHUB,
+    baseUrl: DEFAULT_GITLAB_BASE_URL,
+    accessToken: '',
+    gitUsername: '',
+  };
   showModal.value = true;
 }
 
@@ -207,8 +194,8 @@ function openEdit(acc: GitAccountItem) {
   editing.value = acc;
   form.value = {
     name: acc.name,
-    gitProvider: acc.gitProvider,
-    baseUrl: acc.baseUrl ?? (acc.gitProvider === 'gitlab' ? 'https://gitlab.com' : ''),
+    gitProvider: acc.gitProvider as GitProvider,
+    baseUrl: acc.baseUrl ?? (acc.gitProvider === GitProvider.GITLAB ? DEFAULT_GITLAB_BASE_URL : ''),
     accessToken: '',
     gitUsername: acc.gitUsername ?? '',
   };
@@ -222,24 +209,18 @@ async function save() {
   saving.value = true;
   try {
     if (!editing.value) {
-      await createGitAccount(orgSlug.value, {
+      await gitApi.createGitAccount({
         name: form.value.name,
         gitProvider: form.value.gitProvider,
-        baseUrl:
-          form.value.gitProvider === 'gitlab' || form.value.gitProvider === 'gitea'
-            ? form.value.baseUrl
-            : undefined,
+        baseUrl: gitProviderRequiresBaseUrl(form.value.gitProvider) ? form.value.baseUrl : undefined,
         accessToken: form.value.accessToken,
         gitUsername: form.value.gitUsername || undefined,
       });
       message.success('已关联 Git 账户');
     } else {
-      await updateGitAccount(orgSlug.value, editing.value.id, {
+      await gitApi.updateGitAccount(editing.value.id, {
         name: form.value.name,
-        baseUrl:
-          form.value.gitProvider === 'gitlab' || form.value.gitProvider === 'gitea'
-            ? (form.value.baseUrl || null)
-            : null,
+        baseUrl: gitProviderRequiresBaseUrl(form.value.gitProvider) ? (form.value.baseUrl || null) : null,
         accessToken: form.value.accessToken || undefined,
         gitUsername: form.value.gitUsername || null,
       });
@@ -247,9 +228,8 @@ async function save() {
     }
     showModal.value = false;
     await load();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '操作失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     saving.value = false;
   }
@@ -258,24 +238,24 @@ async function save() {
 async function testRepos(acc: GitAccountItem) {
   testingId.value = acc.id;
   try {
-    const repos = await listReposForGitAccount(orgSlug.value, acc.id);
+    const repos = await gitApi.listReposForGitAccount(acc.id);
     message.success(`连通成功（可访问 ${repos.length} 个仓库）`);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '连通测试失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     testingId.value = null;
   }
 }
 
 function confirmDelete(acc: GitAccountItem) {
-  dialog.warning({
-    title: '确认移除 Git 账户？',
-    content: `将移除「${acc.name}」，并无法再用于新建项目拉仓库。`,
+  openDestructiveNameConfirm({
+    title: '移除 Git 账户？',
+    description: `将移除「${acc.name}」，并无法再用于新建项目拉仓库。`,
+    expected: acc.name,
+    expectedLabel: '账户名称',
     positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await deleteGitAccount(orgSlug.value, acc.id);
+    onConfirm: async () => {
+      await gitApi.deleteGitAccount(acc.id);
       message.success('已移除');
       await load();
     },

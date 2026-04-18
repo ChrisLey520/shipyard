@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import type { ParsedPushPayload } from '../webhook-types';
+import type { ParsedPushPayload, ParsedPullRequestPayload } from '../webhook-types';
 
 function secretEqual(a: string, b: string): boolean {
   const ha = createHash('sha256').update(a, 'utf8').digest();
@@ -16,6 +16,14 @@ export function gitlabWebhookIdempotencyKey(
 ): string {
   const uuid = (headers['x-gitlab-event-uuid'] ?? headers['X-Gitlab-Event-UUID'] ?? '').trim();
   if (uuid) return `webhook:gitlab:${uuid}`;
+  if (String(payload['object_kind'] ?? '').trim() === 'merge_request') {
+    const oa = payload['object_attributes'] as
+      | { id?: number; action?: string; updated_at?: string }
+      | undefined;
+    if (oa?.id != null) {
+      return `webhook:gitlab:mr:${oa.id}:${oa.action ?? ''}:${oa.updated_at ?? ''}`;
+    }
+  }
   const event = String(payload['event_name'] ?? '');
   const pid = String(payload['project_id'] ?? '');
   const after = String(payload['after'] ?? '');
@@ -60,5 +68,60 @@ export function parseGitlabPushPayload(payload: Record<string, unknown>): Parsed
     commitSha,
     commitMessage: first?.message?.trim() || '',
     commitAuthor: first?.author?.name?.trim() || '',
+  };
+}
+
+/** GitLab Merge Request Hook（object_kind=merge_request） */
+export function parseGitlabMergeRequestPayload(
+  payload: Record<string, unknown>,
+): ParsedPullRequestPayload | null {
+  if (String(payload['object_kind'] ?? '').trim() !== 'merge_request') return null;
+  const oa = payload['object_attributes'] as Record<string, unknown> | undefined;
+  if (!oa) return null;
+
+  const action = String(oa['action'] ?? '').trim();
+  if (!action) return null;
+
+  const rawIid = oa['iid'];
+  const iid = typeof rawIid === 'number' ? rawIid : Number(rawIid);
+  if (!Number.isFinite(iid) || iid < 1) return null;
+
+  const sourceBranch = String(oa['source_branch'] ?? '').trim();
+  const lastCommit = oa['last_commit'] as { id?: string } | undefined;
+  const headShaFinal =
+    lastCommit?.id?.trim() ||
+    (typeof oa['sha'] === 'string' ? oa['sha'].trim() : '') ||
+    String(oa['last_commit_id'] ?? '').trim();
+  if (!headShaFinal || !sourceBranch) return null;
+
+  const project = payload['project'] as { path_with_namespace?: string } | undefined;
+  const baseRepoFullName = project?.path_with_namespace?.trim();
+  if (!baseRepoFullName) return null;
+
+  const sourcePid = Number(oa['source_project_id']);
+  const targetPid = Number(oa['target_project_id']);
+  let headRepoFullName = baseRepoFullName;
+  if (Number.isFinite(sourcePid) && Number.isFinite(targetPid) && sourcePid !== targetPid) {
+    const src = payload['source'] as { path_with_namespace?: string } | undefined;
+    const fromSrc = src?.path_with_namespace?.trim();
+    if (fromSrc) headRepoFullName = fromSrc;
+  }
+
+  const title = String(oa['title'] ?? '').trim();
+  const user = payload['user'] as { username?: string; name?: string } | undefined;
+  const commitAuthor = (user?.username ?? user?.name ?? '').trim();
+
+  const stateRaw = String(oa['state'] ?? 'opened').trim();
+
+  return {
+    action,
+    prNumber: iid,
+    headSha: headShaFinal,
+    headBranch: sourceBranch,
+    headRepoFullName,
+    baseRepoFullName,
+    commitMessage: title || '(no title)',
+    commitAuthor: commitAuthor || 'unknown',
+    prState: stateRaw,
   };
 }

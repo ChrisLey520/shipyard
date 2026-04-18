@@ -8,6 +8,8 @@ interface User {
   email: string;
   avatarUrl?: string | null;
   locale?: string | null;
+  themeId?: string | null;
+  colorMode?: string | null;
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -32,16 +34,26 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('refreshToken');
   }
 
+  /** 登录/注册后拉取资料：失败时清会话并抛出，便于全局错误提示 */
+  async function fetchMeOrThrow() {
+    try {
+      user.value = await authApi.me();
+    } catch (e) {
+      clearTokens();
+      throw e;
+    }
+  }
+
   async function login(email: string, password: string) {
     const tokens = await authApi.login({ email, password });
     setTokens(tokens);
-    await fetchMe();
+    await fetchMeOrThrow();
   }
 
   async function register(name: string, email: string, password: string) {
     const tokens = await authApi.register({ name, email, password });
     setTokens(tokens);
-    await fetchMe();
+    await fetchMeOrThrow();
   }
 
   async function logout() {

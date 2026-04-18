@@ -34,7 +34,17 @@ export class ServersController {
   update(
     @OrgId() orgId: string,
     @Param('serverId') serverId: string,
-    @Body() body: { name?: string; host?: string; port?: number; user?: string; privateKey?: string; os?: string },
+    @Body()
+    body: {
+      name?: string;
+      host?: string;
+      port?: number;
+      user?: string;
+      privateKey?: string;
+      os?: string;
+      previewPortMin?: number | null;
+      previewPortMax?: number | null;
+    },
   ) {
     return this.servers.updateServer(orgId, serverId, body);
   }

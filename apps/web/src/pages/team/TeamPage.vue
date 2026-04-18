@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header title="团队成员">
       <template #extra>
         <n-button type="primary" @click="showInvite = true">+ 邀请成员</n-button>
@@ -10,6 +10,7 @@
       :columns="columns"
       :data="members"
       :loading="loading"
+      :scroll-x="920"
       style="margin-top: 16px"
     />
 
@@ -17,7 +18,7 @@
       v-model:show="showInvite"
       title="邀请成员"
       preset="card"
-      style="width: 440px"
+      style="width: min(440px, calc(100vw - 32px))"
       :mask-closable="false"
       :close-on-esc="false"
     >
@@ -40,21 +41,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, watch } from 'vue';
+import { ref, h, computed } from 'vue';
+import TeamMemberRoleCell from '@/components/table/TeamMemberRoleCell.vue';
+import TeamMemberActionsCell from '@/components/table/TeamMemberActionsCell.vue';
 import { useRoute } from 'vue-router';
 import {
-  NPageHeader, NDataTable, NButton, NTag, NModal, NForm, NFormItem,
+  NPageHeader, NDataTable, NButton, NModal, NForm, NFormItem,
   NInput, NSelect, NSpace, useMessage, type DataTableColumns,
 } from 'naive-ui';
-import { inviteMember, listMembers, removeMember as apiRemoveMember, type TeamMember } from './api';
+import { useOrgTeam, type TeamMember } from '@/composables/team/useOrgTeam';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
 
 const route = useRoute();
 const message = useMessage();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
-const members = ref<TeamMember[]>([]);
-const loading = ref(false);
+const { members, loading, inviteMember: sendInvite, inviting, removeMember: removeMemberRequest } =
+  useOrgTeam(orgSlug);
 const showInvite = ref(false);
-const inviting = ref(false);
 const inviteForm = ref({ email: '', role: 'developer' });
 
 const roleOptions = [
@@ -72,46 +75,43 @@ const columns: DataTableColumns<TeamMember> = [
   { title: '邮箱', key: 'email', render: (r) => r.user.email },
   {
     title: '角色', key: 'role', width: 100,
-    render: (r) => h(NTag, { type: roleTypeMap[r.role] ?? 'default', size: 'small' }, { default: () => r.role }),
+    render: (r) =>
+      h(TeamMemberRoleCell, {
+        role: r.role,
+        tagType: roleTypeMap[r.role] ?? 'default',
+      }),
   },
   {
     title: '操作', key: 'actions', width: 80,
-    render: (r) => r.role !== 'owner'
-      ? h(NButton, { size: 'small', type: 'error', onClick: () => removeMember(r.userId) }, { default: () => '移除' })
-      : h('span', '—'),
+    render: (r) =>
+      h(TeamMemberActionsCell, {
+        canRemove: r.role !== 'owner',
+        onRemove: () => void confirmRemoveMember(r),
+      }),
   },
 ];
 
 async function handleInvite() {
-  inviting.value = true;
   try {
-    await inviteMember(orgSlug.value, inviteForm.value);
+    await sendInvite(inviteForm.value);
     message.success('邀请已发送');
     showInvite.value = false;
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '邀请失败');
-  } finally {
-    inviting.value = false;
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
-async function removeMember(userId: string) {
-  await apiRemoveMember(orgSlug.value, userId);
-  message.success('成员已移除');
-  await load();
+function confirmRemoveMember(member: TeamMember) {
+  openDestructiveNameConfirm({
+    title: '移除此成员？',
+    description: `将把「${member.user.name}」从本组织移除，其将无法再访问该组织资源。`,
+    expected: member.user.email,
+    expectedLabel: '成员邮箱',
+    positiveText: '移除',
+    onConfirm: async () => {
+      await removeMemberRequest(member.userId);
+      message.success('成员已移除');
+    },
+  });
 }
-
-async function load() {
-  loading.value = true;
-  try {
-    members.value = await listMembers(orgSlug.value);
-  } finally {
-    loading.value = false;
-  }
-}
-
-watch(orgSlug, () => {
-  void load();
-}, { immediate: true });
 </script>

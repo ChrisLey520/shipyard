@@ -1,0 +1,27 @@
+name: Setup pnpm and Node
+description: >-
+  Install pnpm 9, Node 20 with pnpm store cache, and optionally install workspace
+  dependencies (requires checkout before this action).
+
+inputs:
+  install:
+    description: Whether to run pnpm install --frozen-lockfile
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 9
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: pnpm
+
+    - name: Install dependencies
+      if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: pnpm install --frozen-lockfile

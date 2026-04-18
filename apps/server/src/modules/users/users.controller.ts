@@ -15,11 +15,12 @@ import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
 import { mkdirSync } from 'fs';
 import type { Request } from 'express';
-import { IsIn, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
+import { supportedLocales, USER_COLOR_MODES, USER_THEME_IDS } from '@shipyard/shared';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { UsersApplicationService } from './application/users.application.service';
 
 const AVATAR_DIR = join(process.cwd(), 'uploads', 'avatars');
 
@@ -28,27 +29,42 @@ function ensureAvatarDir() {
 }
 
 class UpdateMeBody {
+  @IsOptional()
   @IsString()
-  @IsIn(['zh-CN', 'zh-TW', 'en', 'ja'])
-  locale!: string;
+  @IsIn([...supportedLocales])
+  locale?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...USER_THEME_IDS])
+  themeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...USER_COLOR_MODES])
+  colorMode?: string;
 }
 
 @ApiTags('用户')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly usersApplication: UsersApplicationService) {}
 
   @Patch('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '更新当前用户信息（语言）' })
+  @ApiOperation({ summary: '更新当前用户偏好（语言 / 主题色调 / 深浅模式，至少一项）' })
   async updateMe(@CurrentUser() user: User, @Body() body: UpdateMeBody) {
-    const updated = await this.prisma.user.update({
-      where: { id: user.id },
-      data: { locale: body.locale },
-      select: { locale: true },
+    const has =
+      body.locale !== undefined || body.themeId !== undefined || body.colorMode !== undefined;
+    if (!has) {
+      throw new BadRequestException('请至少提供 locale、themeId、colorMode 之一');
+    }
+    return this.usersApplication.updateMe(user.id, {
+      locale: body.locale,
+      themeId: body.themeId,
+      colorMode: body.colorMode,
     });
-    return updated;
   }
 
   @Post('me/avatar')
@@ -80,13 +96,6 @@ export class UsersController {
     if (!file) throw new BadRequestException('请上传文件');
 
     const avatarUrl = `/uploads/avatars/${file.filename}`;
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { avatarUrl },
-      select: { id: true },
-    });
-
-    return { avatarUrl };
+    return this.usersApplication.setAvatarUrl(user.id, avatarUrl);
   }
 }
-

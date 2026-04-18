@@ -51,7 +51,16 @@ export class ProjectsController {
   update(
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
-    @Body() body: { name?: string; frameworkType?: string; slug?: string },
+    @Body()
+    body: {
+      name?: string;
+      frameworkType?: string;
+      slug?: string;
+      previewEnabled?: boolean;
+      previewServerId?: string | null;
+      previewBaseDomain?: string | null;
+      notificationMessageTemplate?: string | null;
+    },
   ) {
     return this.projects.updateProject(orgId, projectSlug, body);
   }
@@ -68,7 +77,8 @@ export class ProjectsController {
   updatePipelineConfig(
     @OrgId() orgId: string,
     @Param('projectSlug') projectSlug: string,
-    @Body() body: {
+    @Body()
+    body: {
       installCommand?: string;
       buildCommand?: string;
       lintCommand?: string;
@@ -78,6 +88,10 @@ export class ProjectsController {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string;
+      previewHealthCheckPath?: string | null;
+      containerImageEnabled?: boolean;
+      containerImageName?: string | null;
+      containerRegistryAuth?: { username?: string; password?: string } | null;
     },
   ) {
     return this.projects.updatePipelineConfig(orgId, projectSlug, body);

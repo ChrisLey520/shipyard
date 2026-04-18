@@ -1,4 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
+import * as os from 'os';
 import { Worker, Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
@@ -6,15 +8,31 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { GitAccessTokenService } from '../git/git-access-token.service';
 import { GitCommitStatusService } from '../git/git-commit-status.service';
 import { spawn } from 'child_process';
-import { createWriteStream, mkdirSync, rmSync, existsSync } from 'fs';
-import { unlink, writeFile, readdir } from 'fs/promises';
+import { mkdirSync, rmSync, existsSync, cpSync } from 'fs';
+import { writeFile, readdir, readFile } from 'fs/promises';
 import * as path from 'path';
 import * as tar from 'tar';
-import { buildCloneUrl } from '@shipyard/shared';
+import { buildCloneUrl, GitProvider, NotificationEvent } from '@shipyard/shared';
+import { NotificationEnqueueApplicationService } from '../notifications/application/notification-enqueue.application.service';
+import { ArtifactRetentionApplicationService } from '../artifacts/application/artifact-retention.application.service';
+import { GitPrCommentApplicationService } from '../git/application/git-pr-comment.application.service';
 import type { BuildJobData } from './pipeline.service';
+import { logDockerBuildModeOnStartup } from './docker-build-flag';
+import {
+  argvToShellCommand,
+  DEFAULT_BUILD_DOCKER_IMAGE,
+  DockerBuildExecutor,
+  probeDockerAvailable,
+  shouldRunBuildInDocker,
+} from './docker-build.executor';
+import { ProcessBuildExecutor } from './process-build.executor';
+import { resolveCacheMaxBytes, runDepsCacheEvictionPipeline } from './build-deps-cache';
 
 // 安全的构建环境变量白名单
 const SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP'];
+
+/** pnpm node_modules 含大量指向 .pnpm 的相对软链；复制时保留链接语义，避免拆解后指向丢失（构建期 vue-tsc 报找不到 @volar/*）。 */
+const DEPS_NODE_MODULES_CP_OPTIONS = { recursive: true, verbatimSymlinks: true } as const;
 
 @Injectable()
 export class BuildWorkerService implements OnModuleInit {
@@ -28,6 +46,9 @@ export class BuildWorkerService implements OnModuleInit {
     private readonly crypto: CryptoService,
     private readonly gitTokens: GitAccessTokenService,
     private readonly commitStatus: GitCommitStatusService,
+    private readonly gitPrComment: GitPrCommentApplicationService,
+    private readonly notifications: NotificationEnqueueApplicationService,
+    private readonly artifactRetention: ArtifactRetentionApplicationService,
   ) {}
 
   async onModuleInit() {
@@ -52,6 +73,7 @@ export class BuildWorkerService implements OnModuleInit {
     });
 
     this.logger.log(`BuildWorker initialized for ${orgs.length} organizations`);
+    logDockerBuildModeOnStartup(this.logger);
   }
 
   private startWorkerForOrg(orgId: string, concurrency: number) {
@@ -80,10 +102,15 @@ export class BuildWorkerService implements OnModuleInit {
   }
 
   private async processBuild(data: BuildJobData) {
-    const { deploymentId, projectId, environmentId, orgId } = data;
+    const { deploymentId, projectId, environmentId, orgId, previewId } = data;
     const tmpDir = path.join('/tmp', `build-${deploymentId}`);
 
     try {
+      const depMeta = await this.prisma.deployment.findUnique({
+        where: { id: deploymentId },
+        select: { branch: true, trigger: true },
+      });
+
       // 标记构建开始
       await this.prisma.deployment.update({
         where: { id: deploymentId },
@@ -116,6 +143,17 @@ export class BuildWorkerService implements OnModuleInit {
       }
       mkdirSync(tmpDir, { recursive: true });
 
+      const useDocker = shouldRunBuildInDocker();
+      if (useDocker) {
+        const dockerOk = await probeDockerAvailable();
+        if (!dockerOk) {
+          throw new Error(
+            '[docker-build] 无法连接 Docker daemon（`docker info` 失败）。请安装 Docker 并保证 Worker 进程用户有权访问，或设置 SHIPYARD_BUILD_USE_DOCKER=false。',
+          );
+        }
+      }
+      const dockerImage = DEFAULT_BUILD_DOCKER_IMAGE;
+
       // 获取构建环境变量（注入构建）
       // 合并策略：项目级构建变量作为默认值，环境变量同名覆盖（更符合“按环境覆盖”）
       const projectBuildEnv = await this.getDecryptedProjectBuildEnvVars(projectId);
@@ -124,55 +162,73 @@ export class BuildWorkerService implements OnModuleInit {
 
       let logSeq = 0;
 
-      const runCmd = async (cmd: string, args: string[], cwd: string, label: string) => {
+      const processExecutor = new ProcessBuildExecutor();
+      const dockerExecutor = new DockerBuildExecutor();
+
+      const runCmd = async (
+        cmd: string,
+        args: string[],
+        cwd: string,
+        label: string,
+        opts?: { hostOnly?: boolean },
+      ) => {
         await this.appendLog(deploymentId, logSeq++, `[${label}] $ ${cmd} ${args.join(' ')}`);
 
-        // 只传入白名单环境变量 + 构建变量
         const safeEnv: Record<string, string> = {};
         for (const key of SAFE_ENV_KEYS) {
           const val = process.env[key];
           if (val !== undefined) safeEnv[key] = val;
         }
-        // 注入项目环境变量
         Object.assign(safeEnv, envVars);
 
-        await new Promise<void>((resolve, reject) => {
-          const child = spawn(cmd, args, {
-            cwd,
+        const timeoutMs = pipelineConfig.timeoutSeconds * 1000;
+        const appendLine = (line: string) => {
+          void this.appendLog(deploymentId, logSeq++, line);
+        };
+
+        const inDocker = useDocker && !opts?.hostOnly;
+        if (inDocker) {
+          if (path.resolve(cwd) !== path.resolve(tmpDir)) {
+            throw new Error(`[docker-build] 当前仅支持在仓库根目录执行命令，收到 cwd=${cwd}`);
+          }
+          const shellCommand = argvToShellCommand(cmd, args);
+          await dockerExecutor.run({
+            tmpDir,
+            image: dockerImage,
+            shellCommand,
             env: safeEnv,
-            stdio: ['ignore', 'pipe', 'pipe'],
+            timeoutMs,
+            onLine: appendLine,
           });
+          return;
+        }
 
-          const onData = (chunk: Buffer) => {
-            const lines = chunk.toString().split('\n').filter(Boolean);
-            for (const line of lines) {
-              void this.appendLog(deploymentId, logSeq++, line);
-            }
-          };
-
-          child.stdout?.on('data', onData);
-          child.stderr?.on('data', onData);
-
-          // 超时处理
-          const timeout = setTimeout(
-            () => {
-              child.kill('SIGTERM');
-              reject(new Error(`构建超时（${pipelineConfig.timeoutSeconds}s）`));
-            },
-            pipelineConfig.timeoutSeconds * 1000,
-          );
-
-          child.on('close', (code) => {
-            clearTimeout(timeout);
-            if (code === 0) resolve();
-            else reject(new Error(`命令退出码 ${code}`));
-          });
+        await processExecutor.run({
+          cmd,
+          args,
+          cwd,
+          env: safeEnv,
+          timeoutMs,
+          timeoutLabelSeconds: pipelineConfig.timeoutSeconds,
+          onLine: appendLine,
         });
       };
 
       // Git clone（须在空目录执行；.env 需在 clone 之后写入，否则目标目录非空会报 fatal: ... already exists）
       await this.appendLog(deploymentId, logSeq++, '[clone] 开始拉取代码…');
-      await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone');
+      if (depMeta?.trigger === 'pr_preview' && depMeta.branch?.trim()) {
+        await runCmd(
+          'git',
+          ['clone', '--depth', '1', '--single-branch', '--branch', depMeta.branch.trim(), cloneUrl, tmpDir],
+          '/tmp',
+          'clone',
+          { hostOnly: true },
+        );
+      } else {
+        await runCmd('git', ['clone', '--depth', '1', cloneUrl, tmpDir], '/tmp', 'clone', {
+          hostOnly: true,
+        });
+      }
 
       const envFilePath = path.join(tmpDir, '.env');
       const envContent = Object.entries(envVars)
@@ -183,11 +239,61 @@ export class BuildWorkerService implements OnModuleInit {
       // 检测包管理器
       const pm = await this.detectPackageManager(tmpDir);
 
+      const fp = await this.lockfileFingerprint(tmpDir, pm);
+      const cacheModulesPath = path.join(this.buildDepsCacheRoot(), orgId, pm, fp, 'node_modules');
+      const depsRestoredFromCache = existsSync(cacheModulesPath);
+      if (depsRestoredFromCache) {
+        await this.appendLog(
+          deploymentId,
+          logSeq++,
+          `[install] cache_hit lockfile=${fp.slice(0, 12)}… 复制 node_modules`,
+        );
+        const destNm = path.join(tmpDir, 'node_modules');
+        if (existsSync(destNm)) rmSync(destNm, { recursive: true, force: true });
+        cpSync(cacheModulesPath, destNm, DEPS_NODE_MODULES_CP_OPTIONS);
+      } else {
+        await this.appendLog(deploymentId, logSeq++, `[install] cache_miss (${pm}) lockfile=${fp.slice(0, 12)}…`);
+      }
+
       // install
-      const installCmd = pipelineConfig.installCommand ?? `${pm} install`;
+      // 从缓存复制 node_modules 后，pnpm 常提示 Already up to date 而不修补缺失子包（例如 vue-tsc 旁的 @volar/typescript 软链目标）
+      const normalizedInstall = (pipelineConfig.installCommand ?? `${pm} install`)
+        .trim()
+        .replace(/\s+/g, ' ');
+      let installCmd = normalizedInstall;
+      if (
+        depsRestoredFromCache &&
+        pm === 'pnpm' &&
+        normalizedInstall === 'pnpm install'
+      ) {
+        await this.appendLog(
+          deploymentId,
+          logSeq++,
+          '[install] 缓存恢复的 node_modules 可能不完整，使用 pnpm install --force 按 lockfile 重链依赖',
+        );
+        installCmd = 'pnpm install --force';
+      }
       const [installBin, ...installArgs] = installCmd.split(' ');
       await this.appendLog(deploymentId, logSeq++, '[install] 开始安装依赖…');
       await runCmd(installBin!, installArgs, tmpDir, 'install');
+
+      try {
+        const parent = path.dirname(cacheModulesPath);
+        mkdirSync(parent, { recursive: true });
+        const srcNm = path.join(tmpDir, 'node_modules');
+        if (existsSync(srcNm)) {
+          rmSync(cacheModulesPath, { recursive: true, force: true });
+          cpSync(srcNm, cacheModulesPath, DEPS_NODE_MODULES_CP_OPTIONS);
+        }
+      } catch (e) {
+        this.logger.warn(`写入依赖缓存失败 org=${orgId} fp=${fp.slice(0, 8)}: ${e}`);
+      }
+      try {
+        const root = this.buildDepsCacheRoot();
+        await runDepsCacheEvictionPipeline(root, orgId, resolveCacheMaxBytes(), this.logger);
+      } catch (e) {
+        this.logger.warn(`依赖缓存淘汰异常: ${e}`);
+      }
 
       // lint（可选）
       if (pipelineConfig.lintCommand) {
@@ -240,6 +346,20 @@ export class BuildWorkerService implements OnModuleInit {
 
       await this.appendLog(deploymentId, logSeq++, `[archive] 产物打包完成: ${artifactPath}`);
 
+      let imageRef: string | null = null;
+      let imageDigest: string | null = null;
+      if (pipelineConfig.containerImageEnabled) {
+        const pushed = await this.pushBuiltImageToRegistry({
+          deploymentId,
+          tmpDir: tmpAbs,
+          pipelineConfig,
+          nextLog: () => logSeq++,
+        });
+        imageRef = pushed.imageRef;
+        imageDigest = pushed.imageDigest;
+        await this.appendLog(deploymentId, logSeq++, `[container] 已推送 ${imageRef}`);
+      }
+
       // 获取文件大小
       const { statSync } = await import('fs');
       const stat = statSync(artifactPath);
@@ -250,6 +370,8 @@ export class BuildWorkerService implements OnModuleInit {
           deploymentId,
           storagePath: artifactPath,
           sizeBytes: BigInt(stat.size),
+          imageRef: imageRef ?? undefined,
+          imageDigest: imageDigest ?? undefined,
         },
       });
 
@@ -270,9 +392,28 @@ export class BuildWorkerService implements OnModuleInit {
         'Shipyard build succeeded',
       );
 
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.BUILD_SUCCESS,
+        `构建成功：部署 ${deploymentId.slice(0, 8)}…`,
+        { deploymentId },
+      );
+
+      void this.artifactRetention.enforceForOrganization(orgId).catch((e) => {
+        this.logger.warn(`产物保留策略执行失败 org=${orgId}: ${e}`);
+      });
+
       // 自动入 DeployQueue（如果有 environmentId）
       if (environmentId) {
         await this.enqueueDeployment(orgId, deploymentId, projectId, environmentId);
+      } else {
+        const pvId =
+          previewId ??
+          (await this.prisma.preview.findUnique({ where: { deploymentId }, select: { id: true } }))
+            ?.id;
+        if (pvId) {
+          await this.enqueuePreviewDeployment(orgId, deploymentId, projectId, pvId);
+        }
       }
 
       await this.appendLog(deploymentId, logSeq++, '[done] 构建成功 ✓');
@@ -289,12 +430,170 @@ export class BuildWorkerService implements OnModuleInit {
         'failure',
         'Shipyard build failed',
       );
+
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.BUILD_FAILED,
+        `构建失败：${message}`,
+        { deploymentId },
+      );
+
+      const pv = await this.prisma.preview.findUnique({ where: { deploymentId } });
+      if (pv) {
+        const [p, gc] = await Promise.all([
+          this.prisma.project.findUnique({
+            where: { id: projectId },
+            select: { repoFullName: true },
+          }),
+          this.prisma.gitConnection.findUnique({
+            where: { projectId },
+            select: { gitProvider: true, baseUrl: true },
+          }),
+        ]);
+        if (
+          p?.repoFullName &&
+          gc &&
+          (gc.gitProvider === GitProvider.GITHUB ||
+            gc.gitProvider === GitProvider.GITLAB ||
+            gc.gitProvider === GitProvider.GITEE ||
+            gc.gitProvider === GitProvider.GITEA)
+        ) {
+          const accessToken = await this.gitTokens.getAccessTokenForProject(projectId);
+          const body = `❌ **Shipyard Preview** build failed for **#${pv.prNumber}**.\n\n\`\`\`\n${message}\n\`\`\``;
+          const commentId = await this.gitPrComment.upsertPrPreviewComment({
+            provider: gc.gitProvider,
+            repoFullName: p.repoFullName,
+            prNumber: pv.prNumber,
+            accessToken,
+            baseUrl: gc.baseUrl,
+            body,
+            existingCommentId: pv.commentId,
+          });
+          if (commentId) {
+            await this.prisma.preview.update({ where: { id: pv.id }, data: { commentId } });
+          }
+        }
+      }
     } finally {
       // 清理临时目录（含 .env）
       if (existsSync(tmpDir)) {
         rmSync(tmpDir, { recursive: true, force: true });
       }
     }
+  }
+
+  /** Docker 输出写入 Worker 进程 stdout/stderr（避免海量 seq 占满 deploymentLog） */
+  private runDockerInherit(args: string[], cwd: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn('docker', args, { cwd, stdio: 'inherit' });
+      child.on('close', (code: number | null) => {
+        if (code === 0) resolve();
+        else reject(new Error(`docker ${args.join(' ')} 退出码 ${code}`));
+      });
+      child.on('error', reject);
+    });
+  }
+
+  private runDockerCapture(args: string[], cwd: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const child = spawn('docker', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout?.on('data', (c: Buffer) => chunks.push(c));
+      child.stderr?.on('data', (c: Buffer) => chunks.push(c));
+      child.on('close', (code: number | null) => {
+        if (code === 0) resolve(Buffer.concat(chunks).toString('utf8').trim());
+        else reject(new Error(`docker ${args.join(' ')} 失败`));
+      });
+      child.on('error', reject);
+    });
+  }
+
+  /** 仓库根目录须有 Dockerfile；镜像名不含 tag */
+  private async pushBuiltImageToRegistry(opts: {
+    deploymentId: string;
+    tmpDir: string;
+    pipelineConfig: {
+      containerImageName: string | null;
+      containerRegistryAuthEncrypted: string | null;
+    };
+    nextLog: () => number;
+  }): Promise<{ imageRef: string; imageDigest: string }> {
+    const { deploymentId, tmpDir, pipelineConfig } = opts;
+    const dockerOk = await probeDockerAvailable();
+    if (!dockerOk) {
+      throw new Error('[container] 需要可用 Docker（docker info）以构建/推送镜像');
+    }
+    const base = pipelineConfig.containerImageName?.trim();
+    if (!base) {
+      throw new Error('[container] 已启用镜像推送但缺少 containerImageName');
+    }
+    const tag = `shipyard-${deploymentId.slice(0, 12)}`;
+    const localImage = `${base}:${tag}`;
+    await this.appendLog(deploymentId, opts.nextLog(), `[container] docker build -t ${localImage} .`);
+    await this.runDockerInherit(['build', '-t', localImage, '.'], tmpDir);
+
+    const enc = pipelineConfig.containerRegistryAuthEncrypted;
+    if (enc) {
+      const auth = JSON.parse(this.crypto.decrypt(enc)) as { username?: string; password?: string };
+      const reg = base.includes('/') ? base.split('/')[0]! : 'docker.io';
+      await this.appendLog(deploymentId, opts.nextLog(), `[container] docker login ${reg}`);
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('docker', ['login', reg, '-u', auth.username ?? '', '--password-stdin'], {
+          cwd: tmpDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        child.stdin?.write(auth.password ?? '');
+        child.stdin?.end();
+        let err = '';
+        child.stderr?.on('data', (d: Buffer) => {
+          err += d.toString();
+        });
+        child.on('close', (code: number | null) => {
+          if (code === 0) resolve();
+          else reject(new Error(err.trim() || `docker login 退出码 ${code}`));
+        });
+        child.on('error', reject);
+      });
+    }
+
+    await this.appendLog(deploymentId, opts.nextLog(), `[container] docker push ${localImage}`);
+    await this.runDockerInherit(['push', localImage], tmpDir);
+
+    const ref = await this.runDockerCapture(['inspect', '--format={{index .RepoDigests 0}}', localImage], tmpDir);
+    if (!ref.includes('@')) {
+      throw new Error('[container] docker inspect 未返回 RepoDigest');
+    }
+    const imageDigest = ref.split('@')[1] ?? ref;
+    return { imageRef: ref, imageDigest };
+  }
+
+  private buildDepsCacheRoot(): string {
+    const raw = process.env['SHIPYARD_BUILD_DEPS_CACHE_PATH']?.trim();
+    return raw && raw.length > 0 ? raw : path.join(os.tmpdir(), 'shipyard-build-deps-cache');
+  }
+
+  private nodeMajorFromProcess(): string {
+    const m = /^v(\d+)/.exec(process.version);
+    return m ? m[1]! : process.version;
+  }
+
+  private async lockfileFingerprint(tmpDir: string, pm: string): Promise<string> {
+    const lockFile =
+      pm === 'pnpm' ? 'pnpm-lock.yaml' : pm === 'yarn' ? 'yarn.lock' : 'package-lock.json';
+    let lockPart: Buffer | string;
+    try {
+      lockPart = await readFile(path.join(tmpDir, lockFile));
+    } catch {
+      lockPart = `no-lock:${pm}`;
+    }
+    let meta = `node:${this.nodeMajorFromProcess()}`;
+    try {
+      const nvm = (await readFile(path.join(tmpDir, '.nvmrc'), 'utf8')).trim();
+      if (nvm) meta += `|nvmrc:${createHash('sha256').update(nvm).digest('hex').slice(0, 12)}`;
+    } catch {
+      /* 无 .nvmrc */
+    }
+    return createHash('sha256').update(lockPart).update('\n').update(meta).digest('hex').slice(0, 48);
   }
 
   private async detectPackageManager(dir: string): Promise<string> {
@@ -305,10 +604,16 @@ export class BuildWorkerService implements OnModuleInit {
   }
 
   private async appendLog(deploymentId: string, seq: number, content: string) {
-    await Promise.all([
-      this.prisma.deploymentLog.create({ data: { deploymentId, seq, content } }),
-      this.redis.publishLog(deploymentId, { deploymentId, line: content, seq }),
-    ]);
+    try {
+      await this.prisma.deploymentLog.create({ data: { deploymentId, seq, content } });
+    } catch (e) {
+      this.logger.warn(`写入 deploymentLog 失败 deploymentId=${deploymentId}: ${e}`);
+    }
+    try {
+      await this.redis.publishLog(deploymentId, { deploymentId, line: content, seq });
+    } catch (e) {
+      this.logger.warn(`发布构建日志到 Redis 失败 deploymentId=${deploymentId}: ${e}`);
+    }
   }
 
   private async getDecryptedEnvVars(environmentId: string): Promise<Record<string, string>> {
@@ -337,6 +642,20 @@ export class BuildWorkerService implements OnModuleInit {
     return d?.startedAt?.getTime() ?? Date.now();
   }
 
+  private async enqueuePreviewDeployment(
+    orgId: string,
+    deploymentId: string,
+    projectId: string,
+    previewRowId: string,
+  ) {
+    const queue = this.deployQueues.get(orgId) ?? new Queue(`deploy-${orgId}`, { connection: this.redis.getClient() });
+    await queue.add(
+      'deploy',
+      { deploymentId, projectId, previewId: previewRowId, orgId },
+      { jobId: `deploy-${deploymentId}` },
+    );
+  }
+
   private async enqueueDeployment(
     orgId: string,
     deploymentId: string,
@@ -348,7 +667,7 @@ export class BuildWorkerService implements OnModuleInit {
     if (env.protected) {
       const deployment = await this.prisma.deployment.findUniqueOrThrow({ where: { id: deploymentId } });
       await this.prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'pending_approval' } });
-      await this.prisma.approvalRequest.create({
+      const ar = await this.prisma.approvalRequest.create({
         data: {
           deploymentId,
           requestedByUserId: deployment.triggeredByUserId ?? undefined,
@@ -361,6 +680,12 @@ export class BuildWorkerService implements OnModuleInit {
         'build',
         'pending',
         'Waiting for deployment approval',
+      );
+      void this.notifications.enqueue(
+        projectId,
+        NotificationEvent.APPROVAL_PENDING,
+        `部署待审批：${deploymentId.slice(0, 8)}…`,
+        { deploymentId, approvalId: ar.id },
       );
       return;
     }

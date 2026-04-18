@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header :title="`部署 #${deploymentId.slice(0, 8)}`" @back="router.back()">
       <template #extra>
         <n-space>
@@ -19,11 +19,12 @@
         </n-space>
       </template>
       <template #subtitle>
-        <n-text depth="3">{{ deployment?.branch }} · {{ deployment?.commitMessage }}</n-text>
+        <n-text depth="3" class="block break-words">{{ deployment?.branch }} · {{ deployment?.commitMessage }}</n-text>
       </template>
     </n-page-header>
 
-    <n-grid :cols="3" :x-gap="16" style="margin: 16px 0">
+    <!-- 部署摘要：手机单列、平板两列、桌面三列 -->
+    <n-grid responsive="screen" cols="1 s:2 m:3" :x-gap="16" class="my-4">
       <n-grid-item>
         <n-statistic label="环境">{{ deployment?.environment?.name ?? 'Preview' }}</n-statistic>
       </n-grid-item>
@@ -190,6 +191,17 @@
             <n-button size="tiny" @click="copyUrl(primaryAccessUrl)">复制</n-button>
           </n-space>
         </div>
+        <div v-if="serverDirectAccessUrl">
+          <n-text depth="3" style="display: block; margin-bottom: 4px">
+            服务器直连访问（域名未解析时可先试）
+          </n-text>
+          <n-space align="center" :size="8">
+            <n-a :href="serverDirectAccessUrl" target="_blank" rel="noopener noreferrer">
+              {{ serverDirectAccessUrl }}
+            </n-a>
+            <n-button size="tiny" @click="copyUrl(serverDirectAccessUrl)">复制</n-button>
+          </n-space>
+        </div>
         <div v-if="secondaryAccessUrl">
           <n-text depth="3" style="display: block; margin-bottom: 4px">健康检查 / 其他 URL</n-text>
           <n-space align="center" :size="8">
@@ -214,7 +226,7 @@
           端口，不是前端开发服务器端口）。若页面仍空白，请检查本机是否已安装并 reload Nginx、主配置是否 include 了站点配置目录。
         </n-alert>
         <n-alert
-          v-if="!pm2StaticAccessUrl && !primaryAccessUrl && !secondaryAccessUrl"
+          v-if="!pm2StaticAccessUrl && !primaryAccessUrl && !secondaryAccessUrl && !serverDirectAccessUrl"
           type="info"
           :bordered="false"
         >
@@ -261,20 +273,24 @@ import '@xterm/xterm/css/xterm.css';
 import { io } from 'socket.io-client';
 import {
   formatDuration,
-  resolveDeployAccessHost,
   isLoopbackHostLabel,
   deploymentStatusKey,
   deploymentTriggerKey,
+  buildDirectServerSiteAccessUrl,
+  isSameHttpSiteHost,
 } from '@shipyard/shared';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth';
 import {
-  getDeploymentDetail,
-  getDeploymentLogs,
+  useDeploymentDetailActions,
   type DeploymentDetail,
-  type ShipyardDeployAccessMeta,
-} from './api';
-import { retryDeployment } from '../projects/api';
+  type DeploymentLogLine,
+} from '@/composables/pipeline/useDeploymentDetailActions';
+import {
+  buildPm2StaticAccessUrlFromSnapshot,
+  buildPrimarySiteAccessUrl,
+  pickSecondaryAccessUrl,
+} from '@/lib/deployment-access-urls';
 
 const route = useRoute();
 const router = useRouter();
@@ -284,17 +300,11 @@ const { t } = useI18n();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
 const deploymentId = computed(() => route.params['deploymentId'] as string);
+const deploymentDetailApi = useDeploymentDetailActions(orgSlug, projectSlug, deploymentId);
 const terminalEl = ref<HTMLElement | null>(null);
 const deployment = ref<DeploymentDetail | null>(null);
 const retrying = ref(false);
 const logLines = ref<string[]>([]);
-
-/** 由环境域名推导站点根 URL（与 deploy 日志一致） */
-function normalizeSiteUrl(domain: string): string {
-  const d = domain.trim();
-  const base = d.includes('://') ? d : `http://${d}`;
-  return `${base.replace(/\/+$/, '')}/`;
-}
 
 type FlowStatus = 'process' | 'finish' | 'error' | 'wait';
 type StepStatus = 'process' | 'finish' | 'error' | 'wait';
@@ -491,43 +501,34 @@ const showLocalLoopbackHint = computed(() => {
   return d.length > 0 && isLoopbackHostLabel(d);
 });
 
-function readShipyardAccess(
-  snap: Record<string, unknown> | null | undefined,
-): ShipyardDeployAccessMeta | null {
-  const raw = snap?.['shipyardAccess'];
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
-  const port = o['staticPort'];
-  const host = o['staticHost'];
-  if (typeof port !== 'number' || typeof host !== 'string') return null;
-  return { staticPort: port, staticHost: host };
-}
-
-const pm2StaticAccessUrl = computed(() => {
-  const acc = readShipyardAccess(deployment.value?.configSnapshot ?? undefined);
-  if (!acc) return '';
-  const env = deployment.value?.environment;
-  const host =
-    resolveDeployAccessHost(env?.domain ?? null, acc.staticHost) || acc.staticHost;
-  return `http://${host}:${acc.staticPort}/`;
-});
+const pm2StaticAccessUrl = computed(() =>
+  buildPm2StaticAccessUrlFromSnapshot(
+    deployment.value?.configSnapshot ?? undefined,
+    deployment.value?.environment?.domain,
+  ),
+);
 
 const primaryAccessUrl = computed(() => {
   const env = deployment.value?.environment;
-  const d = env?.domain?.trim();
-  if (!d) return '';
-  const host = resolveDeployAccessHost(d, env?.server?.host);
-  return host ? normalizeSiteUrl(host) : '';
+  return buildPrimarySiteAccessUrl(env?.domain, env?.server?.host);
 });
 
-const secondaryAccessUrl = computed(() => {
-  const hc = deployment.value?.environment?.healthCheckUrl?.trim() ?? '';
-  if (!hc) return '';
-  const pri = primaryAccessUrl.value;
-  if (!pri) return hc;
-  const stripTrail = (s: string) => s.replace(/\/+$/, '');
-  if (stripTrail(hc) === stripTrail(pri)) return '';
-  return hc;
+const secondaryAccessUrl = computed(() =>
+  pickSecondaryAccessUrl(
+    primaryAccessUrl.value,
+    deployment.value?.environment?.healthCheckUrl ?? '',
+  ),
+);
+
+/** 域名访问与 SSH 目标主机不一致时补充展示（域名未解析可先试 IP） */
+const serverDirectAccessUrl = computed(() => {
+  if (pm2StaticAccessUrl.value) return '';
+  const env = deployment.value?.environment;
+  const direct = buildDirectServerSiteAccessUrl(env?.server?.host);
+  if (!direct) return '';
+  const primary = primaryAccessUrl.value;
+  if (primary && isSameHttpSiteHost(primary, direct)) return '';
+  return direct;
 });
 
 async function copyUrl(url: string) {
@@ -554,14 +555,12 @@ const pollLogSeq = ref(-1);
 
 const { pause: pauseLogPoll, resume: resumeLogPoll } = useIntervalFn(
   async () => {
-    const slug = orgSlug.value;
-    const proj = projectSlug.value;
     const id = deploymentId.value;
     if (!id || !terminal) return;
     try {
-      const detail = await getDeploymentDetail(slug, proj, id);
+      const detail = await deploymentDetailApi.getDeploymentDetail();
       if (detail) deployment.value = detail;
-      const logs = await getDeploymentLogs(slug, proj, id);
+      const logs = await deploymentDetailApi.getDeploymentLogs();
       const sorted = [...logs].sort((a, b) => a.seq - b.seq);
       for (const log of sorted) {
         if (log.seq > pollLogSeq.value) {
@@ -599,8 +598,6 @@ function connectLiveLogStream(id: string) {
 }
 
 async function loadDeploymentView() {
-  const slug = orgSlug.value;
-  const proj = projectSlug.value;
   const id = deploymentId.value;
 
   pauseLogPoll();
@@ -610,7 +607,11 @@ async function loadDeploymentView() {
   terminal = null;
   logLines.value = [];
 
-  deployment.value = await getDeploymentDetail(slug, proj, id).catch(() => null);
+  try {
+    deployment.value = await deploymentDetailApi.getDeploymentDetail();
+  } catch {
+    deployment.value = null;
+  }
 
   await nextTick();
   if (!terminalEl.value) return;
@@ -621,7 +622,12 @@ async function loadDeploymentView() {
   terminal.open(terminalEl.value);
   fitAddon.fit();
 
-  const logs = await getDeploymentLogs(slug, proj, id).catch(() => []);
+  let logs: DeploymentLogLine[] = [];
+  try {
+    logs = await deploymentDetailApi.getDeploymentLogs();
+  } catch {
+    logs = [];
+  }
   const sorted = [...logs].sort((a, b) => a.seq - b.seq);
   pollLogSeq.value = sorted.length ? Math.max(...sorted.map((l) => l.seq)) : -1;
   for (const log of sorted) {
@@ -669,14 +675,13 @@ onUnmounted(() => {
 async function handleRetry() {
   retrying.value = true;
   try {
-    const next = await retryDeployment(orgSlug.value, projectSlug.value, deploymentId.value);
+    const next = await deploymentDetailApi.retryDeployment();
     message.success('已重新入队');
     if (next?.id) {
       await router.replace(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${next.id}`);
     }
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '重试失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   } finally {
     retrying.value = false;
   }

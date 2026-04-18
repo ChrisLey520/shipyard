@@ -17,6 +17,8 @@ export const ja = {
     team: 'チーム',
     approvals: '承認センター',
     orgSettings: '組織設定',
+    toggleNav: 'サイドナビを開く／閉じる',
+    mainNavLabel: 'メインナビゲーション',
   },
   theme: {
     theme: 'テーマ',
@@ -94,6 +96,24 @@ export const ja = {
     passwordNotMatch: '新しいパスワードが一致しません',
     passwordSameAsOld: '新しいパスワードは現在のパスワードと異なる必要があります',
     changePasswordFailed: 'パスワード変更に失敗しました',
+  },
+  approvalsPage: {
+    title: '承認',
+    tabPending: '承認待ち',
+    tabHistory: '履歴',
+    approve: '承認',
+    reject: '却下',
+    emptyPending: '承認待ちはありません',
+    deploymentTitle: 'デプロイ {shortId} → {env}',
+    applicantLine: '申請者：{name} · {branch} · {commit}',
+    colDeployment: 'デプロイ',
+    colEnv: '環境',
+    colStatus: '状態',
+    colReviewer: '承認者',
+    statusApproved: '承認済み',
+    statusRejected: '却下',
+    toastApproved: '承認しました',
+    toastRejected: '却下しました',
   },
   pipeline: {
     status: {

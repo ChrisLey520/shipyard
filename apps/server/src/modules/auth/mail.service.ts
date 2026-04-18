@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
+import type { AuthPasswordResetMailer } from './application/ports/auth-password-reset-mailer.port';
 
 @Injectable()
-export class MailService {
+export class MailService implements AuthPasswordResetMailer {
   private readonly logger = new Logger(MailService.name);
   private readonly transporter: nodemailer.Transporter;
   private readonly from: string;

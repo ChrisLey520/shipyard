@@ -1,3 +1,4 @@
+# monorepo 根目录为构建上下文；与仓库根 Dockerfile 内容须保持一致（流水线 docker build . 使用根 Dockerfile）。
 FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app

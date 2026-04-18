@@ -6,8 +6,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { isErrorCode } from '@shipyard/shared';
-import { normalizeLocale, tError } from '../i18n/i18n';
+import { isErrorCode, resolveSupportedLocale } from '@shipyard/shared';
+import { tError } from '../i18n/i18n';
 
 @Catch(HttpException)
 export class I18nHttpExceptionFilter implements ExceptionFilter {
@@ -24,8 +24,9 @@ export class I18nHttpExceptionFilter implements ExceptionFilter {
       const code = payload['code'];
 
       if (isErrorCode(code)) {
-        const locale = normalizeLocale(request.user?.locale);
+        const locale = resolveSupportedLocale(request.user?.locale);
         const message = tError(code, locale);
+        // 透传契约字段 errorDisplay / redirectPath，供前端统一错误呈现
         response.status(status).json({ ...payload, message, statusCode: status });
         return;
       }

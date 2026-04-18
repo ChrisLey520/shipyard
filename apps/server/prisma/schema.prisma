@@ -16,6 +16,8 @@ model User {
   passwordHash String?
   avatarUrl    String?
   locale       String?
+  themeId      String? // fresh | ocean | violet，与 Web/MP 主题 store 对齐
+  colorMode    String? // auto | light | dark
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -81,12 +83,14 @@ model Organization {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  members     OrgMember[]
-  invitations OrgInvitation[]
-  gitAccounts GitAccount[]
-  projects    Project[]
-  servers     Server[]
-  auditLogs   AuditLog[]
+  members             OrgMember[]
+  invitations         OrgInvitation[]
+  gitAccounts         GitAccount[]
+  projects            Project[]
+  servers             Server[]
+  auditLogs           AuditLog[]
+  kubernetesClusters KubernetesCluster[]
+  featureFlags        FeatureFlag[]
 }
 
 model OrgMember {
@@ -132,20 +136,31 @@ model Project {
   frameworkType  String
   repoFullName   String
   gitConnectionId String? @unique
+  /// PR 预览：总开关
+  previewEnabled    Boolean  @default(false)
+  /// 预览部署目标 SSH 服务器（与 Environment.server 同源）
+  previewServerId   String?
+  /// 通配父域，例如 preview.example.com → FQDN 为 pr-{n}-{id8}.preview.example.com
+  previewBaseDomain String?
+  /// 可选：通知入队前消息模板；可用 {{message}} / {{body}} 嵌入系统默认文案，及其它既有占位符
+  notificationMessageTemplate String? @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   gitConnection  GitConnection?  @relation("ProjectGitConnection")
+  previewServer  Server?         @relation("ProjectPreviewServer", fields: [previewServerId], references: [id], onDelete: SetNull)
   pipelineConfig PipelineConfig?
   buildEnvVars   ProjectBuildEnvVariable[]
   environments   Environment[]
   deployments    Deployment[]
   previews       Preview[]
   notifications  Notification[]
+  featureFlags   FeatureFlag[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
+  @@index([previewServerId])
 }
 
 model PipelineConfig {
@@ -160,6 +175,14 @@ model PipelineConfig {
   cacheEnabled   Boolean  @default(true)
   timeoutSeconds Int      @default(900)
   ssrEntryPoint  String?
+  /// PR 预览 SSR 蓝绿前远端 curl 使用的路径，如 /health；空则 /
+  previewHealthCheckPath String?
+  /// 启用后构建结束额外 docker build + push（Worker 须可用 Docker）
+  containerImageEnabled Boolean @default(false)
+  /// 镜像名不含 tag，如 registry.example.com/org/app
+  containerImageName    String?
+  /// 加密 JSON：{ "username"?: string, "password"?: string } 供 docker login
+  containerRegistryAuthEncrypted String? @db.Text
   updatedAt      DateTime @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -234,11 +257,17 @@ model Server {
   user           String
   privateKey     String
   os             String   @default("linux")
+  /// PR 预览端口池下界（含）；为空时用应用内默认 40000
+  previewPortMin Int?
+  /// PR 预览端口池上界（含）；为空时用应用内默认 41000
+  previewPortMax Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   environments Environment[]
+  environmentServers EnvironmentServer[]
+  previewProjects Project[] @relation("ProjectPreviewServer")
 
   @@index([organizationId])
 }
@@ -254,16 +283,37 @@ model Environment {
   accessUrl      String?
   healthCheckUrl String?
   protected      Boolean  @default(false)
+  /// 发布策略等（Zod 校验）；缺省等价于 ssh + direct
+  releaseConfig       Json?
+  /// SSH 静态/SSR 蓝绿：当前对外槽位 0 或 1；direct 策略可为 null
+  blueGreenActiveSlot Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   server      Server       @relation(fields: [serverId], references: [id])
+  environmentServers EnvironmentServer[]
   envVariables EnvVariable[]
   deployments  Deployment[]
+  featureFlags FeatureFlag[]
 
   @@unique([projectId, name])
   @@index([projectId])
+}
+
+/// 环境多部署目标（rolling / 多机）；迁移时由 serverId 回填一条
+model EnvironmentServer {
+  id            String   @id @default(uuid())
+  environmentId String
+  serverId      String
+  sortOrder     Int      @default(0)
+  weight        Int      @default(100)
+
+  environment Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  server      Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, serverId])
+  @@index([environmentId, sortOrder])
 }
 
 model EnvVariable {
@@ -295,6 +345,9 @@ model Deployment {
   commitAuthor      String?
   configSnapshot    Json?
   artifactId        String?   @unique
+  /// K8s 或容器部署记录的镜像 digest（可选）
+  containerImageDigest String?
+  containerImageRef    String?
   startedAt         DateTime?
   completedAt       DateTime?
   durationMs        Int?
@@ -330,9 +383,46 @@ model BuildArtifact {
   deploymentId String   @unique
   storagePath  String
   sizeBytes    BigInt   @default(0)
+  imageDigest  String?
+  imageRef     String?
   createdAt    DateTime @default(now())
 
   deployment Deployment @relation("DeploymentArtifact", fields: [deploymentId], references: [id], onDelete: Cascade)
+}
+
+/// 组织级 / 项目级 / 环境级特性开关（projectId 为空且 environmentId 为空为组织级；projectId 非空且 environmentId 为空为项目级；environmentId 非空为环境级；部分唯一索引见迁移 SQL）
+model FeatureFlag {
+  id             String   @id @default(uuid())
+  organizationId String
+  projectId      String?
+  environmentId  String?
+  key            String
+  enabled        Boolean  @default(false)
+  valueJson      Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment  Environment? @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId, key])
+  @@index([environmentId])
+}
+
+/// 加密存储 kubeconfig，仅 Deploy Worker 解密使用
+model KubernetesCluster {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  name                 String
+  kubeconfigEncrypted  String   @db.Text
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 // ─── PR 预览 ──────────────────────────────────────────────────────────────────
@@ -345,6 +435,8 @@ model Preview {
   prBranch     String
   url          String
   allocatedPort Int?
+  /// SSR 预览蓝绿：最近一次成功部署后对外提供流量的槽位 0 或 1（对应 PM2 名 …-bg0 / …-bg1）
+  ssrBgSlot    Int?
   gitProvider  String
   commentId    String?
   expiresAt    DateTime?

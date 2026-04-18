@@ -1,5 +1,12 @@
 import { http } from './client';
 import type { SupportedLocale } from '../i18n';
+import type { UserColorMode, UserThemeId } from '@shipyard/shared';
+
+export type UpdateMeBody = {
+  locale?: SupportedLocale;
+  themeId?: UserThemeId;
+  colorMode?: UserColorMode;
+};
 
 export const usersApi = {
   uploadMyAvatar: (file: File) => {
@@ -12,7 +19,9 @@ export const usersApi = {
       .then((r) => r.data);
   },
 
-  updateMyLocale: (locale: SupportedLocale) =>
-    http.patch<{ locale: SupportedLocale }>('/users/me', { locale }).then((r) => r.data),
+  updateMe: (body: UpdateMeBody) =>
+    http.patch<Partial<{ locale: string; themeId: string; colorMode: string }>>('/users/me', body).then((r) => r.data),
+
+  updateMyLocale: (locale: SupportedLocale) => usersApi.updateMe({ locale }),
 };
 

@@ -1,0 +1,254 @@
+openapi: 3.0.3
+info:
+  title: Shipyard Monitoring Ingest API
+  description: |
+    独立监控接收服务 API。客户端 `timestamp` 仅供参考；服务端写入 `receivedAt` 并用于统计。
+    单条事件 JSON 序列化后建议不超过 64KB；整批请求体建议不超过 2MB。
+  version: 1.0.0
+
+servers:
+  - url: https://monitoring.example.com
+    description: 生产
+  - url: http://localhost:3030
+    description: 本地开发
+
+tags:
+  - name: ingest
+  - name: sourcemaps
+  - name: admin
+
+paths:
+  /v1/ingest/batch:
+    post:
+      tags: [ingest]
+      summary: 批量上报监控事件
+      description: |
+        鉴权：`Authorization: Bearer <ingestToken>`。服务端按 `(projectKey, eventId)` 去重。
+        成功返回 202，body 含接受/拒绝条数。
+      operationId: ingestBatch
+      security:
+        - bearerIngest: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestBatchRequest'
+      responses:
+        '202':
+          description: 已接受（部分条目可能因校验失败被拒绝）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestBatchResponse'
+        '400':
+          description: 请求体非法
+        '401':
+          description: 鉴权失败
+        '413':
+          description: 请求体过大
+        '429':
+          description: 限流
+
+  /v1/sourcemaps:
+    post:
+      tags: [sourcemaps]
+      summary: 上传 source map（构建产物）
+      description: |
+        MVP：`multipart/form-data`，字段 `release`、`file`（.map 或 zip）。
+        鉴权与 ingest 相同或单独 build token（由部署约定）。
+      operationId: uploadSourcemap
+      security:
+        - bearerIngest: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [release, file]
+              properties:
+                release:
+                  type: string
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 已保存
+        '401':
+          description: 鉴权失败
+
+  /v1/admin/events:
+    get:
+      tags: [admin]
+      summary: 查询事件列表（管理台）
+      description: MVP 使用 `X-Admin-Token` 与部署环境约定密钥。
+      operationId: listEvents
+      security:
+        - adminToken: []
+      parameters:
+        - in: query
+          name: projectKey
+          schema: { type: string }
+        - in: query
+          name: platform
+          schema: { type: string }
+        - in: query
+          name: release
+          schema: { type: string }
+        - in: query
+          name: route
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+
+  /v1/admin/events/{id}:
+    get:
+      tags: [admin]
+      summary: 事件详情
+      operationId: getEvent
+      security:
+        - adminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDetailResponse'
+        '404':
+          description: 未找到
+
+components:
+  securitySchemes:
+    bearerIngest:
+      type: http
+      scheme: bearer
+      bearerFormat: ingestToken
+    adminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+
+  schemas:
+    IngestBatchRequest:
+      type: object
+      required: [projectKey, events]
+      properties:
+        projectKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/MonitoringEvent'
+
+    MonitoringEvent:
+      type: object
+      required: [eventId, type, timestamp, platform, sdkVersion, sessionId, payload]
+      properties:
+        eventId: { type: string, minLength: 8, maxLength: 64 }
+        type:
+          type: string
+          enum:
+            - error
+            - resource_error
+            - http_error
+            - http_slow
+            - web_vital
+            - timing
+            - healthcheck
+            - custom
+        timestamp: { type: string, format: date-time }
+        platform: { type: string }
+        sdkVersion: { type: string }
+        release: { type: string }
+        env: { type: string }
+        userId: { type: string }
+        sessionId: { type: string }
+        route: { type: string }
+        device: { type: object, additionalProperties: true }
+        network: { type: string }
+        sampleRate: { type: number, minimum: 0, maximum: 1 }
+        breadcrumbs:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required: [t, category, message]
+            properties:
+              t: { type: string, format: date-time }
+              category: { type: string }
+              message: { type: string }
+              data: { type: object, additionalProperties: true }
+        payload: { type: object, additionalProperties: true }
+
+    IngestBatchResponse:
+      type: object
+      required: [accepted, rejected]
+      properties:
+        accepted: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              reason: { type: string }
+
+    EventListItem:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        receivedAt: { type: string, format: date-time }
+        type: { type: string }
+        platform: { type: string }
+        release: { type: string, nullable: true }
+        route: { type: string, nullable: true }
+        message: { type: string, nullable: true }
+
+    EventListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventListItem'
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    EventDetailResponse:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        receivedAt: { type: string, format: date-time }
+        projectKey: { type: string }
+        event:
+          $ref: '#/components/schemas/MonitoringEvent'

@@ -87,11 +87,11 @@
 import { nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { NCard, NForm, NFormItem, NInput, NButton, NDivider, useMessage } from 'naive-ui';
-import { useAuthStore } from '../../stores/auth';
+import { useEmailLogin } from '@/composables/auth/useEmailLogin';
 
 const router = useRouter();
 const route = useRoute();
-const auth = useAuthStore();
+const { loginWithEmailPassword } = useEmailLogin();
 const message = useMessage();
 const loading = ref(false);
 
@@ -110,18 +110,16 @@ onMounted(syncEmailFromQueryAndFocusPassword);
 watch(() => route.query['email'], syncEmailFromQueryAndFocusPassword);
 
 async function handleSubmit() {
-  if (!form.value.email || !form.value.password) {
+  const email = form.value.email.trim();
+  if (!email || !form.value.password) {
     message.warning('请填写邮箱和密码');
     return;
   }
   loading.value = true;
   try {
-    await auth.login(form.value.email, form.value.password);
+    await loginWithEmailPassword(email, form.value.password);
     const redirect = (route.query['redirect'] as string) ?? '/orgs';
     void router.push(redirect);
-  } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { message?: string } } };
-    message.error(axiosErr?.response?.data?.message ?? '登录失败，请检查邮箱和密码');
   } finally {
     loading.value = false;
   }

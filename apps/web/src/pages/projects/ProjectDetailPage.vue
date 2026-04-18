@@ -1,30 +1,15 @@
 <template>
-  <div>
+  <div class="min-w-0 page-header-stack-sm">
     <n-page-header :title="project?.name ?? '...'" @back="router.push(`/orgs/${orgSlug}/projects`)">
-      <template #extra>
-        <n-space>
-          <n-button @click="openEditProject">编辑</n-button>
-          <n-button type="error" @click="confirmDeleteProject">移除</n-button>
-          <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-            环境管理
-          </n-button>
-          <n-button @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/settings`)">
-            设置
-          </n-button>
-        </n-space>
-      </template>
       <template #subtitle>
-        <n-text depth="3">{{ project?.repoFullName }}</n-text>
+        <n-text depth="3" class="block break-all">{{ project?.repoFullName }}</n-text>
       </template>
     </n-page-header>
 
-    <n-tabs
-      v-model:value="activeProjectTab"
-      style="margin-top: 16px"
-      @update:value="onProjectTabChange"
-    >
+    <div class="mt-4 min-w-0 overflow-x-auto">
+      <n-tabs :value="activeProjectTab" @update:value="onProjectTabChange">
       <n-tab-pane name="overview" tab="概览">
-        <n-grid :cols="3" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
+        <n-grid responsive="screen" cols="1 m:2" :x-gap="16" :y-gap="16" class="overview-top-grid" style="margin-top: 8px">
           <n-grid-item class="overview-top-grid-item">
             <n-card title="项目信息" size="small" class="overview-top-card">
               <n-descriptions label-placement="left" :column="1" size="small">
@@ -56,81 +41,111 @@
               </n-descriptions>
             </n-card>
           </n-grid-item>
+
+          <n-grid-item v-if="project?.gitConnection?.gitProvider === 'github'" class="overview-top-grid-item">
+            <n-card title="PR 预览" size="small" class="overview-top-card">
+              <n-descriptions label-placement="left" :column="1" size="small">
+                <n-descriptions-item label="状态">
+                  {{ project?.previewEnabled ? '已启用' : '未启用' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="服务器">
+                  {{ project?.previewServer?.name ?? '—' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="父域">
+                  {{ project?.previewBaseDomain ?? '—' }}
+                </n-descriptions-item>
+              </n-descriptions>
+            </n-card>
+          </n-grid-item>
         </n-grid>
 
         <n-card title="构建环境变量（项目级）" size="small" style="margin-top: 16px">
-          <n-space justify="space-between" align="center">
-            <n-text depth="3">用于构建阶段（install/build）。环境级变量会覆盖同名项目变量。</n-text>
-            <n-button size="small" @click="openBuildEnvModal">管理</n-button>
-          </n-space>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <n-text depth="3" class="min-w-0">用于构建阶段（install/build）。环境级变量会覆盖同名项目变量。</n-text>
+            <n-button class="w-full shrink-0 sm:w-auto" size="small" @click="goProjectSettings">前往项目设置</n-button>
+          </div>
           <div style="margin-top: 8px">
             <n-tag size="small">{{ buildEnvVars.length }} keys</n-tag>
           </div>
         </n-card>
+      </n-tab-pane>
 
-        <n-card title="环境" size="small" style="margin-top: 16px">
+      <n-tab-pane name="environments" tab="环境">
+        <n-card title="部署环境" size="small" style="margin-top: 8px">
           <template #header-extra>
-            <n-button size="small" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-              环境管理
-            </n-button>
+            <n-button type="primary" size="small" @click="openCreateEnv">添加环境</n-button>
           </template>
-        <n-empty
-          v-if="!project || project.environments.length === 0"
-          description="还没有部署环境"
-          style="margin-top: 8px"
-        >
-          <template #extra>
-            <n-button type="primary" @click="router.push(`/orgs/${orgSlug}/projects/${projectSlug}/environments`)">
-              去创建环境
-            </n-button>
-          </template>
-        </n-empty>
-
-        <!-- 环境列表 -->
-        <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
-          <n-grid-item v-for="env in project.environments" :key="env.id">
-            <n-card
-              :title="env.name"
-              size="small"
-              style="cursor: pointer"
-              @click="goEnvDetail(env.id)"
-            >
-              <div style="display: flex; gap: 8px; flex-wrap: wrap">
-                <n-tag size="small">{{ env.triggerBranch }}</n-tag>
-                <n-tag size="small" :type="env.protected ? 'error' : 'default'">
-                  {{ env.protected ? '🔒 受保护' : '开放' }}
-                </n-tag>
-              </div>
-              <n-text depth="3" style="display:block;margin-top:8px;font-size:12px">
-                {{ env.server?.name }} ({{ env.server?.host }}) · {{ env.deployPath }}
-              </n-text>
-              <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
-                访问地址：
-                <template v-if="envAccessUrls[env.id]">
-                  <n-a :href="envAccessUrls[env.id]!" target="_blank" rel="noopener noreferrer" @click.stop>
-                    {{ envAccessUrls[env.id] }}
+          <n-empty
+            v-if="!project || project.environments.length === 0"
+            description="还没有部署环境"
+          >
+            <template #extra>
+              <n-button type="primary" @click="openCreateEnv">添加环境</n-button>
+            </template>
+          </n-empty>
+          <n-grid v-else responsive="screen" cols="1 lg:2" :x-gap="16" :y-gap="16" style="margin-top: 8px">
+            <n-grid-item v-for="env in project.environments" :key="env.id">
+              <n-card :title="env.name" size="small">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                  <n-tag size="small">{{ env.triggerBranch }}</n-tag>
+                  <n-tag size="small" :type="env.protected ? 'error' : 'default'">
+                    {{ env.protected ? '🔒 受保护' : '开放' }}
+                  </n-tag>
+                </div>
+                <n-text depth="3" style="display:block;margin-top:8px;font-size:12px">
+                  {{ env.server?.name }} ({{ env.server?.host }}) · {{ env.deployPath }}
+                </n-text>
+                <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
+                  访问地址：
+                  <template v-if="envAccessUrls[env.id]">
+                    <n-a :href="envAccessUrls[env.id]!" target="_blank" rel="noopener noreferrer">
+                      {{ envAccessUrls[env.id] }}
+                    </n-a>
+                  </template>
+                  <template v-else> - </template>
+                </n-text>
+                <n-text
+                  v-if="serverDirectSiteUrl(env)"
+                  depth="3"
+                  style="display:block;margin-top:4px;font-size:12px"
+                >
+                  服务器访问：
+                  <n-a :href="serverDirectSiteUrl(env)!" target="_blank" rel="noopener noreferrer">
+                    {{ serverDirectSiteUrl(env) }}
                   </n-a>
-                </template>
-                <template v-else> - </template>
-              </n-text>
-              <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end">
-                <n-button size="small" type="primary" @click.stop="triggerDeploy(env.id)">
-                  立即部署
-                </n-button>
-                <n-button size="small" secondary @click.stop="openEditEnv(env.id)">
-                  编辑
-                </n-button>
-              </div>
-            </n-card>
-          </n-grid-item>
-        </n-grid>
+                  <span style="opacity: 0.82">（域名未解析时可先试）</span>
+                </n-text>
+                <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                  <n-button class="w-full sm:w-auto" size="small" type="primary" @click="triggerDeploy(env.id)">
+                    立即部署
+                  </n-button>
+                  <n-button class="w-full sm:w-auto" size="small" secondary @click="openEnvVarModal(env)">环境变量</n-button>
+                  <n-button class="w-full sm:w-auto" size="small" secondary @click="openEditEnv(env.id)">编辑</n-button>
+                  <n-button class="w-full sm:w-auto" size="small" type="error" secondary @click="confirmDeleteEnv(env)">删除</n-button>
+                </div>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
         </n-card>
       </n-tab-pane>
 
+      <n-tab-pane name="notifications" tab="通知">
+        <project-notifications-panel :org-slug="orgSlug" :project-slug="projectSlug" />
+      </n-tab-pane>
+
+      <n-tab-pane name="feature-flags" tab="特性开关">
+        <project-feature-flags-panel
+          :org-slug="orgSlug"
+          :project-slug="projectSlug"
+          :environment-names="(project?.environments ?? []).map((e) => e.name)"
+        />
+      </n-tab-pane>
+
       <n-tab-pane name="deployments" tab="部署历史">
-        <n-space justify="space-between" align="center" style="margin-top: 8px">
-          <n-space>
+        <div class="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
             <n-button
+              class="w-full sm:w-auto"
               size="small"
               type="error"
               :disabled="checkedDeploymentIds.length === 0"
@@ -138,138 +153,140 @@
             >
               批量删除（{{ checkedDeploymentIds.length }}）
             </n-button>
-            <n-button size="small" secondary @click="clearSelection">清空选择</n-button>
-          </n-space>
-          <n-button size="small" type="error" secondary @click="confirmClearDeployments">
+            <n-button class="w-full sm:w-auto" size="small" secondary @click="clearSelection">清空选择</n-button>
+          </div>
+          <n-button class="w-full shrink-0 sm:w-auto" size="small" type="error" secondary @click="confirmClearDeployments">
             清空部署历史
           </n-button>
-        </n-space>
+        </div>
         <n-data-table
           :columns="deployColumns"
           :data="deployments"
           :loading="deploymentsLoading"
           :pagination="{ pageSize: 20 }"
+          :scroll-x="1180"
           :row-key="(row) => row.id"
           v-model:checked-row-keys="checkedDeploymentIds"
           size="small"
-          style="margin-top: 8px"
+          class="mt-2 min-w-0"
         />
       </n-tab-pane>
-    </n-tabs>
+
+      <n-tab-pane name="settings" tab="设置">
+        <project-settings-panel />
+      </n-tab-pane>
+      </n-tabs>
+    </div>
+
+    <environment-modal
+      v-model:show="showEnvModal"
+      :mode="envFormMode"
+      :org-slug="orgSlug"
+      :project-slug="projectSlug"
+      :initial-env="editingEnvForModal"
+      @saved="onEnvModalSaved"
+    />
 
     <n-modal
-      v-model:show="showBuildEnvModal"
-      title="构建环境变量（项目级）"
+      v-model:show="showEnvVarModal"
+      :title="envVarModalTitle"
       preset="card"
-      style="width: 620px"
+      style="width: min(100%, 600px)"
       :mask-closable="false"
       :close-on-esc="false"
     >
-      <n-data-table :columns="buildEnvColumns" :data="buildEnvVars" size="small" />
-      <div style="margin-top: 12px; display: flex; gap: 8px">
-        <n-input v-model:value="newBuildEnv.key" placeholder="KEY" style="width: 200px" />
-        <n-input v-model:value="newBuildEnv.value" type="password" placeholder="value" style="flex:1" />
-        <n-button type="primary" @click="addBuildEnv">添加</n-button>
+      <n-data-table :columns="envVarColumns" :data="envVarsList" size="small" :scroll-x="560" class="min-w-0" />
+      <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+        <n-input v-model:value="newEnvVar.key" placeholder="KEY" style="width: 180px" />
+        <n-input v-model:value="newEnvVar.value" type="password" placeholder="value" style="flex: 1; min-width: 140px" />
+        <n-button type="primary" @click="addEnvVar">添加</n-button>
       </div>
     </n-modal>
-
-    <project-edit-modal
-      v-model:show="showEditProject"
-      :saving="savingProject"
-      :initial="editProjectInitial"
-      @save="saveProject"
-    />
-
-    <environment-modal
-      v-model:show="showEditEnv"
-      mode="edit"
-      :org-slug="orgSlug"
-      :project-slug="projectSlug"
-      :initial-env="editingEnv"
-      @saved="onEnvSaved"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed, watch } from 'vue';
+import { ref, h, computed, watch } from 'vue';
+import NaiveTagCell from '@/components/table/NaiveTagCell.vue';
+import DeploymentListRowActionsCell from '@/components/table/DeploymentListRowActionsCell.vue';
+import TableDeleteButtonCell from '@/components/table/TableDeleteButtonCell.vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NTabs, NTabPane, NGrid, NGridItem, NCard,
-  NTag, NButton, NText, NDataTable, useMessage, NEmpty, NSpace, NDescriptions, NDescriptionsItem, NA,
+  NButton, NText, NDataTable, useMessage, useDialog, NEmpty, NDescriptions, NDescriptionsItem, NA,
+  NModal, NInput,
   type DataTableColumns,
-  NModal, NInput, useDialog,
 } from 'naive-ui';
-import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
-import { formatDuration, deploymentStatusKey } from '@shipyard/shared';
-import { useI18n } from 'vue-i18n';
-import EnvironmentModal from '../environments/components/EnvironmentModal.vue';
-import { getEnvironmentAccessUrls } from '../environments/api';
 import {
-  getProject,
-  listDeployments,
-  deleteDeployment as apiDeleteDeployment,
-  bulkDeleteDeployments as apiBulkDeleteDeployments,
-  clearDeployments as apiClearDeployments,
-  triggerDeploy as apiTriggerDeploy,
-  rollbackDeployment,
-  retryDeployment,
-  updateProject,
-  updatePipelineConfig,
-  deleteProject,
-  listProjectBuildEnv,
-  upsertProjectBuildEnv,
-  deleteProjectBuildEnv,
+  deploymentStatusKey,
+  formatDuration,
+  buildDirectServerSiteAccessUrl,
+  isSameHttpSiteHost,
+} from '@shipyard/shared';
+import { useI18n } from 'vue-i18n';
+import EnvironmentModal from './components/EnvironmentModal.vue';
+import ProjectNotificationsPanel from './components/ProjectNotificationsPanel.vue';
+import ProjectFeatureFlagsPanel from './components/ProjectFeatureFlagsPanel.vue';
+import ProjectSettingsPanel from './components/ProjectSettingsPanel.vue';
+import { useQueryClient } from '@tanstack/vue-query';
+import { useProjectDetailQuery } from '@/composables/projects/useProjectDetailQuery';
+import { useProjectDeploymentsQuery } from '@/composables/projects/useProjectDeploymentsQuery';
+import {
+  useProjectDetailActions,
   type ProjectBuildEnvVar,
   type DeploymentListItem,
   type ProjectDetail,
-} from './api';
+} from '@/composables/projects/useProjectDetailActions';
+import type { Env, EnvVar } from '@/api/projects/environments';
+import { useEnvironmentsProjectActions } from '@/composables/projects/useEnvironmentsProjectActions';
+import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
+import {
+  type ProjectDetailTab,
+  DEFAULT_PROJECT_DETAIL_TAB,
+  isProjectDetailTab,
+  projectDetailTabPath,
+} from './projectDetailTabs';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
+const dialog = useDialog();
+const queryClient = useQueryClient();
 const orgSlug = computed(() => route.params['orgSlug'] as string);
 const projectSlug = computed(() => route.params['projectSlug'] as string);
-const slugPattern = /^[a-z0-9-]+$/;
-const project = ref<ProjectDetail | null>(null);
-const deployments = ref<DeploymentListItem[]>([]);
-const deploymentsLoading = ref(false);
-const dialog = useDialog();
+const projectApi = useProjectDetailActions(orgSlug, projectSlug);
+const envProjectApi = useEnvironmentsProjectActions(orgSlug, projectSlug);
+const projectDetailQuery = useProjectDetailQuery(orgSlug, projectSlug);
+const deploymentsQuery = useProjectDeploymentsQuery(orgSlug, projectSlug);
+const project = computed<ProjectDetail | null>(() => projectDetailQuery.data.value ?? null);
+const deployments = computed<DeploymentListItem[]>(() => deploymentsQuery.data.value ?? []);
+const deploymentsLoading = computed(
+  () => deploymentsQuery.isPending.value || deploymentsQuery.isFetching.value,
+);
+
 const envAccessUrls = ref<Record<string, string | null>>({});
 const checkedDeploymentIds = ref<Array<string | number>>([]);
 
-/** 与路由 ?tab= 同步，避免刷新后总是回到「概览」 */
-const activeProjectTab = ref<'overview' | 'deployments'>('overview');
-
-function syncProjectTabFromRoute() {
-  activeProjectTab.value = route.query['tab'] === 'deployments' ? 'deployments' : 'overview';
-}
+const activeProjectTab = computed<ProjectDetailTab>(() => {
+  const seg = route.params['tab'];
+  return typeof seg === 'string' && isProjectDetailTab(seg) ? seg : DEFAULT_PROJECT_DETAIL_TAB;
+});
 
 function onProjectTabChange(name: string) {
-  const next = { ...route.query };
-  if (name === 'overview') {
-    delete next.tab;
-  } else {
-    next.tab = name;
-  }
-  void router.replace({ path: route.path, query: next });
+  if (!isProjectDetailTab(name)) return;
+  void router.push(projectDetailTabPath(orgSlug.value, projectSlug.value, name));
 }
 
-const showBuildEnvModal = ref(false);
 const buildEnvVars = ref<ProjectBuildEnvVar[]>([]);
-const newBuildEnv = ref({ key: '', value: '' });
-
-const buildEnvColumns: DataTableColumns<ProjectBuildEnvVar> = [
-  { title: 'KEY', key: 'key' },
-  {
-    title: '操作', key: 'actions', width: 80,
-    render: (r) => h(NButton, { size: 'tiny', type: 'error', onClick: () => deleteBuildEnv(r.id) }, { default: () => '删除' }),
-  },
-];
 
 const statusMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
-  success: 'success', failed: 'error', building: 'warning',
-  deploying: 'info', queued: 'default', pending_approval: 'warning',
+  success: 'success',
+  failed: 'error',
+  building: 'warning',
+  deploying: 'info',
+  queued: 'default',
+  pending_approval: 'warning',
+  cancelled: 'default',
 };
 
 const { t } = useI18n();
@@ -282,11 +299,10 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
   {
     title: '状态', key: 'status', width: 120,
     render: (r) =>
-      h(
-        NTag,
-        { type: statusMap[r.status] ?? 'default', size: 'small' },
-        { default: () => t(deploymentStatusKey(r.status)) },
-      ),
+      h(NaiveTagCell, {
+        tagType: statusMap[r.status] ?? 'default',
+        label: t(deploymentStatusKey(r.status)),
+      }),
   },
   {
     title: '耗时', key: 'duration', width: 80,
@@ -299,20 +315,13 @@ const deployColumns: DataTableColumns<DeploymentListItem> = [
   {
     title: '操作', key: 'actions', width: 200,
     render: (r) =>
-      h('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' }, [
-        h(NButton, { size: 'tiny', onClick: () => router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${r.id}`) }, { default: () => '详情' }),
-        r.status === 'failed'
-          ? h(NButton, { size: 'tiny', type: 'primary', secondary: true, onClick: () => retryFailed(r.id) }, { default: () => '重试' })
-          : null,
-        r.artifactId
-          ? h(NButton, { size: 'tiny', type: 'warning', onClick: () => rollback(r.id) }, { default: () => '回滚' })
-          : h(NButton, { size: 'tiny', disabled: true }, { default: () => '回滚' }),
-        h(
-          NButton,
-          { size: 'tiny', type: 'error', secondary: true, onClick: () => confirmDeleteDeployment(r.id) },
-          { default: () => '删除' },
-        ),
-      ]),
+      h(DeploymentListRowActionsCell, {
+        row: r,
+        detailPath: `/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${r.id}`,
+        onRetry: () => void retryFailed(r.id),
+        onRollback: () => void rollback(r.id),
+        onDelete: () => void confirmDeleteDeployment(r),
+      }),
   },
 ];
 
@@ -320,18 +329,31 @@ function clearSelection() {
   checkedDeploymentIds.value = [];
 }
 
-function confirmDeleteDeployment(deploymentId: string) {
+/** 与主访问地址不同时展示 SSH 目标主机根 URL（多为公网 IP），便于域名未生效时预览 */
+function serverDirectSiteUrl(env: ProjectDetail['environments'][number]): string | null {
+  const primary = envAccessUrls.value[env.id]?.trim() ?? '';
+  const direct = buildDirectServerSiteAccessUrl(env.server?.host);
+  if (!direct) return null;
+  if (primary && isSameHttpSiteHost(primary, direct)) return null;
+  return direct;
+}
+
+function confirmDeleteDeployment(row: DeploymentListItem) {
   dialog.warning({
-    title: '确认删除该部署记录？',
-    content: '删除后将移除该条部署记录及其日志/产物记录，且无法恢复。',
+    title: '删除该部署记录？',
+    content: `环境：${row.environment?.name ?? '—'}，分支：${row.branch}。删除后将移除该条部署记录及其日志/产物记录，且无法恢复。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await apiDeleteDeployment(orgSlug.value, projectSlug.value, deploymentId);
-      message.success('已删除');
-      clearSelection();
-      await loadDeployments();
-      void loadEnvAccessUrls();
+      try {
+        await projectApi.deleteDeployment(row.id);
+        message.success('已删除');
+        clearSelection();
+        await refetchDeployments();
+        void loadEnvAccessUrls();
+      } catch {
+        return false;
+      }
     },
   });
 }
@@ -340,78 +362,169 @@ function confirmBulkDeleteDeployments() {
   const ids = checkedDeploymentIds.value.filter((x): x is string => typeof x === 'string');
   if (ids.length === 0) return;
   dialog.warning({
-    title: '确认批量删除？',
-    content: `将删除 ${ids.length} 条部署记录，且无法恢复。`,
+    title: '批量删除部署记录？',
+    content: `将删除已选中的 ${ids.length} 条部署记录，且无法恢复。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      const res = await apiBulkDeleteDeployments(orgSlug.value, projectSlug.value, ids);
-      message.success(`已删除 ${res.deleted} 条`);
-      clearSelection();
-      await loadDeployments();
-      void loadEnvAccessUrls();
+      try {
+        const res = await projectApi.bulkDeleteDeployments(ids);
+        message.success(`已删除 ${res.deleted} 条`);
+        clearSelection();
+        await refetchDeployments();
+        void loadEnvAccessUrls();
+      } catch {
+        return false;
+      }
     },
   });
 }
 
 function confirmClearDeployments() {
   dialog.warning({
-    title: '确认清空部署历史？',
+    title: '清空部署历史？',
     content: '将删除该项目的全部部署记录（含日志），且无法恢复。',
     positiveText: '清空',
     negativeText: '取消',
     onPositiveClick: async () => {
-      const res = await apiClearDeployments(orgSlug.value, projectSlug.value);
-      message.success(`已清空 ${res.deleted} 条`);
-      clearSelection();
-      await loadDeployments();
-      void loadEnvAccessUrls();
+      try {
+        const res = await projectApi.clearDeployments();
+        message.success(`已清空 ${res.deleted} 条`);
+        clearSelection();
+        await refetchDeployments();
+        void loadEnvAccessUrls();
+      } catch {
+        return false;
+      }
     },
   });
 }
 
 async function triggerDeploy(environmentId: string) {
   try {
-    await apiTriggerDeploy(orgSlug.value, projectSlug.value, { environmentId });
+    await projectApi.triggerDeploy({ environmentId });
     message.success('部署已入队');
-    await loadDeployments();
+    await refetchDeployments();
     void loadEnvAccessUrls();
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '触发部署失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
-const showEditEnv = ref(false);
+const showEnvModal = ref(false);
+const envFormMode = ref<'create' | 'edit'>('create');
 const editingEnvId = ref<string | null>(null);
-const editingEnv = computed(() => {
+
+const editingEnvForModal = computed((): Env | null => {
   if (!editingEnvId.value) return null;
-  return project.value?.environments.find((e) => e.id === editingEnvId.value) ?? null;
+  const row = project.value?.environments.find((e) => e.id === editingEnvId.value);
+  return row ? (row as unknown as Env) : null;
 });
 
-function openEditEnv(envId: string) {
-  editingEnvId.value = envId;
-  showEditEnv.value = true;
-}
-
-function goEnvDetail(envId: string) {
-  void router.push(
-    `/orgs/${orgSlug.value}/projects/${projectSlug.value}/environments?envId=${encodeURIComponent(envId)}`,
-  );
-}
-
-async function onEnvSaved() {
-  showEditEnv.value = false;
+function openCreateEnv() {
+  envFormMode.value = 'create';
   editingEnvId.value = null;
-  project.value = await getProject(orgSlug.value, projectSlug.value);
+  showEnvModal.value = true;
+}
+
+function openEditEnv(envId: string) {
+  envFormMode.value = 'edit';
+  editingEnvId.value = envId;
+  showEnvModal.value = true;
+}
+
+async function onEnvModalSaved() {
+  showEnvModal.value = false;
+  editingEnvId.value = null;
+  await projectDetailQuery.refetch();
+  void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
   void loadEnvAccessUrls();
+}
+
+const showEnvVarModal = ref(false);
+const selectedEnvForVars = ref<ProjectDetail['environments'][number] | null>(null);
+const envVarsList = ref<EnvVar[]>([]);
+const newEnvVar = ref({ key: '', value: '' });
+
+const envVarModalTitle = computed(() =>
+  selectedEnvForVars.value ? `${selectedEnvForVars.value.name} · 环境变量` : '环境变量',
+);
+
+const envVarColumns: DataTableColumns<EnvVar> = [
+  { title: 'KEY', key: 'key' },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 80,
+    render: (r) =>
+      h(TableDeleteButtonCell, {
+        onDelete: () => void confirmRemoveEnvVarRow(r),
+      }),
+  },
+];
+
+function openEnvVarModal(env: ProjectDetail['environments'][number]) {
+  selectedEnvForVars.value = env;
+  showEnvVarModal.value = true;
+  void loadEnvVarsForModal(env.id);
+}
+
+async function loadEnvVarsForModal(envId: string) {
+  envVarsList.value = await envProjectApi.listEnvVars(envId);
+}
+
+async function addEnvVar() {
+  if (!newEnvVar.value.key.trim() || !newEnvVar.value.value || !selectedEnvForVars.value) return;
+  await envProjectApi.upsertEnvVar(selectedEnvForVars.value.id, {
+    key: newEnvVar.value.key.trim(),
+    value: newEnvVar.value.value,
+  });
+  newEnvVar.value = { key: '', value: '' };
+  await loadEnvVarsForModal(selectedEnvForVars.value.id);
+  message.success('已添加');
+}
+
+function confirmRemoveEnvVarRow(row: EnvVar) {
+  const env = selectedEnvForVars.value;
+  if (!env) return;
+  openDestructiveNameConfirm({
+    title: '删除环境变量？',
+    description: `将从环境「${env.name}」删除变量「${row.key}」。`,
+    expected: row.key,
+    expectedLabel: '变量名（KEY）',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await envProjectApi.deleteEnvVar(env.id, row.id);
+      await loadEnvVarsForModal(env.id);
+      message.success('已删除');
+    },
+  });
+}
+
+function confirmDeleteEnv(env: ProjectDetail['environments'][number]) {
+  openDestructiveNameConfirm({
+    title: '删除环境？',
+    description: `将删除环境「${env.name}」及其变量等关联数据，且无法恢复。`,
+    expected: env.name,
+    expectedLabel: '环境名称',
+    positiveText: '删除',
+    onConfirm: async () => {
+      await envProjectApi.deleteEnvironment(env.id);
+      message.success('已删除');
+      await projectDetailQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['projects', 'list', orgSlug.value] });
+      void loadEnvAccessUrls();
+    },
+  });
 }
 
 async function loadEnvAccessUrls() {
   if (!project.value) return;
-  envAccessUrls.value = await getEnvironmentAccessUrls(orgSlug.value, projectSlug.value).catch(
-    () => ({}),
-  );
+  try {
+    envAccessUrls.value = await projectApi.fetchEnvironmentAccessUrls();
+  } catch {
+    envAccessUrls.value = {};
+  }
 }
 
 let envAccessPollTimer: number | null = null;
@@ -422,7 +535,7 @@ watch(
       window.clearInterval(envAccessPollTimer);
       envAccessPollTimer = null;
     }
-    if (tab !== 'overview') return;
+    if (tab !== 'overview' && tab !== 'environments') return;
     void loadEnvAccessUrls();
     envAccessPollTimer = window.setInterval(() => {
       void loadEnvAccessUrls();
@@ -433,202 +546,49 @@ watch(
 
 async function rollback(deploymentId: string) {
   try {
-    await rollbackDeployment(orgSlug.value, projectSlug.value, deploymentId);
+    await projectApi.rollbackDeployment(deploymentId);
     message.success('回滚已入队');
-    await loadDeployments();
+    await refetchDeployments();
   } catch {
-    message.error('回滚失败');
+    /* 接口错误由全局 axios 拦截器提示 */
   }
 }
 
 async function retryFailed(deploymentId: string) {
   try {
-    const next = await retryDeployment(orgSlug.value, projectSlug.value, deploymentId);
+    const next = await projectApi.retryDeployment(deploymentId);
     message.success('已重新入队');
-    await loadDeployments();
+    await refetchDeployments();
     if (next?.id) {
       await router.push(`/orgs/${orgSlug.value}/projects/${projectSlug.value}/deployments/${next.id}`);
     }
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '重试失败');
+  } catch {
+    /* 接口错误由全局 axios 拦截器提示 */
   }
-}
-
-function openBuildEnvModal() {
-  showBuildEnvModal.value = true;
-  void loadBuildEnv();
 }
 
 async function loadBuildEnv() {
-  buildEnvVars.value = await listProjectBuildEnv(orgSlug.value, projectSlug.value);
+  buildEnvVars.value = await projectApi.listProjectBuildEnv();
 }
 
-async function addBuildEnv() {
-  if (!newBuildEnv.value.key || !newBuildEnv.value.value) return;
-  await upsertProjectBuildEnv(orgSlug.value, projectSlug.value, newBuildEnv.value);
-  newBuildEnv.value = { key: '', value: '' };
-  await loadBuildEnv();
-  message.success('已添加');
+function goProjectSettings() {
+  void router.push(projectDetailTabPath(orgSlug.value, projectSlug.value, 'settings'));
 }
 
-async function deleteBuildEnv(varId: string) {
-  await deleteProjectBuildEnv(orgSlug.value, projectSlug.value, varId);
-  await loadBuildEnv();
-  message.success('已删除');
+async function refetchDeployments() {
+  await deploymentsQuery.refetch();
 }
-
-// ─── 项目编辑 / 移除 ─────────────────────────────────────────────────────────
-
-const showEditProject = ref(false);
-const savingProject = ref(false);
-const editProjectInitial = ref<ProjectEditFormValues>({
-  name: '',
-  slug: '',
-  frameworkType: 'static',
-  installCommand: 'pnpm install',
-  buildCommand: 'pnpm build',
-  lintCommand: '',
-  testCommand: '',
-  outputDir: 'dist',
-  nodeVersion: '20',
-  cacheEnabled: true,
-  timeoutSeconds: 900,
-  ssrEntryPoint: 'dist/index.js',
-});
-
-function openEditProject() {
-  const pc = project.value?.pipelineConfig;
-  editProjectInitial.value = {
-    name: project.value?.name ?? '',
-    slug: project.value?.slug ?? '',
-    frameworkType: project.value?.frameworkType ?? 'static',
-    installCommand: pc?.installCommand ?? 'pnpm install',
-    buildCommand: pc?.buildCommand ?? 'pnpm build',
-    lintCommand: pc?.lintCommand ?? '',
-    testCommand: pc?.testCommand ?? '',
-    outputDir: pc?.outputDir ?? 'dist',
-    nodeVersion: pc?.nodeVersion ?? '20',
-    cacheEnabled: pc?.cacheEnabled ?? true,
-    timeoutSeconds: pc?.timeoutSeconds ?? 900,
-    ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
-  };
-  showEditProject.value = true;
-}
-
-async function saveProject(v: ProjectEditFormValues) {
-  if (!v.name || !v.slug) return;
-  if (!slugPattern.test(v.slug) || v.slug.length > 64) {
-    message.error('URL 标识仅允许小写字母、数字和连字符，长度不超过 64');
-    return;
-  }
-  if (!v.installCommand.trim() || !v.buildCommand.trim() || !v.outputDir.trim()) {
-    message.error('请填写安装命令、构建命令与输出目录');
-    return;
-  }
-  if (v.timeoutSeconds == null || v.timeoutSeconds < 60) {
-    message.error('构建超时至少 60 秒');
-    return;
-  }
-  savingProject.value = true;
-  const slugBefore = projectSlug.value;
-  try {
-    await updateProject(orgSlug.value, slugBefore, {
-      name: v.name,
-      slug: v.slug,
-      frameworkType: v.frameworkType,
-    });
-    const slugAfter = v.slug;
-
-    if (project.value?.pipelineConfig) {
-      await updatePipelineConfig(orgSlug.value, slugAfter, {
-        installCommand: v.installCommand.trim(),
-        buildCommand: v.buildCommand.trim(),
-        outputDir: v.outputDir.trim(),
-        nodeVersion: v.nodeVersion,
-        cacheEnabled: v.cacheEnabled,
-        timeoutSeconds: v.timeoutSeconds,
-        lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
-        testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
-        ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
-      });
-    }
-
-    showEditProject.value = false;
-    message.success('已保存');
-    if (v.slug !== slugBefore) {
-      await router.replace(`/orgs/${orgSlug.value}/projects/${v.slug}`);
-    }
-    project.value = await getProject(orgSlug.value, slugAfter);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { message?: string } } };
-    message.error(e?.response?.data?.message ?? '保存失败');
-  } finally {
-    savingProject.value = false;
-  }
-}
-
-function confirmDeleteProject() {
-  dialog.warning({
-    title: '确认移除项目？',
-    content: '项目移除后将删除其环境、部署记录等数据，且无法恢复。',
-    positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await deleteProject(orgSlug.value, projectSlug.value);
-      message.success('项目已移除');
-      void router.push(`/orgs/${orgSlug.value}/projects`);
-    },
-  });
-}
-
-async function loadDeployments() {
-  deploymentsLoading.value = true;
-  try {
-    deployments.value = await listDeployments(orgSlug.value, projectSlug.value);
-  } finally {
-    deploymentsLoading.value = false;
-  }
-}
-
-watch(projectSlug, async (slug, prev) => {
-  if (prev === undefined || slug === prev) return;
-  try {
-    project.value = await getProject(orgSlug.value, slug);
-    await loadDeployments();
-    await loadBuildEnv();
-    syncProjectTabFromRoute();
-  } catch {
-    message.error('加载项目失败');
-  }
-});
-
-watch(orgSlug, async (slug, prev) => {
-  if (prev === undefined || slug === prev) return;
-  try {
-    project.value = await getProject(slug, projectSlug.value);
-    await loadDeployments();
-    await loadBuildEnv();
-    syncProjectTabFromRoute();
-  } catch {
-    message.error('加载项目失败');
-  }
-});
 
 watch(
-  () => route.query.tab,
-  () => syncProjectTabFromRoute(),
+  () => project.value?.id,
+  (id) => {
+    if (!id) return;
+    void loadBuildEnv();
+    void loadEnvAccessUrls();
+  },
+  { immediate: true },
 );
 
-onMounted(async () => {
-  syncProjectTabFromRoute();
-  [project.value] = await Promise.all([
-    getProject(orgSlug.value, projectSlug.value),
-    loadDeployments(),
-  ]);
-  await loadBuildEnv();
-  await loadEnvAccessUrls();
-});
 </script>
 
 <style scoped>

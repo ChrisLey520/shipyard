@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/monitoring-prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("MONITORING_DATABASE_URL")
+}
+
+model MonitoringProject {
+  id          String   @id @default(cuid())
+  projectKey  String   @unique
+  ingestToken String   @unique
+  createdAt   DateTime @default(now())
+
+  events     MonitoringEvent[]
+  buckets    MonitoringHourlyBucket[]
+  sourceMaps MonitoringSourceMapArtifact[]
+  alertRules AlertRule[]
+}
+
+model MonitoringEvent {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    MonitoringProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  eventId    String
+  receivedAt DateTime @default(now())
+  clientTs   String?
+  type       String
+  platform   String
+  release    String?
+  route      String?
+  message    String?
+  payload    String
+  raw        String
+
+  @@unique([projectId, eventId])
+  @@index([projectId, receivedAt])
+  @@index([projectId, type, receivedAt])
+  @@index([projectId, release, receivedAt])
+  @@index([projectId, platform, receivedAt])
+}
+
+/// 按小时预聚合，供管理台趋势图（UTC 整点 bucket）
+model MonitoringHourlyBucket {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     MonitoringProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bucketStart DateTime
+  type    String
+  release String @default("")
+  count   Int    @default(0)
+
+  @@unique([projectId, bucketStart, type, release])
+  @@index([projectId, bucketStart])
+}
+
+model MonitoringSourceMapArtifact {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      MonitoringProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  release      String
+  fileName     String
+  relativePath String
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, release, fileName])
+  @@index([projectId, release])
+}
+
+model AlertRule {
+  id               String    @id @default(cuid())
+  projectId        String
+  project          MonitoringProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  eventType        String
+  windowMinutes    Int
+  threshold        Int
+  silenceMinutes   Int
+  enabled          Boolean   @default(true)
+  lastTriggeredAt  DateTime?
+  silenceUntil     DateTime?
+  createdAt        DateTime  @default(now())
+  targets          AlertTarget[]
+}
+
+model AlertTarget {
+  id         String    @id @default(cuid())
+  ruleId     String
+  rule       AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  channel    String
+  webhookUrl String
+}

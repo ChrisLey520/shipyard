@@ -61,6 +61,7 @@ export enum NotificationChannel {
   FEISHU = 'feishu',
   DINGTALK = 'dingtalk',
   SLACK = 'slack',
+  WECOM = 'wecom',
 }
 
 export enum NotificationEvent {

@@ -17,6 +17,8 @@ export const zhTW = {
     team: '團隊',
     approvals: '審批中心',
     orgSettings: '組織設定',
+    toggleNav: '開啟或收合側邊導覽',
+    mainNavLabel: '主要導覽',
   },
   theme: {
     theme: '主題',
@@ -94,6 +96,24 @@ export const zhTW = {
     passwordNotMatch: '兩次輸入的新密碼不一致',
     passwordSameAsOld: '新密碼不能與原密碼相同',
     changePasswordFailed: '修改密碼失敗',
+  },
+  approvalsPage: {
+    title: '審批中心',
+    tabPending: '待審批',
+    tabHistory: '已處理',
+    approve: '批准',
+    reject: '拒絕',
+    emptyPending: '暫無待審批',
+    deploymentTitle: '部署 {shortId} → {env}',
+    applicantLine: '申請人：{name} · {branch} · {commit}',
+    colDeployment: '部署',
+    colEnv: '環境',
+    colStatus: '狀態',
+    colReviewer: '審批人',
+    statusApproved: '已批准',
+    statusRejected: '已拒絕',
+    toastApproved: '已批准',
+    toastRejected: '已拒絕',
   },
   pipeline: {
     status: {

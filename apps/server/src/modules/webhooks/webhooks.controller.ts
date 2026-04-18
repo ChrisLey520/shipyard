@@ -2,6 +2,7 @@ import { Controller, Post, Headers, RawBodyRequest, Req, Res, Query } from '@nes
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import type { Request } from 'express';
+import { GitProvider } from '@shipyard/shared';
 import { WebhooksService } from './webhooks.service';
 import type { WebhooksGitProvider } from './webhook-types';
 
@@ -35,7 +36,7 @@ export class WebhooksController {
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ) {
-    return this.send(res, 'github', p, headers, this.rawUtf8(req));
+    return this.send(res, GitProvider.GITHUB, p, headers, this.rawUtf8(req));
   }
 
   @Post('gitlab')
@@ -45,7 +46,7 @@ export class WebhooksController {
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ) {
-    return this.send(res, 'gitlab', p, headers, this.rawUtf8(req));
+    return this.send(res, GitProvider.GITLAB, p, headers, this.rawUtf8(req));
   }
 
   @Post('gitee')
@@ -55,7 +56,7 @@ export class WebhooksController {
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ) {
-    return this.send(res, 'gitee', p, headers, this.rawUtf8(req));
+    return this.send(res, GitProvider.GITEE, p, headers, this.rawUtf8(req));
   }
 
   @Post('gitea')
@@ -65,6 +66,6 @@ export class WebhooksController {
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ) {
-    return this.send(res, 'gitea', p, headers, this.rawUtf8(req));
+    return this.send(res, GitProvider.GITEA, p, headers, this.rawUtf8(req));
   }
 }

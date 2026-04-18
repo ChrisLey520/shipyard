@@ -1,12 +1,14 @@
 {
   "name": "@shipyard/server",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "private": true,
   "scripts": {
     "dev": "prisma generate && ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/main.ts",
     "worker": "prisma generate && ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/worker.ts",
     "build": "prisma generate && tsc",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src",
     "start": "prisma generate && node dist/main.js",
     "start:worker": "prisma generate && node dist/worker.js",
     "db:migrate": "node scripts/run-prisma.cjs migrate dev",
@@ -40,6 +42,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "proper-lockfile": "^4.1.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.5",
@@ -49,19 +52,24 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@nestjs/testing": "^10.4.22",
     "@types/bcryptjs": "^3.0.0",
     "@types/multer": "^2.1.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^6.4.15",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/ssh2": "^1.15.1",
+    "@types/supertest": "^7.2.0",
     "@types/uuid": "^10.0.0",
     "prisma": "^5.19.0",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.17.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.9"
   }
 }
