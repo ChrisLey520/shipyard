@@ -2335,6 +2335,24 @@ server.listen(PORT, '0.0.0.0', () => {
     });
   }
 
+  /** 为常见 kubectl 错误追加可操作的排障提示（会写入部署日志） */
+  private formatSpawnFailureMessage(cmd: string, code: number | null, combined: string): string {
+    const tail = combined.trim().slice(-2000);
+    const base = tail ? `${cmd} exited with code ${code}: ${tail}` : `${cmd} exited with code ${code}`;
+    if (cmd !== 'kubectl') return base;
+    const nsM = /namespaces "([^"]+)" not found/i.exec(tail);
+    if (nsM?.[1]) {
+      const ns = nsM[1];
+      return `${base}\n提示：命名空间 "${ns}" 在集群中不存在。可执行 kubectl create namespace ${ns}，或先按仓库 deploy/k8s 执行 kubectl apply -k …（base 含 Namespace）；环境 releaseConfig.kubernetes.namespace 须与集群实际一致。`;
+    }
+    const depM = /deployments(?:\.apps)? "([^"]+)" not found/i.exec(tail);
+    if (depM?.[1]) {
+      const dep = depM[1];
+      return `${base}\n提示：Deployment "${dep}" 在目标命名空间中不存在。请先按仓库 deploy/k8s 执行 kubectl apply -k base（或你的 overlay）创建 server/worker/web 等清单；并核对环境 releaseConfig.kubernetes.deploymentName、additionalDeployments 是否与集群中 metadata.name 完全一致。`;
+    }
+    return base;
+  }
+
   private execLocal(cmd: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       let combined = '';
@@ -2347,14 +2365,7 @@ server.listen(PORT, '0.0.0.0', () => {
       });
       child.on('close', (code: number | null) => {
         if (code === 0) resolve();
-        else {
-          const tail = combined.trim().slice(-2000);
-          reject(
-            new Error(
-              tail ? `${cmd} exited with code ${code}: ${tail}` : `${cmd} exited with code ${code}`,
-            ),
-          );
-        }
+        else reject(new Error(this.formatSpawnFailureMessage(cmd, code, combined)));
       });
     });
   }

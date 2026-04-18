@@ -1,6 +1,9 @@
 # Shipyard API/Worker 共用镜像。
 # 与 apps/server/Dockerfile 同源：流水线在仓库根目录执行 docker build . 时请与此文件同步修改。
-FROM node:20-alpine AS base
+# 拉 Docker Hub 失败时：docker build --build-arg NODE_IMAGE=<镜像站/内网 node:20-alpine> .
+# Build Worker 可设置环境变量 SHIPYARD_CONTAINER_BASE_IMAGE 自动传入该 build-arg。
+ARG NODE_IMAGE=node:20-alpine
+FROM ${NODE_IMAGE} AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
@@ -20,7 +23,7 @@ RUN pnpm --filter @shipyard/shared build
 RUN pnpm --filter @shipyard/server build
 
 # 运行时
-FROM node:20-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 

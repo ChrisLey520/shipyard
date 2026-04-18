@@ -491,15 +491,123 @@ export class BuildWorkerService implements OnModuleInit {
     }
   }
 
-  /** Docker 输出写入 Worker 进程 stdout/stderr（避免海量 seq 占满 deploymentLog） */
-  private runDockerInherit(args: string[], cwd: string): Promise<void> {
+  /** 限制字符集，避免 Worker 环境变量注入 docker 额外参数 */
+  private safeDockerBaseImageRef(raw: string | undefined): string | null {
+    if (!raw) return null;
+    const s = raw.trim();
+    if (s.length < 3 || s.length > 512) return null;
+    if (!/^[a-zA-Z0-9._/@:-]+$/.test(s)) return null;
+    return s;
+  }
+
+  /**
+   * docker build / push 等耗时命令：捕获输出尾部、失败写入日志、周期性心跳（避免 inherit 时 UI 长时间无输出）。
+   */
+  private runDockerWithCapturedOutput(opts: {
+    deploymentId: string;
+    cwd: string;
+    args: string[];
+    nextLog: () => number;
+    heartbeatLine: string;
+    /** 用于日志与 Error 文案，如 docker build、docker push */
+    phaseLabel: string;
+    adjustArgs?: (args: string[]) => void;
+    afterFailureTail?: (snippet: string) => Promise<void>;
+  }): Promise<void> {
+    const { deploymentId, cwd, phaseLabel } = opts;
+    const args = [...opts.args];
+    opts.adjustArgs?.(args);
+
+    const bufMax = 28_000;
+    const tailLineCount = 40;
+    const heartbeatMs = 60_000;
+
     return new Promise((resolve, reject) => {
-      const child = spawn('docker', args, { cwd, stdio: 'inherit' });
+      let buf = '';
+      let settled = false;
+      const pushChunk = (chunk: string) => {
+        buf = (buf + chunk).slice(-bufMax);
+      };
+
+      const child = spawn('docker', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout?.on('data', (c: Buffer) => pushChunk(c.toString('utf8')));
+      child.stderr?.on('data', (c: Buffer) => pushChunk(c.toString('utf8')));
+
+      const heartbeat = setInterval(() => {
+        void this.appendLog(deploymentId, opts.nextLog(), opts.heartbeatLine);
+      }, heartbeatMs);
+
+      const finishFailure = async (code: number | null, spawnErr: Error | null) => {
+        clearInterval(heartbeat);
+        if (spawnErr) {
+          await this.appendLog(
+            deploymentId,
+            opts.nextLog(),
+            `[container] ${phaseLabel} 无法启动：${spawnErr.message}`,
+          );
+          reject(spawnErr);
+          return;
+        }
+        const lines = buf.trim().split('\n').filter((l) => l.length > 0);
+        const tail = lines.slice(-tailLineCount).join('\n');
+        const snippet = tail.length > 12_000 ? tail.slice(-12_000) : tail;
+        await this.appendLog(
+          deploymentId,
+          opts.nextLog(),
+          `[container] ${phaseLabel} 失败（退出码 ${code}），输出尾部：\n${snippet || '（无捕获输出，请查看 Worker 控制台）'}`,
+        );
+        await opts.afterFailureTail?.(snippet);
+        reject(
+          new Error(
+            `[container] ${phaseLabel} 退出码 ${code}，详见上一条部署日志中的 Docker 输出尾部`,
+          ),
+        );
+      };
+
       child.on('close', (code: number | null) => {
-        if (code === 0) resolve();
-        else reject(new Error(`docker ${args.join(' ')} 退出码 ${code}`));
+        if (settled) return;
+        if (code === 0) {
+          settled = true;
+          clearInterval(heartbeat);
+          resolve();
+          return;
+        }
+        settled = true;
+        void finishFailure(code, null);
       });
-      child.on('error', reject);
+      child.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        void finishFailure(null, err instanceof Error ? err : new Error(String(err)));
+      });
+    });
+  }
+
+  private runDockerBuildWithDeployLog(opts: {
+    deploymentId: string;
+    cwd: string;
+    args: string[];
+    nextLog: () => number;
+  }): Promise<void> {
+    return this.runDockerWithCapturedOutput({
+      ...opts,
+      heartbeatLine:
+        '[container] docker build 仍在运行（拉基础镜像 / install / 编译可能较久；失败时会在下一条附输出尾部）…',
+      phaseLabel: 'docker build',
+      adjustArgs: (args) => {
+        if (args[0] === 'build' && !args.some((a) => a.startsWith('--progress='))) {
+          args.splice(1, 0, '--progress=plain');
+        }
+      },
+      afterFailureTail: async (snippet) => {
+        if (/auth\.docker\.io|oauth token|registry-1\.docker\.io/i.test(snippet)) {
+          await this.appendLog(
+            opts.deploymentId,
+            opts.nextLog(),
+            '[container] 提示：访问 Docker Hub 失败多为网络/代理/地区限制。可在运行 Worker 的环境设置 SHIPYARD_CONTAINER_BASE_IMAGE 为可拉取的 Node 20 Alpine 镜像地址（与 Dockerfile 中 ARG NODE_IMAGE 对应），或为 Docker 配置 registry 镜像加速。',
+          );
+        }
+      },
     });
   }
 
@@ -547,7 +655,23 @@ export class BuildWorkerService implements OnModuleInit {
     const tag = `shipyard-${deploymentId.slice(0, 12)}`;
     const localImage = `${base}:${tag}`;
     await this.appendLog(deploymentId, opts.nextLog(), `[container] docker build -t ${localImage} .`);
-    await this.runDockerInherit(['build', '-t', localImage, '.'], tmpDir);
+    const buildCmd: string[] = ['build', '-t', localImage];
+    const baseOverride = this.safeDockerBaseImageRef(process.env['SHIPYARD_CONTAINER_BASE_IMAGE']);
+    if (baseOverride) {
+      await this.appendLog(
+        deploymentId,
+        opts.nextLog(),
+        `[container] 传入 --build-arg NODE_IMAGE=${baseOverride}（Worker 环境变量 SHIPYARD_CONTAINER_BASE_IMAGE）`,
+      );
+      buildCmd.push('--build-arg', `NODE_IMAGE=${baseOverride}`);
+    }
+    buildCmd.push('.');
+    await this.runDockerBuildWithDeployLog({
+      deploymentId,
+      cwd: tmpDir,
+      args: buildCmd,
+      nextLog: opts.nextLog,
+    });
 
     const enc = pipelineConfig.containerRegistryAuthEncrypted;
     if (enc) {
@@ -574,7 +698,24 @@ export class BuildWorkerService implements OnModuleInit {
     }
 
     await this.appendLog(deploymentId, opts.nextLog(), `[container] docker push ${localImage}`);
-    await this.runDockerInherit(['push', localImage], tmpDir);
+    await this.runDockerWithCapturedOutput({
+      deploymentId,
+      cwd: tmpDir,
+      args: ['push', localImage],
+      nextLog: opts.nextLog,
+      heartbeatLine:
+        '[container] docker push 仍在上传（层多或网络慢时可能数分钟无新行；失败时会在下一条附输出尾部）…',
+      phaseLabel: 'docker push',
+      afterFailureTail: async (snippet) => {
+        if (/unauthorized|denied|authentication required|incorrect username or password/i.test(snippet)) {
+          await this.appendLog(
+            deploymentId,
+            opts.nextLog(),
+            '[container] 提示：推送失败若与鉴权相关，请检查项目设置里 Registry 用户名/密码，以及镜像名是否与仓库权限一致。',
+          );
+        }
+      },
+    });
 
     const ref = await this.runDockerCapture(['inspect', '--format={{index .RepoDigests 0}}', localImage], tmpDir);
     if (!ref.includes('@')) {
