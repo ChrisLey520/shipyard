@@ -1943,10 +1943,18 @@ export class DeployApplicationService {
         });
       }
 
-      // rsync 不会在远端递归创建缺失父目录；未预先 mkdir -p 会报 code 11 / mkdir failed
+      // rsync 不会在远端递归创建缺失父目录；未预先 mkdir -p 会报 code 11 / mkdir failed。
+      // /opt 等路径普通用户不可写：先 mkdir，失败则用 sudo 创建并把目录属主改为当前 SSH 用户（需免密 sudo）。
       const qDeployDir = this.shellSingleQuote(opts.deployPath);
       await this.appendLogLine(opts.deploymentId, '[deploy] 确保远端部署目录存在…');
-      await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(`mkdir -p ${qDeployDir}`)}`);
+      const ensureDeployDirInner = [
+        'set -euo pipefail',
+        `if ! mkdir -p ${qDeployDir} 2>/dev/null; then`,
+        `  sudo mkdir -p ${qDeployDir}`,
+        `  sudo chown "$(id -u)":"$(id -g)" ${qDeployDir}`,
+        'fi',
+      ].join('\n');
+      await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(ensureDeployDirInner)}`);
 
       await this.appendLogLine(opts.deploymentId, '[deploy] 远端阶段：开始 rsync 上传…');
       await this.execLocal('rsync', [
