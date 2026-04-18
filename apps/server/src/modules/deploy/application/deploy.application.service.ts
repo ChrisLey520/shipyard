@@ -667,16 +667,17 @@ export class DeployApplicationService {
     }
     const qDir = this.shellSingleQuote(DeployApplicationService.PREVIEW_NGINX_DIR);
     const qFinal = this.shellSingleQuote(nginxSnippetPath);
-    const tmpQuoted = this.shellSingleQuote(`${nginxSnippetPath}.tmp.shipyard$$`);
+    const staging = `/tmp/shipyard-preview-nginx.${randomBytes(12).toString('hex')}.tmp`;
+    const qStaging = this.shellSingleQuote(staging);
     const inner = [
       'set -euo pipefail',
-      `mkdir -p ${qDir}`,
-      `tmp=${tmpQuoted}`,
+      `sudo mkdir -p ${qDir}`,
+      `tmp=${qStaging}`,
       `cat > "$tmp" <<'${tag}'`,
       body,
       tag,
-      `mv -f "$tmp" ${qFinal}`,
-      'nginx -t && nginx -s reload',
+      `sudo mv -f "$tmp" ${qFinal}`,
+      'sudo nginx -t && sudo nginx -s reload',
     ].join('\n');
     await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
     await this.appendLogLine(deploymentId, '[preview-deploy] nginx 片段已原子更新并重载');
@@ -697,17 +698,18 @@ export class DeployApplicationService {
     const enabled = `/etc/nginx/sites-enabled/${slug}.conf`;
     const qFinal = this.shellSingleQuote(conf);
     const qEn = this.shellSingleQuote(enabled);
-    const tmpQuoted = this.shellSingleQuote(`${conf}.tmp.shipyard$$`);
+    const staging = `/tmp/shipyard-site-nginx.${randomBytes(12).toString('hex')}.tmp`;
+    const qStaging = this.shellSingleQuote(staging);
     const inner = [
       'set -euo pipefail',
-      'mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled',
-      `tmp=${tmpQuoted}`,
+      'sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled',
+      `tmp=${qStaging}`,
       `cat > "$tmp" <<'${tag}'`,
       nginxConf,
       tag,
-      `mv -f "$tmp" ${qFinal}`,
-      `ln -sf ${qFinal} ${qEn}`,
-      'nginx -t && nginx -s reload',
+      `sudo mv -f "$tmp" ${qFinal}`,
+      `sudo ln -sf ${qFinal} ${qEn}`,
+      'sudo nginx -t && sudo nginx -s reload',
     ].join('\n');
     await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
     await this.appendLogLine(deploymentId, '[deploy] Linux 站点 Nginx 已原子更新并重载');
@@ -813,8 +815,8 @@ export class DeployApplicationService {
           `pm2 describe ${qLegacy} >/dev/null 2>&1 && pm2 delete ${qLegacy} || true`,
           `pm2 describe ${q0} >/dev/null 2>&1 && pm2 delete ${q0} || true`,
           `pm2 describe ${q1} >/dev/null 2>&1 && pm2 delete ${q1} || true`,
-          `rm -f ${this.shellSingleQuote(nginxPath)}`,
-          `(nginx -t && nginx -s reload) || true`,
+          `sudo rm -f ${this.shellSingleQuote(nginxPath)}`,
+          `(sudo nginx -t && sudo nginx -s reload) || true`,
           `rm -rf ${this.shellSingleQuote(deployBase)}`,
         ].join('; ');
         await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
@@ -1244,24 +1246,25 @@ export class DeployApplicationService {
       const qDir = this.shellSingleQuote(dir);
       const qFinal = this.shellSingleQuote(opts.fragmentPath);
       const qBak = this.shellSingleQuote(`${opts.fragmentPath}.shipyard-canary-prev`);
-      const tmpQuoted = this.shellSingleQuote(`${opts.fragmentPath}.tmp.shipyard$$`);
+      const staging = `/tmp/shipyard-canary-nginx.${randomBytes(12).toString('hex')}.tmp`;
+      const qStaging = this.shellSingleQuote(staging);
       const inner = [
         'set -euo pipefail',
-        `mkdir -p ${qDir}`,
-        `tmp=${tmpQuoted}`,
+        `sudo mkdir -p ${qDir}`,
+        `tmp=${qStaging}`,
         `final=${qFinal}`,
         `bak=${qBak}`,
-        'if [ -f "$final" ]; then cp -a "$final" "$bak"; fi',
+        'if [ -f "$final" ]; then sudo cp -a "$final" "$bak"; fi',
         `cat > "$tmp" <<'${tag}'`,
         opts.body,
         tag,
-        'mv -f "$tmp" "$final"',
-        'if ! nginx -t; then',
-        '  if [ -f "$bak" ]; then mv -f "$bak" "$final"; else rm -f "$final"; fi',
+        'sudo mv -f "$tmp" "$final"',
+        'if ! sudo nginx -t; then',
+        '  if [ -f "$bak" ]; then sudo mv -f "$bak" "$final"; else sudo rm -f "$final"; fi',
         '  exit 1',
         'fi',
-        'nginx -s reload',
-        'rm -f "$bak"',
+        'sudo nginx -s reload',
+        'sudo rm -f "$bak"',
       ].join('\n');
       await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(inner)}`);
       await this.appendLogLine(opts.deploymentId, '[deploy] 金丝雀 Nginx 片段已原子更新并重载');
