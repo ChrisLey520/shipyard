@@ -2318,16 +2318,25 @@ server.listen(PORT, '0.0.0.0', () => {
   }
 
   private async healthCheck(url: string, retries = 3): Promise<boolean> {
+    const tlsInsecure =
+      process.env['SHIPYARD_HEALTHCHECK_TLS_INSECURE'] === '1' ||
+      process.env['SHIPYARD_HEALTHCHECK_TLS_INSECURE']?.toLowerCase() === 'true';
+
     for (let i = 0; i < retries; i++) {
       try {
         const { default: https } = await import('https');
         const { default: http } = await import('http');
-        const client = url.startsWith('https') ? https : http;
         await new Promise<void>((resolve, reject) => {
-          const req = client.get(url, (res) => {
+          const onRes = (res: import('http').IncomingMessage) => {
             if (res.statusCode && res.statusCode < 400) resolve();
             else reject(new Error(`HTTP ${res.statusCode}`));
-          });
+          };
+          const req =
+            url.startsWith('https') && tlsInsecure
+              ? https.get(url, { rejectUnauthorized: false }, onRes)
+              : url.startsWith('https')
+                ? https.get(url, onRes)
+                : http.get(url, onRes);
           req.on('error', reject);
           req.setTimeout(10_000, () => reject(new Error('timeout')));
         });
