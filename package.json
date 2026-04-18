@@ -3,6 +3,9 @@
   "version": "0.7.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev:server": "pnpm --filter @shipyard/server dev",
     "dev:web": "pnpm --filter @shipyard/web dev",

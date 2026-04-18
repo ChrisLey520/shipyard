@@ -31,6 +31,9 @@ import { resolveCacheMaxBytes, runDepsCacheEvictionPipeline } from './build-deps
 // 安全的构建环境变量白名单
 const SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP'];
 
+/** pnpm node_modules 含大量指向 .pnpm 的相对软链；复制时保留链接语义，避免拆解后指向丢失（构建期 vue-tsc 报找不到 @volar/*）。 */
+const DEPS_NODE_MODULES_CP_OPTIONS = { recursive: true, verbatimSymlinks: true } as const;
+
 @Injectable()
 export class BuildWorkerService implements OnModuleInit {
   private readonly logger = new Logger(BuildWorkerService.name);
@@ -246,7 +249,7 @@ export class BuildWorkerService implements OnModuleInit {
         );
         const destNm = path.join(tmpDir, 'node_modules');
         if (existsSync(destNm)) rmSync(destNm, { recursive: true, force: true });
-        cpSync(cacheModulesPath, destNm, { recursive: true });
+        cpSync(cacheModulesPath, destNm, DEPS_NODE_MODULES_CP_OPTIONS);
       } else {
         await this.appendLog(deploymentId, logSeq++, `[install] cache_miss (${pm}) lockfile=${fp.slice(0, 12)}…`);
       }
@@ -263,7 +266,7 @@ export class BuildWorkerService implements OnModuleInit {
         const srcNm = path.join(tmpDir, 'node_modules');
         if (existsSync(srcNm)) {
           rmSync(cacheModulesPath, { recursive: true, force: true });
-          cpSync(srcNm, cacheModulesPath, { recursive: true });
+          cpSync(srcNm, cacheModulesPath, DEPS_NODE_MODULES_CP_OPTIONS);
         }
       } catch (e) {
         this.logger.warn(`写入依赖缓存失败 org=${orgId} fp=${fp.slice(0, 8)}: ${e}`);
