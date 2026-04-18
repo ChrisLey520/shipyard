@@ -120,6 +120,18 @@
       </n-form-item>
 
       <template v-if="envForm.executor === 'kubernetes'">
+        <n-form-item label="主 Deployment 名称" required>
+          <n-input
+            v-model:value="envForm.k8sPrimaryDeploymentName"
+            placeholder="如 shipyard-server（须与 kubectl get deploy 名称一致）"
+          />
+        </n-form-item>
+        <n-form-item label="主容器名称" required>
+          <n-input
+            v-model:value="envForm.k8sPrimaryContainerName"
+            placeholder="如 server（须与 Pod 模板 containers[].name 一致，通常不同于 Deployment 名）"
+          />
+        </n-form-item>
         <n-form-item label="rollout 超时(秒)">
           <n-input-number
             v-model:value="envForm.k8sRolloutTimeoutSeconds"
@@ -136,6 +148,33 @@
         </n-form-item>
         <n-form-item label="rolling maxUnavailable">
           <n-input v-model:value="envForm.k8sMaxUnavailable" placeholder="如 25% 或 0" />
+        </n-form-item>
+        <n-form-item label="同镜像额外 Deployment">
+          <n-alert type="info" style="margin-bottom: 10px" :show-icon="false">
+            与上方主 Deployment/主容器、以及发布配置中 JSON 的
+            <n-text code>kubernetes</n-text>
+            块共用同一流水线镜像；按列表顺序依次滚动（如先 server 再 worker）。每行容器名须与 Pod 模板一致。
+          </n-alert>
+          <n-space vertical style="width: 100%">
+            <div
+              v-for="(row, idx) in envForm.k8sAdditionalRollouts"
+              :key="idx"
+              style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%"
+            >
+              <n-input
+                v-model:value="row.deploymentName"
+                placeholder="Deployment 名，如 shipyard-worker"
+                style="min-width: 160px; flex: 1"
+              />
+              <n-input
+                v-model:value="row.containerName"
+                placeholder="容器名，如 worker"
+                style="min-width: 120px; flex: 1"
+              />
+              <n-button size="small" @click="removeK8sAdditionalRow(idx)">移除</n-button>
+            </div>
+            <n-button size="small" secondary @click="addK8sAdditionalRow">+ 添加 Deployment</n-button>
+          </n-space>
         </n-form-item>
       </template>
 
@@ -261,6 +300,7 @@ import {
   NPopover,
   NText,
   NInputNumber,
+  NAlert,
   useMessage,
 } from 'naive-ui';
 import { serverOsLabel } from '@shipyard/shared';
@@ -335,6 +375,11 @@ type EnvFormState = {
   k8sRolloutTimeoutSeconds: number | null;
   k8sMaxSurge: string;
   k8sMaxUnavailable: string;
+  /** 主 Deployment / 容器名（写入 kubernetes.deploymentName / containerName） */
+  k8sPrimaryDeploymentName: string;
+  k8sPrimaryContainerName: string;
+  /** K8s 中与主 Deployment 共用镜像的额外滚动目标（写入 releaseConfig.kubernetes.additionalDeployments） */
+  k8sAdditionalRollouts: Array<{ deploymentName: string; containerName: string }>;
   ossBucket: string;
   ossPrefix: string;
   ossRegion: string;
@@ -364,6 +409,9 @@ const envForm = ref<EnvFormState>({
   k8sRolloutTimeoutSeconds: null,
   k8sMaxSurge: '',
   k8sMaxUnavailable: '',
+  k8sPrimaryDeploymentName: '',
+  k8sPrimaryContainerName: '',
+  k8sAdditionalRollouts: [],
   ossBucket: '',
   ossPrefix: '',
   ossRegion: '',
@@ -397,6 +445,24 @@ const extraServerOptions = computed(() =>
   serverOptions.value.filter((o) => o.value !== envForm.value.serverId),
 );
 
+/** 解析 kubernetes.additionalDeployments 供表单展示 */
+function parseK8sAdditionalDeploymentsFromKube(
+  k: Record<string, unknown>,
+): Array<{ deploymentName: string; containerName: string }> {
+  const raw = k.additionalDeployments;
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ deploymentName: string; containerName: string }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || item === null) continue;
+    const o = item as Record<string, unknown>;
+    const dn = typeof o.deploymentName === 'string' ? o.deploymentName.trim() : '';
+    if (!dn) continue;
+    const cn = typeof o.containerName === 'string' ? o.containerName.trim() : '';
+    out.push({ deploymentName: dn, containerName: cn });
+  }
+  return out;
+}
+
 function releaseConfigFormMeta(rc: unknown) {
   const defaults = {
     executor: 'ssh' as EnvFormState['executor'],
@@ -416,6 +482,9 @@ function releaseConfigFormMeta(rc: unknown) {
     ossBucket: '',
     ossPrefix: '',
     ossRegion: '',
+    k8sPrimaryDeploymentName: '',
+    k8sPrimaryContainerName: '',
+    k8sAdditionalRollouts: [] as EnvFormState['k8sAdditionalRollouts'],
   };
   if (!rc || typeof rc !== 'object') {
     return defaults;
@@ -469,7 +538,20 @@ function releaseConfigFormMeta(rc: unknown) {
     ossBucket: typeof os.bucket === 'string' ? os.bucket : '',
     ossPrefix: typeof os.prefix === 'string' ? os.prefix : '',
     ossRegion: typeof os.region === 'string' ? os.region : '',
+    k8sPrimaryDeploymentName:
+      typeof k.deploymentName === 'string' ? k.deploymentName.trim() : '',
+    k8sPrimaryContainerName:
+      typeof k.containerName === 'string' ? k.containerName.trim() : '',
+    k8sAdditionalRollouts: parseK8sAdditionalDeploymentsFromKube(k),
   };
+}
+
+function addK8sAdditionalRow() {
+  envForm.value.k8sAdditionalRollouts.push({ deploymentName: '', containerName: '' });
+}
+
+function removeK8sAdditionalRow(idx: number) {
+  envForm.value.k8sAdditionalRollouts.splice(idx, 1);
 }
 
 function resetFromInitial() {
@@ -506,9 +588,12 @@ function resetFromInitial() {
       k8sRolloutTimeoutSeconds: meta.k8sRolloutTimeoutSeconds,
       k8sMaxSurge: meta.k8sMaxSurge,
       k8sMaxUnavailable: meta.k8sMaxUnavailable,
+      k8sPrimaryDeploymentName: meta.k8sPrimaryDeploymentName ?? '',
+      k8sPrimaryContainerName: meta.k8sPrimaryContainerName ?? '',
       ossBucket: meta.ossBucket,
       ossPrefix: meta.ossPrefix,
       ossRegion: meta.ossRegion,
+      k8sAdditionalRollouts: (meta.k8sAdditionalRollouts ?? []).map((r) => ({ ...r })),
       releaseConfigJson: releaseConfigToJsonString(e.releaseConfig),
     };
     return;
@@ -536,9 +621,12 @@ function resetFromInitial() {
     k8sRolloutTimeoutSeconds: null,
     k8sMaxSurge: '',
     k8sMaxUnavailable: '',
+    k8sPrimaryDeploymentName: '',
+    k8sPrimaryContainerName: '',
     ossBucket: '',
     ossPrefix: '',
     ossRegion: '',
+    k8sAdditionalRollouts: [],
     releaseConfigJson: '',
   };
 }
@@ -649,6 +737,23 @@ function composeReleaseConfigForSubmit():
     else delete prev.rollingUpdateMaxSurge;
     if (mu) prev.rollingUpdateMaxUnavailable = mu;
     else delete prev.rollingUpdateMaxUnavailable;
+    const pdn = envForm.value.k8sPrimaryDeploymentName.trim();
+    const pcn = envForm.value.k8sPrimaryContainerName.trim();
+    if (pdn) prev.deploymentName = pdn;
+    if (pcn) prev.containerName = pcn;
+    const k8sRows = envForm.value.k8sAdditionalRollouts.filter((r) => r.deploymentName.trim());
+    if (k8sRows.length > 0) {
+      prev.additionalDeployments = k8sRows.map((r) => {
+        const deploymentName = r.deploymentName.trim();
+        const containerName = r.containerName.trim();
+        if (containerName) {
+          return { deploymentName, containerName };
+        }
+        return { deploymentName };
+      });
+    } else {
+      delete prev.additionalDeployments;
+    }
     out.kubernetes = prev;
     delete out.ssh;
   } else {
@@ -756,6 +861,24 @@ async function handleSubmit() {
 
   const rcParsed = composeReleaseConfigForSubmit();
   if (!rcParsed.ok) return;
+
+  if (envForm.value.executor === 'kubernetes') {
+    const v = rcParsed.value;
+    if (v != null && typeof v === 'object') {
+      const kube = (v as Record<string, unknown>).kubernetes;
+      if (kube && typeof kube === 'object') {
+        const ku = kube as Record<string, unknown>;
+        const dn = typeof ku.deploymentName === 'string' ? ku.deploymentName.trim() : '';
+        const cn = typeof ku.containerName === 'string' ? ku.containerName.trim() : '';
+        if (!dn || !cn) {
+          message.error(
+            'Kubernetes 须填写主 Deployment 名称与主容器名称（表单顶部两项，或在发布配置 JSON 的 kubernetes 中提供 deploymentName、containerName）',
+          );
+          return;
+        }
+      }
+    }
+  }
 
   submitting.value = true;
   try {

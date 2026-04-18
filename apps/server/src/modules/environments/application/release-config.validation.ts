@@ -24,6 +24,11 @@ export async function validateAndNormalizeReleaseConfig(
     if (!k?.namespace || !k.deploymentName || !k.clusterId) {
       throw new BadRequestException('Kubernetes 执行器须填写 kubernetes.namespace、deploymentName、clusterId');
     }
+    if (!k.containerName?.trim()) {
+      throw new BadRequestException(
+        'Kubernetes 执行器须填写 kubernetes.containerName（须与 Deployment 模板中容器名一致，例如 shipyard-server → server）',
+      );
+    }
     const cluster = await prisma.kubernetesCluster.findFirst({
       where: { id: k.clusterId, organizationId: orgId },
     });

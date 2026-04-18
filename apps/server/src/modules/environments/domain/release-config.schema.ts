@@ -59,6 +59,19 @@ export const releaseConfigSchema = z
         /** strategy=rolling 时 strategic patch，如 25%、1 */
         rollingUpdateMaxSurge: z.string().min(1).max(32).optional(),
         rollingUpdateMaxUnavailable: z.string().min(1).max(32).optional(),
+        /**
+         * 与主 Deployment 使用同一镜像的其它 Deployment（如 API + Worker）。
+         * 按数组顺序依次 patch（若 rolling）→ set image → rollout status。
+         */
+        additionalDeployments: z
+          .array(
+            z.object({
+              deploymentName: z.string().min(1).max(253),
+              containerName: z.string().min(1).max(253).optional(),
+            }),
+          )
+          .max(16)
+          .optional(),
       })
       .optional(),
     objectStorage: z

@@ -1345,72 +1345,105 @@ export class DeployApplicationService {
     }
     const kubeconfig = await this.k8sClusters.getDecryptedKubeconfig(orgId, k.clusterId);
     const kubePath = path.join('/tmp', `shipyard-kube-${deploymentId}.yaml`);
-      await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
+    await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
     try {
       const ns = k.namespace;
-      const depName = k.deploymentName;
-      const container = (k.containerName ?? k.deploymentName).trim();
       const timeoutSec = k.rolloutTimeoutSeconds ?? 600;
 
-      if (
+      const primaryContainer = k.containerName?.trim();
+      if (!primaryContainer) {
+        throw new Error(
+          'Kubernetes 缺少 kubernetes.containerName（须与 Pod 模板中容器名一致；勿依赖与 Deployment 同名）',
+        );
+      }
+      const primary = {
+        deploymentName: k.deploymentName.trim(),
+        containerName: primaryContainer,
+      };
+      const extras =
+        k.additionalDeployments?.map((ad) => ({
+          deploymentName: ad.deploymentName.trim(),
+          containerName: (ad.containerName ?? ad.deploymentName).trim(),
+        })) ?? [];
+      const seen = new Set<string>();
+      const rolloutTargets = [primary, ...extras].filter((t) => {
+        if (seen.has(t.deploymentName)) return false;
+        seen.add(t.deploymentName);
+        return true;
+      });
+
+      const rollingPatchSpec =
         rc.strategy === 'rolling' &&
         (k.rollingUpdateMaxSurge?.trim() || k.rollingUpdateMaxUnavailable?.trim())
-      ) {
-        const ru: Record<string, string> = {};
-        if (k.rollingUpdateMaxSurge?.trim()) ru.maxSurge = k.rollingUpdateMaxSurge.trim();
-        if (k.rollingUpdateMaxUnavailable?.trim()) {
-          ru.maxUnavailable = k.rollingUpdateMaxUnavailable.trim();
+          ? (() => {
+              const ru: Record<string, string> = {};
+              if (k.rollingUpdateMaxSurge?.trim()) ru.maxSurge = k.rollingUpdateMaxSurge.trim();
+              if (k.rollingUpdateMaxUnavailable?.trim()) {
+                ru.maxUnavailable = k.rollingUpdateMaxUnavailable.trim();
+              }
+              return {
+                spec: {
+                  strategy: {
+                    type: 'RollingUpdate',
+                    rollingUpdate: ru,
+                  },
+                },
+              };
+            })()
+          : null;
+
+      let rolloutIndex = 0;
+      for (const target of rolloutTargets) {
+        rolloutIndex += 1;
+        const label =
+          rolloutTargets.length > 1 ? `${rolloutIndex}/${rolloutTargets.length}` : '';
+
+        if (rollingPatchSpec) {
+          const ru = rollingPatchSpec.spec.strategy.rollingUpdate;
+          await this.appendLogLine(
+            deploymentId,
+            `[deploy] k8s patch rollingUpdate ${label} surge=${ru.maxSurge ?? '—'} unavail=${ru.maxUnavailable ?? '—'} deploy=${target.deploymentName}`,
+          );
+          await this.execLocal('kubectl', [
+            `--kubeconfig=${kubePath}`,
+            '-n',
+            ns,
+            'patch',
+            `deployment/${target.deploymentName}`,
+            '-p',
+            JSON.stringify(rollingPatchSpec),
+            '--type=strategic',
+          ]);
         }
-        const patch = {
-          spec: {
-            strategy: {
-              type: 'RollingUpdate',
-              rollingUpdate: ru,
-            },
-          },
-        };
+
         await this.appendLogLine(
           deploymentId,
-          `[deploy] k8s patch rollingUpdate surge=${ru.maxSurge ?? '—'} unavail=${ru.maxUnavailable ?? '—'}`,
+          `[deploy] k8s set-image ${label} ns=${ns} deploy=${target.deploymentName} container=${target.containerName}`,
         );
         await this.execLocal('kubectl', [
           `--kubeconfig=${kubePath}`,
           '-n',
           ns,
-          'patch',
-          `deployment/${depName}`,
-          '-p',
-          JSON.stringify(patch),
-          '--type=strategic',
+          'set',
+          'image',
+          `deployment/${target.deploymentName}`,
+          `${target.containerName}=${image}`,
+        ]);
+        await this.appendLogLine(
+          deploymentId,
+          `[deploy] k8s rollout status ${label} timeout=${timeoutSec}s deploy=${target.deploymentName}…`,
+        );
+        await this.execLocal('kubectl', [
+          `--kubeconfig=${kubePath}`,
+          '-n',
+          ns,
+          'rollout',
+          'status',
+          `deployment/${target.deploymentName}`,
+          `--timeout=${timeoutSec}s`,
         ]);
       }
 
-      await this.appendLogLine(
-        deploymentId,
-        `[deploy] k8s candidate_up set-image ns=${ns} deploy=${depName} container=${container}`,
-      );
-      await this.execLocal('kubectl', [
-        `--kubeconfig=${kubePath}`,
-        '-n',
-        ns,
-        'set',
-        'image',
-        `deployment/${depName}`,
-        `${container}=${image}`,
-      ]);
-      await this.appendLogLine(
-        deploymentId,
-        `[deploy] k8s rollout status timeout=${timeoutSec}s…`,
-      );
-      await this.execLocal('kubectl', [
-        `--kubeconfig=${kubePath}`,
-        '-n',
-        ns,
-        'rollout',
-        'status',
-        `deployment/${depName}`,
-        `--timeout=${timeoutSec}s`,
-      ]);
       await this.appendLogLine(deploymentId, '[deploy] traffic_switch k8s rollout 完成');
       await this.prisma.deployment.update({
         where: { id: deploymentId },

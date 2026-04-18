@@ -34,6 +34,23 @@ describe('releaseConfigSchema', () => {
     expect(c.objectStorage?.bucket).toBe('my-bucket');
   });
 
+  it('accepts kubernetes additionalDeployments（同镜像多 Deployment）', () => {
+    const c = parseReleaseConfig({
+      executor: 'kubernetes',
+      strategy: 'direct',
+      kubernetes: {
+        namespace: 'shipyard',
+        deploymentName: 'shipyard-server',
+        containerName: 'server',
+        clusterId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        additionalDeployments: [
+          { deploymentName: 'shipyard-worker', containerName: 'worker' },
+        ],
+      },
+    });
+    expect(c.kubernetes?.additionalDeployments?.[0]?.deploymentName).toBe('shipyard-worker');
+  });
+
   it('accepts canary upstream_weight ssh', () => {
     const c = parseReleaseConfig({
       executor: 'ssh',

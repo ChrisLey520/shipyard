@@ -1,4 +1,5 @@
-# monorepo 根目录为构建上下文；与仓库根 Dockerfile 内容须保持一致（流水线 docker build . 使用根 Dockerfile）。
+# Shipyard API/Worker 共用镜像。
+# 与 apps/server/Dockerfile 同源：流水线在仓库根目录执行 docker build . 时请与此文件同步修改。
 FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
@@ -31,7 +32,7 @@ COPY --from=builder /app/apps/server/prisma ./apps/server/prisma
 
 WORKDIR /app/apps/server
 
-# 默认启动 API Server，Worker 通过 command 覆盖
+# 默认启动 API Server；Worker Deployment 请在清单中覆盖 command。
 CMD ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && node dist/main.js"]
 
 EXPOSE 3000
