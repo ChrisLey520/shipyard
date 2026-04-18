@@ -173,7 +173,10 @@ kubectl -n shipyard rollout status deployment/shipyard-web
 
 | 现象 | 排查方向 |
 |------|----------|
+| `namespaces "shipyard" not found`（或你配置的其它名字） | 集群里尚未创建该 Namespace。执行 `kubectl create namespace <名字>`，或先 `kubectl apply -k deploy/k8s/base`（`base/namespace.yaml` 默认名为 `shipyard`）；环境 **发布配置 JSON** 里的 `kubernetes.namespace` 必须与集群一致 |
+| `deployments.apps "shipyard-server" not found` 等 | 命名空间已有，但 **未 apply 过清单** 或 **Deployment 名称不一致**。在集群执行 `kubectl apply -k deploy/k8s/base`（或你的 overlay）；控制台里主 Deployment / 额外 Deployment 名称须与 `deploy/k8s/base/*.deployment.yaml` 里 `metadata.name` 一致（默认可为 `shipyard-server`、`shipyard-worker`） |
 | kubectl 连不上 API | kubeconfig 中 `server` 是否在 **Worker 机器** 上可达 |
+| `auth.docker.io` / `oauth token` / `EOF`（拉 `node:20-alpine` 失败） | Docker Hub 在本机或构建机网络不可达。可为 Docker 配置 **registry 镜像加速**，或在 **Worker** 环境设置 `SHIPYARD_CONTAINER_BASE_IMAGE` 为可拉取的 Node 20 Alpine 镜像（与根 `Dockerfile` 中 `ARG NODE_IMAGE` 对应），例如云厂商提供的 `docker.io/library/node` 同步地址；`docker-compose.yml` 的 `worker` 服务已预留该变量 |
 | 提示需要 imageRef / 镜像推送 | 是否打开「构建后推送镜像」、镜像名与 Registry 凭据是否正确、Docker 是否可用 |
 | 校验失败：集群不存在 | `clusterId` 是否属于当前组织、是否复制错误 |
 | 主 Deployment / 容器名错误 | 与 `deploy/k8s/base/*.deployment.yaml` 中 **metadata.name** 与 **containers[].name** 完全一致 |

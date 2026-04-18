@@ -75,6 +75,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       ARTIFACT_STORE_PATH: /app/artifacts
+      # 流水线 docker build 拉 Docker Hub 失败时，设为可访问的 node:20-alpine 等价镜像（见根 Dockerfile ARG NODE_IMAGE）
+      SHIPYARD_CONTAINER_BASE_IMAGE: ${SHIPYARD_CONTAINER_BASE_IMAGE:-}
     volumes:
       - artifact_store:/app/artifacts
       - /var/run/docker.sock:/var/run/docker.sock  # Phase 2: Docker 隔离构建
