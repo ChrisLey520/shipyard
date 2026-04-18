@@ -3,12 +3,12 @@ FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
-# 安装依赖
+# 安装依赖（须含 lockfile，否则 pnpm install --frozen-lockfile 会直接失败）
 FROM base AS deps
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/server/package.json ./apps/server/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --filter "@shipyard/server..."
 
 # 构建
 FROM deps AS builder

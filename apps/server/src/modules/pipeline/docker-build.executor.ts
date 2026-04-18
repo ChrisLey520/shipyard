@@ -159,13 +159,44 @@ export function argvToShellCommand(cmd: string, args: string[]): string {
   return [cmd, ...args].map((a) => shellQuote(a)).join(' ');
 }
 
-/** 构建开始前探测 docker 是否可用 */
-export async function probeDockerAvailable(): Promise<boolean> {
+const DOCKER_PROBE_OUTPUT_MAX = 1500;
+
+/** 与 Worker 发布阶段共用：探测本机 docker CLI 能否连上 daemon */
+export type DockerDaemonProbe = { ok: true } | { ok: false; detail: string };
+
+/** 构建开始前 / 镜像推送前探测 docker；失败时带回 stderr+stdout 摘要便于排障 */
+export async function probeDockerDaemon(): Promise<DockerDaemonProbe> {
   return new Promise((resolve) => {
-    const child = spawn('docker', ['info'], { stdio: 'ignore' });
-    child.on('close', (c) => resolve(c === 0));
-    child.on('error', () => resolve(false));
+    const chunks: Buffer[] = [];
+    const child = spawn('docker', ['info'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout?.on('data', (c: Buffer) => chunks.push(c));
+    child.stderr?.on('data', (c: Buffer) => chunks.push(c));
+    child.on('close', (code: number | null) => {
+      if (code === 0) {
+        resolve({ ok: true });
+        return;
+      }
+      const full = Buffer.concat(chunks).toString('utf8').trim();
+      const base = full.length > 0 ? full : `docker info 退出码 ${code}`;
+      resolve({
+        ok: false,
+        detail:
+          base.length > DOCKER_PROBE_OUTPUT_MAX
+            ? `${base.slice(0, DOCKER_PROBE_OUTPUT_MAX)}…`
+            : base,
+      });
+    });
+    child.on('error', (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      resolve({ ok: false, detail: msg });
+    });
   });
+}
+
+/** @deprecated 优先用 {@link probeDockerDaemon} 以获取失败原因 */
+export async function probeDockerAvailable(): Promise<boolean> {
+  const r = await probeDockerDaemon();
+  return r.ok;
 }
 
 /** Docker 容器内构建执行器（与 {@link ProcessBuildExecutor} 对偶）。 */

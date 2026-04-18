@@ -22,7 +22,7 @@ import {
   argvToShellCommand,
   DEFAULT_BUILD_DOCKER_IMAGE,
   DockerBuildExecutor,
-  probeDockerAvailable,
+  probeDockerDaemon,
   shouldRunBuildInDocker,
 } from './docker-build.executor';
 import { ProcessBuildExecutor } from './process-build.executor';
@@ -145,10 +145,10 @@ export class BuildWorkerService implements OnModuleInit {
 
       const useDocker = shouldRunBuildInDocker();
       if (useDocker) {
-        const dockerOk = await probeDockerAvailable();
-        if (!dockerOk) {
+        const dockerProbe = await probeDockerDaemon();
+        if (!dockerProbe.ok) {
           throw new Error(
-            '[docker-build] 无法连接 Docker daemon（`docker info` 失败）。请安装 Docker 并保证 Worker 进程用户有权访问，或设置 SHIPYARD_BUILD_USE_DOCKER=false。',
+            `[docker-build] 无法连接 Docker daemon：${dockerProbe.detail}。请安装 Docker 并保证 Worker 进程用户有权访问，或设置 SHIPYARD_BUILD_USE_DOCKER=false。`,
           );
         }
       }
@@ -345,6 +345,15 @@ export class BuildWorkerService implements OnModuleInit {
       await tar.create({ gzip: true, file: artifactPath, cwd: outputDir }, ['.']);
 
       await this.appendLog(deploymentId, logSeq++, `[archive] 产物打包完成: ${artifactPath}`);
+      await this.appendLog(
+        deploymentId,
+        logSeq++,
+        `[release] 归档已完成；${
+          pipelineConfig.containerImageEnabled
+            ? '将执行 docker 构建/推送（耗时取决于 Dockerfile 与层缓存，期间可能长时间无新日志行）'
+            : '将写入制品记录并结束构建'
+        }`,
+      );
 
       let imageRef: string | null = null;
       let imageDigest: string | null = null;
@@ -519,9 +528,17 @@ export class BuildWorkerService implements OnModuleInit {
     nextLog: () => number;
   }): Promise<{ imageRef: string; imageDigest: string }> {
     const { deploymentId, tmpDir, pipelineConfig } = opts;
-    const dockerOk = await probeDockerAvailable();
-    if (!dockerOk) {
-      throw new Error('[container] 需要可用 Docker（docker info）以构建/推送镜像');
+    await this.appendLog(deploymentId, opts.nextLog(), '[container] 检查 Docker 是否可用…');
+    const dockerProbe = await probeDockerDaemon();
+    if (!dockerProbe.ok) {
+      await this.appendLog(
+        deploymentId,
+        opts.nextLog(),
+        `[container] docker info 失败：${dockerProbe.detail}`,
+      );
+      throw new Error(
+        `[container] 需要可用 Docker（docker info）以构建/推送镜像。原因：${dockerProbe.detail}`,
+      );
     }
     const base = pipelineConfig.containerImageName?.trim();
     if (!base) {
