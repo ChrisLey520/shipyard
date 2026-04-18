@@ -241,7 +241,8 @@ export class BuildWorkerService implements OnModuleInit {
 
       const fp = await this.lockfileFingerprint(tmpDir, pm);
       const cacheModulesPath = path.join(this.buildDepsCacheRoot(), orgId, pm, fp, 'node_modules');
-      if (existsSync(cacheModulesPath)) {
+      const depsRestoredFromCache = existsSync(cacheModulesPath);
+      if (depsRestoredFromCache) {
         await this.appendLog(
           deploymentId,
           logSeq++,
@@ -255,7 +256,23 @@ export class BuildWorkerService implements OnModuleInit {
       }
 
       // install
-      const installCmd = pipelineConfig.installCommand ?? `${pm} install`;
+      // 从缓存复制 node_modules 后，pnpm 常提示 Already up to date 而不修补缺失子包（例如 vue-tsc 旁的 @volar/typescript 软链目标）
+      const normalizedInstall = (pipelineConfig.installCommand ?? `${pm} install`)
+        .trim()
+        .replace(/\s+/g, ' ');
+      let installCmd = normalizedInstall;
+      if (
+        depsRestoredFromCache &&
+        pm === 'pnpm' &&
+        normalizedInstall === 'pnpm install'
+      ) {
+        await this.appendLog(
+          deploymentId,
+          logSeq++,
+          '[install] 缓存恢复的 node_modules 可能不完整，使用 pnpm install --force 按 lockfile 重链依赖',
+        );
+        installCmd = 'pnpm install --force';
+      }
       const [installBin, ...installArgs] = installCmd.split(' ');
       await this.appendLog(deploymentId, logSeq++, '[install] 开始安装依赖…');
       await runCmd(installBin!, installArgs, tmpDir, 'install');
