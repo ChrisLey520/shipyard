@@ -1,5 +1,5 @@
 import type { App } from 'vue';
-import { initWebMonitoring } from '@shipyard/monitoring-sdk/web';
+import { initWebMonitoring } from '@prism/sdk/web';
 import router from '../router';
 import { http } from '../api/client';
 

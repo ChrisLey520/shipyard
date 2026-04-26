@@ -1,5 +1,5 @@
 import type { App } from 'vue';
-import { initUniMonitoring } from '@shipyard/monitoring-sdk/uni';
+import { initUniMonitoring } from '@prism/sdk/uni';
 import { readUniPlatformLabel } from '@/utils/uniPlatform';
 
 /** 小程序端监控；开发默认关闭，生产默认开启（可用 VITE_MONITORING_DISABLED 关闭） */
