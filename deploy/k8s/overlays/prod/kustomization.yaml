@@ -1,0 +1,98 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# 生产环境示例：覆盖域名与对外 URL
+# 注意：镜像请按你的镜像仓库实际情况替换（或继续沿用你之前的配置）
+# images:
+#   - name: shipyard-server
+#     newName: ghcr.io/your-org/shipyard-server
+#     newTag: prod
+#   - name: shipyard-web
+#     newName: ghcr.io/your-org/shipyard-web
+#     newTag: prod
+
+patches:
+  # 生产环境：Secret 不应由仓库内占位值覆盖（改为集群内手工管理/外部密钥管理）
+  - target:
+      kind: Secret
+      name: shipyard-secret
+    patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: shipyard-secret
+      $patch: delete
+
+  # Ingress 域名：shipyard.chrisley.site -> chrisley.site
+  - target:
+      kind: Ingress
+      name: shipyard
+    patch: |-
+      # k3s 默认 Ingress Controller 为 Traefik
+      - op: replace
+        path: /spec/ingressClassName
+        value: traefik
+      - op: replace
+        path: /spec/rules/0/host
+        value: chrisley.site
+      - op: add
+        path: /spec/rules/1
+        value:
+          host: www.chrisley.site
+          http:
+            paths:
+              - path: /api
+                pathType: Prefix
+                backend:
+                  service:
+                    name: shipyard-server
+                    port:
+                      name: http
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: shipyard-web
+                    port:
+                      name: http
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts:
+              - chrisley.site
+              - www.chrisley.site
+            secretName: shipyard-tls
+
+  # 应用对外地址：用于 CORS、邮件链接等
+  - target:
+      kind: ConfigMap
+      name: shipyard-config
+    patch: |-
+      - op: replace
+        path: /data/APP_URL
+        value: https://chrisley.site
+      - op: replace
+        path: /data/CORS_ORIGIN
+        value: https://chrisley.site
+      - op: add
+        path: /data/API_PUBLIC_URL
+        value: https://chrisley.site
+      - op: add
+        path: /data/GIT_OAUTH_GITHUB_CLIENT_ID
+        value: "Ov23liU5q7NqRVzZvNjj"
+      - op: replace
+        path: /data/MAIL_FROM
+        value: noreply@chrisley.site
+
+  # 单机 k3s 常用 local-path StorageClass：PVC 多为 RWO，避免触发不可变字段更新失败
+  - target:
+      kind: PersistentVolumeClaim
+      name: shipyard-artifacts
+    patch: |-
+      - op: replace
+        path: /spec/accessModes
+        value:
+          - ReadWriteOnce
