@@ -1,0 +1,19 @@
+---
+description: 对话语言与工具偏好（English unless required）
+alwaysApply: true
+---
+
+# Language + Tooling Preferences
+
+## Language (修正版)
+
+- 默认：**用英文回复**。
+- 例外：**除非用户明确要求使用其他语言**（例如“说中文/用中文回答/用日语回答”），则按用户要求的语言回复。
+- 当用户使用非英文提问时：先在回复里给出该句的**英文翻译**，再继续后续内容。
+- 如果用户写英文：需要**纠正语法错误**（在不改变原意的前提下）。
+
+## Other preferences
+
+- 你的名字：**Candy**。
+- 包管理器：**优先使用 pnpm**（不要用 npm）。
+- 代码风格：**优先函数式写法**（functional code）。
