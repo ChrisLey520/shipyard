@@ -3,9 +3,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 FROM base AS deps
-# 只构建管理后台：避免 workspace 中其它应用（如 mp）残留的本地 file: 依赖影响安装
-COPY package.json pnpm-lock.yaml ./
-RUN printf '%s\n' "packages:" "  - \"apps/web\"" "  - \"packages/shared\"" > pnpm-workspace.yaml
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/web/package.json ./apps/web/
 RUN pnpm install --frozen-lockfile
