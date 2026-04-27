@@ -1,10 +1,9 @@
 import type { App } from 'vue';
+import { initUniMonitoring } from '@prism/sdk/uni';
 import { readUniPlatformLabel } from '@/utils/uniPlatform';
 
 /** 小程序端监控；开发默认关闭，生产默认开启（可用 VITE_MONITORING_DISABLED 关闭） */
 export function setupMonitoring(app: App): void {
-  void app;
-  void readUniPlatformLabel;
   const endpoint = import.meta.env.VITE_MONITORING_ENDPOINT as string | undefined;
   const projectKey = import.meta.env.VITE_MONITORING_PROJECT_KEY as string | undefined;
   const token = import.meta.env.VITE_MONITORING_INGEST_TOKEN as string | undefined;
@@ -17,5 +16,18 @@ export function setupMonitoring(app: App): void {
   if (!enabled) {
     return;
   }
-  // 监控 SDK（@prism/sdk）已从仓库移除；如未来恢复，再在此处接入。
+
+  const opts = {
+    enabled: true,
+    app,
+    endpoint: endpoint ?? '',
+    projectKey: projectKey ?? '',
+    ingestToken: token ?? '',
+    env: import.meta.env.MODE,
+    ...(import.meta.env.VITE_MONITORING_RELEASE
+      ? { release: String(import.meta.env.VITE_MONITORING_RELEASE) }
+      : {}),
+    platform: readUniPlatformLabel(),
+  };
+  initUniMonitoring(opts);
 }
