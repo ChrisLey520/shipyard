@@ -12,25 +12,7 @@
             <n-list-item v-for="c in k8sClusters" :key="c.id">
               <div class="flex w-full flex-col gap-2 min-w-0 sm:flex-row sm:items-center sm:justify-between">
                 <span class="min-w-0 break-words">{{ c.name }}</span>
-                <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
-                  <n-tooltip trigger="hover">
-                    <template #trigger>
-                      <n-button
-                        quaternary
-                        circle
-                        size="tiny"
-                        aria-label="查看集群 ID"
-                        @click="openClusterIdModal(c)"
-                      >
-                        <template #icon>
-                          <n-icon :component="KeyOutline" />
-                        </template>
-                      </n-button>
-                    </template>
-                    查看集群 ID
-                  </n-tooltip>
-                  <n-button size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
-                </div>
+                <n-button class="w-full shrink-0 sm:w-auto" size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
               </div>
             </n-list-item>
           </n-list>
@@ -85,24 +67,6 @@
         </n-space>
       </template>
     </n-modal>
-
-    <n-modal
-      v-model:show="showClusterId"
-      title="集群 ID"
-      preset="card"
-      style="width: min(520px, calc(100vw - 32px))"
-    >
-      <n-space vertical size="small">
-        <div class="text-sm text-[var(--n-text-color-3)]">用于填写环境的 releaseConfig.kubernetes.clusterId</div>
-        <n-input :value="selectedClusterId" readonly />
-      </n-space>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showClusterId = false">关闭</n-button>
-          <n-button type="primary" :disabled="!selectedClusterId" @click="copyClusterId">复制</n-button>
-        </n-space>
-      </template>
-    </n-modal>
   </div>
 </template>
 
@@ -117,8 +81,6 @@ import {
   NInput,
   NInputNumber,
   NButton,
-  NTooltip,
-  NIcon,
   NModal,
   NSpace,
   NList,
@@ -126,7 +88,6 @@ import {
   NEmpty,
   useMessage,
 } from 'naive-ui';
-import { KeyOutline } from '@vicons/ionicons5';
 import {
   createKubernetesCluster,
   deleteKubernetesCluster,
@@ -151,8 +112,6 @@ const k8sClusters = ref<KubernetesClusterRow[]>([]);
 const showK8s = ref(false);
 const k8sSaving = ref(false);
 const k8sForm = ref({ name: '', kubeconfig: '' });
-const showClusterId = ref(false);
-const selectedClusterId = ref('');
 
 async function loadK8s() {
   try {
@@ -203,47 +162,6 @@ function confirmRemoveK8s(c: KubernetesClusterRow) {
   });
 }
 
-function openClusterIdModal(c: KubernetesClusterRow) {
-  selectedClusterId.value = c.id;
-  showClusterId.value = true;
-}
-
-async function copyClusterId() {
-  await copyText(selectedClusterId.value);
-}
-
-async function copyText(text: string) {
-  if (!text) return;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      message.success('已复制');
-      return;
-    }
-    throw new Error('Clipboard API not available');
-  } catch {
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.setAttribute('readonly', 'true');
-      textarea.style.position = 'fixed';
-      textarea.style.top = '-1000px';
-      textarea.style.left = '-1000px';
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      if (ok) {
-        message.success('已复制');
-      } else {
-        message.error('复制失败');
-      }
-    } catch {
-      message.error('复制失败');
-    }
-  }
-}
-
 async function save() {
   if (!form.value.name || !form.value.slug) {
     message.error('请填写组织名称与 URL 标识');
@@ -286,9 +204,4 @@ watch(
   () => void loadK8s(),
   { immediate: true },
 );
-
-watch(showClusterId, (v) => {
-  if (v) return;
-  selectedClusterId.value = '';
-});
 </script>
