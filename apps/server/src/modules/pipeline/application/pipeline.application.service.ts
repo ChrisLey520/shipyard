@@ -72,6 +72,7 @@ export class PipelineApplicationService {
           outputDir: project.pipelineConfig.outputDir,
           nodeVersion: project.pipelineConfig.nodeVersion,
           ssrEntryPoint: project.pipelineConfig.ssrEntryPoint ?? null,
+          servicePort: project.pipelineConfig.servicePort,
           previewHealthCheckPath: project.pipelineConfig.previewHealthCheckPath ?? null,
         } satisfies Prisma.InputJsonValue)
       : undefined;
@@ -148,6 +149,7 @@ export class PipelineApplicationService {
           outputDir: project.pipelineConfig.outputDir,
           nodeVersion: project.pipelineConfig.nodeVersion,
           ssrEntryPoint: project.pipelineConfig.ssrEntryPoint ?? null,
+          servicePort: project.pipelineConfig.servicePort,
           previewHealthCheckPath: project.pipelineConfig.previewHealthCheckPath ?? null,
         } satisfies Prisma.InputJsonValue)
       : undefined;

@@ -60,7 +60,7 @@ watch(
     if (!v) return;
     form.name = v.name ?? '';
     form.slug = v.slug ?? '';
-    form.frameworkType = (v.frameworkType as 'static' | 'ssr') ?? 'static';
+    form.frameworkType = v.frameworkType ?? 'static';
     form.installCommand = v.installCommand ?? 'pnpm install';
     form.buildCommand = v.buildCommand ?? 'pnpm build';
     form.lintCommand = v.lintCommand ?? '';
@@ -70,6 +70,7 @@ watch(
     form.cacheEnabled = v.cacheEnabled ?? true;
     form.timeoutSeconds = typeof v.timeoutSeconds === 'number' ? v.timeoutSeconds : 900;
     form.ssrEntryPoint = v.ssrEntryPoint ?? 'dist/index.js';
+    form.servicePort = typeof v.servicePort === 'number' ? v.servicePort : 3000;
     form.previewHealthCheckPath = v.previewHealthCheckPath ?? '';
     form.previewEnabled = v.previewEnabled ?? false;
     form.previewServerId = v.previewServerId ?? null;

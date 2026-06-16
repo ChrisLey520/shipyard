@@ -80,6 +80,7 @@ export const UpdatePipelineConfigDto = z.object({
   cacheEnabled: z.boolean().optional(),
   timeoutSeconds: z.number().int().min(60).max(3600).optional(),
   ssrEntryPoint: z.string().optional(),
+  servicePort: z.number().int().min(1).max(65535).optional(),
 });
 
 // 服务器

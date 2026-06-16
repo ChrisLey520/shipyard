@@ -35,6 +35,7 @@ export interface ProjectDetail {
     cacheEnabled: boolean;
     timeoutSeconds: number;
     ssrEntryPoint: string | null;
+    servicePort: number;
     previewHealthCheckPath: string | null;
     containerImageEnabled?: boolean;
     containerImageName?: string | null;
@@ -187,6 +188,7 @@ export type UpdatePipelineConfigPayload = Partial<{
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  servicePort: number;
   previewHealthCheckPath: string | null;
   containerImageEnabled: boolean;
   containerImageName: string | null;
@@ -266,4 +268,3 @@ export async function upsertProjectBuildEnv(
 export async function deleteProjectBuildEnv(orgSlug: string, projectSlug: string, varId: string) {
   return http.delete(`/orgs/${orgSlug}/projects/${projectSlug}/build-env/${varId}`).then((r) => r.data);
 }
-

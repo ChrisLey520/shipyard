@@ -25,6 +25,7 @@ export enum GitProvider {
 export enum FrameworkType {
   STATIC = 'static',
   SSR = 'ssr',
+  NODEJS = 'nodejs',
 }
 
 export enum OrgRole {

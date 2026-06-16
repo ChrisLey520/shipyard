@@ -33,8 +33,12 @@ export class ProjectsController {
       frameworkType: string;
       repoFullName: string;
       gitAccountId: string;
+      installCommand?: string;
       buildCommand?: string;
       outputDir?: string;
+      nodeVersion?: string;
+      ssrEntryPoint?: string | null;
+      servicePort?: number;
     },
   ) {
     return this.projects.createProject(orgId, body);
@@ -88,6 +92,7 @@ export class ProjectsController {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string;
+      servicePort?: number;
       previewHealthCheckPath?: string | null;
       containerImageEnabled?: boolean;
       containerImageName?: string | null;

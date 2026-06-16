@@ -102,6 +102,7 @@ const editInitial = ref<ProjectEditFormValues>({
   cacheEnabled: true,
   timeoutSeconds: 900,
   ssrEntryPoint: 'dist/index.js',
+  servicePort: 3000,
   previewEnabled: false,
   previewServerId: null,
   previewBaseDomain: '',
@@ -140,6 +141,7 @@ async function openEdit(p: ProjectListItem) {
       cacheEnabled: pc?.cacheEnabled ?? true,
       timeoutSeconds: pc?.timeoutSeconds ?? 900,
       ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+      servicePort: pc?.servicePort ?? 3000,
       previewEnabled: d.previewEnabled ?? false,
       previewServerId: d.previewServerId ?? null,
       previewBaseDomain: d.previewBaseDomain ?? '',
@@ -186,7 +188,13 @@ async function saveEdit(v: ProjectEditFormValues) {
     message.error('构建超时至少 60 秒');
     return;
   }
-  if (v.previewEnabled) {
+  if (v.frameworkType !== 'static') {
+    if (!Number.isInteger(v.servicePort) || v.servicePort < 1 || v.servicePort > 65535) {
+      message.error('服务端口须为 1-65535 的整数');
+      return;
+    }
+  }
+  if (v.frameworkType !== 'nodejs' && v.previewEnabled) {
     if (!v.previewServerId) {
       message.error('启用 PR 预览时请选择一个预览服务器');
       return;
@@ -203,9 +211,11 @@ async function saveEdit(v: ProjectEditFormValues) {
       name: v.name,
       slug: v.slug,
       frameworkType: v.frameworkType,
-      previewEnabled: v.previewEnabled,
-      previewServerId: v.previewEnabled ? v.previewServerId : null,
-      previewBaseDomain: v.previewEnabled ? v.previewBaseDomain.trim() : null,
+      previewEnabled: v.frameworkType === 'nodejs' ? false : v.previewEnabled,
+      previewServerId:
+        v.frameworkType === 'nodejs' ? null : (v.previewEnabled ? v.previewServerId : null),
+      previewBaseDomain:
+        v.frameworkType === 'nodejs' ? null : (v.previewEnabled ? v.previewBaseDomain.trim() : null),
     });
     const slugAfter = v.slug;
 
@@ -219,7 +229,8 @@ async function saveEdit(v: ProjectEditFormValues) {
         timeoutSeconds: v.timeoutSeconds,
         lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
         testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
-        ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
+        ssrEntryPoint: v.frameworkType === 'static' ? null : (v.ssrEntryPoint.trim() || null),
+        servicePort: v.frameworkType === 'static' ? 3000 : v.servicePort,
         previewHealthCheckPath:
           v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
             ? v.previewHealthCheckPath.trim()

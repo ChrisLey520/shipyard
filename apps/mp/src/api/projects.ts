@@ -20,6 +20,7 @@ export interface PipelineConfigShape {
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  servicePort: number;
   previewHealthCheckPath: string | null;
   containerImageEnabled?: boolean;
   containerImageName?: string | null;
@@ -91,6 +92,7 @@ export type UpdatePipelineConfigPayload = Partial<{
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  servicePort: number;
   previewHealthCheckPath: string | null;
   containerImageEnabled: boolean;
   containerImageName: string | null;

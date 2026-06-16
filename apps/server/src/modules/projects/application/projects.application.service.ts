@@ -47,8 +47,12 @@ export class ProjectsApplicationService {
       frameworkType: string;
       repoFullName: string;
       gitAccountId: string;
+      installCommand?: string;
       buildCommand?: string;
       outputDir?: string;
+      nodeVersion?: string;
+      ssrEntryPoint?: string | null;
+      servicePort?: number;
     },
   ) {
     const existing = await this.repo.findFirstProjectByOrgSlug(orgId, data.slug);
@@ -59,6 +63,12 @@ export class ProjectsApplicationService {
 
     const decryptedToken = this.crypto.decrypt(gitAccount.accessToken);
     const webhookSecret = randomBytes(32).toString('hex');
+    if (
+      data.servicePort !== undefined &&
+      (!Number.isInteger(data.servicePort) || data.servicePort < 1 || data.servicePort > 65535)
+    ) {
+      throw new BadRequestException('servicePort 须为 1-65535 的整数');
+    }
 
     const project = await this.repo.createProjectWithPipeline({
       organizationId: orgId,
@@ -66,8 +76,13 @@ export class ProjectsApplicationService {
       slug: data.slug,
       frameworkType: data.frameworkType,
       repoFullName: data.repoFullName,
+      installCommand: data.installCommand ?? 'pnpm install',
       buildCommand: data.buildCommand ?? 'pnpm build',
       outputDir: data.outputDir ?? 'dist',
+      nodeVersion: data.nodeVersion ?? '20',
+      ssrEntryPoint:
+        data.frameworkType === 'static' ? null : (data.ssrEntryPoint?.trim() || 'dist/index.js'),
+      servicePort: data.servicePort ?? 3000,
     });
 
     const gitConn = await this.repo.createGitConnection({
@@ -145,11 +160,18 @@ export class ProjectsApplicationService {
       patch.slug = next;
     }
     if (data.previewEnabled !== undefined) patch.previewEnabled = data.previewEnabled;
-    if (data.previewBaseDomain !== undefined) {
+    if (data.frameworkType === 'nodejs') {
+      patch.previewEnabled = false;
+      patch.previewServerId = null;
+      patch.previewBaseDomain = null;
+    }
+    if (data.previewBaseDomain !== undefined && data.frameworkType !== 'nodejs') {
       patch.previewBaseDomain = data.previewBaseDomain?.trim() || null;
     }
     if (data.previewServerId !== undefined) {
-      if (data.previewServerId === null) {
+      if (data.frameworkType === 'nodejs') {
+        patch.previewServerId = null;
+      } else if (data.previewServerId === null) {
         patch.previewServerId = null;
       } else {
         const srv = await this.prisma.server.findFirst({
@@ -180,7 +202,8 @@ export class ProjectsApplicationService {
     const previewTouched =
       data.previewEnabled !== undefined ||
       data.previewServerId !== undefined ||
-      data.previewBaseDomain !== undefined;
+      data.previewBaseDomain !== undefined ||
+      data.frameworkType === 'nodejs';
     if (previewTouched) {
       const meta = await this.repo.findGitConnectionWebhookMeta(project.id);
       if (meta?.remoteWebhookId && meta.gitProvider === 'github') {
@@ -239,6 +262,7 @@ export class ProjectsApplicationService {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
+      servicePort?: number;
       previewHealthCheckPath?: string | null;
       containerImageEnabled?: boolean;
       containerImageName?: string | null;
@@ -255,6 +279,11 @@ export class ProjectsApplicationService {
       data = { ...data, previewHealthCheckPath: withSlash };
     } else if (data.previewHealthCheckPath === '' || data.previewHealthCheckPath === null) {
       data = { ...data, previewHealthCheckPath: null };
+    }
+    if (data.servicePort !== undefined) {
+      if (!Number.isInteger(data.servicePort) || data.servicePort < 1 || data.servicePort > 65535) {
+        throw new BadRequestException('servicePort 须为 1-65535 的整数');
+      }
     }
 
     const { containerRegistryAuth, ...rest } = data;

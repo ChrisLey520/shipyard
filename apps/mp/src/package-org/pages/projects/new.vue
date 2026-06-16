@@ -46,7 +46,7 @@
         <wd-input
           v-model="form.frameworkType"
           :label="t('projectNew.framework')"
-          :placeholder="t('projectNew.frameworkPh')"
+          placeholder="static / ssr / nodejs"
         />
         <wd-input v-model="form.installCommand" :label="t('projectNew.installCmd')" />
         <wd-input v-model="form.buildCommand" :label="t('projectNew.buildCmd')" />
@@ -55,6 +55,17 @@
           v-model="form.nodeVersion"
           :label="t('projectNew.nodeVersion')"
           :placeholder="t('projectNew.nodeVersionPh')"
+        />
+        <wd-input
+          v-if="form.frameworkType.trim() !== 'static'"
+          v-model="form.ssrEntryPoint"
+          :label="form.frameworkType.trim() === 'nodejs' ? 'Node 入口' : 'SSR 入口'"
+        />
+        <wd-input
+          v-if="form.frameworkType.trim() !== 'static'"
+          v-model="form.servicePort"
+          label="服务端口"
+          type="number"
         />
         <wd-button block type="primary" class="mt-4" :loading="submitting" @click="submit">
           {{ t('projectNew.create') }}
@@ -104,6 +115,8 @@ const form = ref({
   buildCommand: 'pnpm build',
   outputDir: 'dist',
   nodeVersion: '20',
+  ssrEntryPoint: 'dist/index.js',
+  servicePort: '3000',
 });
 
 const gitAccountActions = computed(() =>
@@ -188,6 +201,13 @@ async function submit() {
     uni.showToast({ title: t('projectNew.fillNameSlugRepo'), icon: 'none' });
     return;
   }
+  if (f.frameworkType.trim() !== 'static') {
+    const port = Number(f.servicePort);
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      uni.showToast({ title: '服务端口须为 1-65535', icon: 'none' });
+      return;
+    }
+  }
   const payload: Record<string, unknown> = {
     name: f.name.trim(),
     slug: f.slug.trim(),
@@ -198,6 +218,8 @@ async function submit() {
     buildCommand: f.buildCommand.trim() || 'pnpm build',
     outputDir: f.outputDir.trim() || 'dist',
     nodeVersion: f.nodeVersion.trim() || '20',
+    ssrEntryPoint: f.frameworkType.trim() === 'static' ? null : f.ssrEntryPoint.trim() || 'dist/index.js',
+    servicePort: f.frameworkType.trim() === 'static' ? 3000 : Number(f.servicePort) || 3000,
   };
 
   submitting.value = true;
@@ -214,4 +236,3 @@ async function submit() {
   }
 }
 </script>
-

@@ -27,6 +27,12 @@ import {
 } from './docker-build.executor';
 import { ProcessBuildExecutor } from './process-build.executor';
 import { resolveCacheMaxBytes, runDepsCacheEvictionPipeline } from './build-deps-cache';
+import {
+  findPackageRootForOutputDir,
+  hasPnpmWorkspace,
+  toPosixRelativeSubpath,
+  usesPm2RuntimeFramework,
+} from './node-runtime-bundle';
 
 // 安全的构建环境变量白名单
 const SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP'];
@@ -104,6 +110,7 @@ export class BuildWorkerService implements OnModuleInit {
   private async processBuild(data: BuildJobData) {
     const { deploymentId, projectId, environmentId, orgId, previewId } = data;
     const tmpDir = path.join('/tmp', `build-${deploymentId}`);
+    let runtimeBundleDir: string | null = null;
 
     try {
       const depMeta = await this.prisma.deployment.findUnique({
@@ -341,8 +348,26 @@ export class BuildWorkerService implements OnModuleInit {
         );
       }
 
-      await this.appendLog(deploymentId, logSeq++, `[archive] 开始打包产物（目录 ${pipelineConfig.outputDir}）…`);
-      await tar.create({ gzip: true, file: artifactPath, cwd: outputDir }, ['.']);
+      let archiveCwd = outputDir;
+      if (usesPm2RuntimeFramework(project.frameworkType)) {
+        runtimeBundleDir = await this.prepareNodeRuntimeBundle({
+          deploymentId,
+          repoRoot: tmpAbs,
+          outputDir,
+          packageManager: pm,
+          useDocker,
+          runCmd,
+          nextLog: () => logSeq++,
+        });
+        archiveCwd = runtimeBundleDir;
+      }
+
+      await this.appendLog(
+        deploymentId,
+        logSeq++,
+        `[archive] 开始打包产物（目录 ${path.relative(tmpAbs, archiveCwd) || '.'}）…`,
+      );
+      await tar.create({ gzip: true, file: artifactPath, cwd: archiveCwd }, ['.']);
 
       await this.appendLog(deploymentId, logSeq++, `[archive] 产物打包完成: ${artifactPath}`);
       await this.appendLog(
@@ -484,11 +509,109 @@ export class BuildWorkerService implements OnModuleInit {
         }
       }
     } finally {
+      if (runtimeBundleDir && existsSync(runtimeBundleDir)) {
+        rmSync(runtimeBundleDir, { recursive: true, force: true });
+      }
       // 清理临时目录（含 .env）
       if (existsSync(tmpDir)) {
         rmSync(tmpDir, { recursive: true, force: true });
       }
     }
+  }
+
+  private async prepareNodeRuntimeBundle(opts: {
+    deploymentId: string;
+    repoRoot: string;
+    outputDir: string;
+    packageManager: string;
+    useDocker: boolean;
+    runCmd: (
+      cmd: string,
+      args: string[],
+      cwd: string,
+      label: string,
+      execOpts?: { hostOnly?: boolean },
+    ) => Promise<void>;
+    nextLog: () => number;
+  }): Promise<string> {
+    const packageRoot = findPackageRootForOutputDir(opts.repoRoot, opts.outputDir);
+    if (!packageRoot) {
+      throw new Error(
+        `[archive] ${opts.outputDir} 上方未找到 package.json，无法为 Node.js/SSR 生成运行时 bundle。请将输出目录指向应用包目录内的构建结果，或改用容器镜像部署。`,
+      );
+    }
+    const packageRootRel = toPosixRelativeSubpath(opts.repoRoot, packageRoot);
+    if (!packageRootRel) {
+      throw new Error('[archive] Node.js 运行时包目录非法：必须位于仓库根目录内');
+    }
+
+    const bundleDir = path.join('/tmp', `shipyard-runtime-bundle-${opts.deploymentId}`);
+    rmSync(bundleDir, { recursive: true, force: true });
+    mkdirSync(bundleDir, { recursive: true });
+
+    if (opts.packageManager === 'pnpm' && hasPnpmWorkspace(opts.repoRoot)) {
+      const filter = packageRootRel === '.' ? '.' : `./${packageRootRel}`;
+      await this.appendLog(
+        opts.deploymentId,
+        opts.nextLog(),
+        `[archive] Node.js 运行时 bundle：pnpm deploy --filter ${filter} --prod ${bundleDir}`,
+      );
+      await opts.runCmd(
+        'pnpm',
+        ['--filter', filter, 'deploy', '--prod', bundleDir],
+        opts.repoRoot,
+        'archive',
+      );
+      return bundleDir;
+    }
+
+    if (opts.useDocker) {
+      throw new Error(
+        '[archive] Docker 构建模式下，当前仅支持 pnpm workspace 项目生成 Node.js 运行时 bundle；请改用 pnpm workspace，或关闭 SHIPYARD_BUILD_USE_DOCKER，或改走容器镜像部署。',
+      );
+    }
+
+    if (packageRootRel !== '.') {
+      throw new Error(
+        '[archive] 当前仅支持 pnpm workspace 自动打包子包型 Node.js 服务；非 pnpm workspace 项目请将应用包作为仓库根目录，或改走容器镜像部署。',
+      );
+    }
+
+    await this.appendLog(
+      opts.deploymentId,
+      opts.nextLog(),
+      `[archive] Node.js 运行时 bundle：复制应用包并安装生产依赖（${opts.packageManager}）`,
+    );
+    this.copyProjectRuntimeSkeleton(packageRoot, bundleDir);
+
+    if (opts.packageManager === 'npm') {
+      await opts.runCmd('npm', ['install', '--omit=dev'], bundleDir, 'archive', { hostOnly: true });
+    } else if (opts.packageManager === 'yarn') {
+      await opts.runCmd('yarn', ['install', '--production', '--frozen-lockfile'], bundleDir, 'archive', {
+        hostOnly: true,
+      });
+    } else if (opts.packageManager === 'pnpm') {
+      await opts.runCmd('pnpm', ['install', '--prod', '--frozen-lockfile'], bundleDir, 'archive', {
+        hostOnly: true,
+      });
+    } else {
+      throw new Error(`[archive] 暂不支持的包管理器：${opts.packageManager}`);
+    }
+
+    return bundleDir;
+  }
+
+  private copyProjectRuntimeSkeleton(srcRoot: string, destRoot: string): void {
+    cpSync(srcRoot, destRoot, {
+      recursive: true,
+      verbatimSymlinks: true,
+      filter: (src) => {
+        const rel = path.relative(srcRoot, src);
+        if (!rel) return true;
+        const parts = rel.split(path.sep);
+        return !parts.includes('node_modules') && !parts.includes('.git');
+      },
+    });
   }
 
   /** 限制字符集，避免 Worker 环境变量注入 docker 额外参数 */

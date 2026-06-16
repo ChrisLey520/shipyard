@@ -393,8 +393,10 @@ export class DeployApplicationService {
                 localDir: tmpExtractDir,
                 frameworkType: project.frameworkType,
                 projectSlug: project.slug,
+                environmentName: env.name,
                 domain: isPrimary ? (env.domain ?? null) : null,
                 ssrEntryPoint: pipelineConfig.ssrEntryPoint ?? 'dist/index.js',
+                servicePort: pipelineConfig.servicePort ?? 3000,
                 envVars,
                 skipNginx: !isPrimary,
                 skipPm2: !isPrimary && project.frameworkType === 'static',
@@ -605,6 +607,14 @@ export class DeployApplicationService {
 
   private envRegularPm2BgBase(projectSlug: string, envName: string): string {
     return `sh-env-${this.sanitizePm2Segment(projectSlug)}-${this.sanitizePm2Segment(envName)}`;
+  }
+
+  private envRegularPm2AppName(projectSlug: string, envName: string): string {
+    return this.envRegularPm2BgBase(projectSlug, envName);
+  }
+
+  private usesPm2RuntimeFramework(frameworkType: string): boolean {
+    return frameworkType !== 'static';
   }
 
   /** 从环境健康检查 URL 推导本地探活 path（与预览路径规则一致，非法则退化为 /） */
@@ -1644,6 +1654,9 @@ export class DeployApplicationService {
       const privateKey = this.crypto.decrypt(server.privateKey);
       const envVars = await this.getDecryptedProjectBuildEnvVars(projectId);
 
+      if (project.frameworkType === 'nodejs') {
+        throw new Error('PR 预览暂不支持 Node.js 后端项目，请关闭预览或改用常规环境部署');
+      }
       const isSsr = project.frameworkType === 'ssr';
       /** SSR 蓝绿：每次部署新占端口，成功后再释放旧端口 */
       let oldSsrPort: number | undefined;
@@ -1961,8 +1974,10 @@ export class DeployApplicationService {
     localDir: string;
     frameworkType: string;
     projectSlug: string;
+    environmentName: string;
     domain: string | null;
     ssrEntryPoint: string;
+    servicePort: number;
     envVars: Record<string, string>;
     /** 多机滚动：非入口机仅同步文件 */
     skipNginx?: boolean;
@@ -1975,7 +1990,7 @@ export class DeployApplicationService {
 
     try {
       const needNginx = !opts.skipNginx && !!opts.domain?.trim();
-      const needPm2 = !opts.skipPm2 && opts.frameworkType === 'ssr';
+      const needPm2 = !opts.skipPm2 && this.usesPm2RuntimeFramework(opts.frameworkType);
       if (opts.serverOs === ServerOs.LINUX) {
         await this.sshRemotePrecheck(conn, opts.deploymentId, {
           needNginx,
@@ -2011,15 +2026,23 @@ export class DeployApplicationService {
         `ssh -p ${port} -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
       ]);
 
-      if (opts.frameworkType === 'ssr' && !opts.skipPm2) {
-        await this.appendLogLine(opts.deploymentId, '[deploy] SSR：开始生成 PM2 配置并启动/重载服务…');
+      if (this.usesPm2RuntimeFramework(opts.frameworkType) && !opts.skipPm2) {
+        await this.appendLogLine(
+          opts.deploymentId,
+          `[deploy] ${opts.frameworkType === 'nodejs' ? 'Node.js' : 'SSR'}：开始生成 PM2 配置并启动/重载服务…`,
+        );
         // 生成 ecosystem.config.js
-        const envStr = Object.entries(opts.envVars)
+        const runtimeEnvVars = { ...opts.envVars };
+        if (!runtimeEnvVars['PORT']) {
+          runtimeEnvVars['PORT'] = String(opts.servicePort);
+        }
+        const envStr = Object.entries(runtimeEnvVars)
           .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
           .join(',\n');
+        const pm2AppName = this.envRegularPm2AppName(opts.projectSlug, opts.environmentName);
         const ecosystemJs = `module.exports = {
   apps: [{
-    name: ${JSON.stringify(opts.projectSlug)},
+    name: ${JSON.stringify(pm2AppName)},
     script: ${JSON.stringify(opts.ssrEntryPoint)},
     cwd: ${JSON.stringify(opts.deployPath)},
     env: {\n${envStr}\n    }
@@ -2028,7 +2051,7 @@ export class DeployApplicationService {
         await this.sshExec(conn, `cat > ${opts.deployPath}/ecosystem.config.js << 'EOFCONFIG'\n${ecosystemJs}\nEOFCONFIG`);
 
         // 切换 Node 版本并管理 PM2 进程
-        const pm2Check = `pm2 describe ${opts.projectSlug} > /dev/null 2>&1`;
+        const pm2Check = `pm2 describe ${this.shellSingleQuote(pm2AppName)} > /dev/null 2>&1`;
         await this.sshExec(
           conn,
           `${pm2Check} && pm2 reload ${opts.deployPath}/ecosystem.config.js --update-env || pm2 start ${opts.deployPath}/ecosystem.config.js`,
@@ -2039,12 +2062,13 @@ export class DeployApplicationService {
       if (opts.domain && !opts.skipNginx) {
         await this.appendLogLine(opts.deploymentId, '[deploy] 开始生成/更新 Nginx 配置…');
         const serverNames = buildNginxServerNameList(opts.domain.trim(), opts.host);
-        const nginxConf = opts.frameworkType === 'ssr'
-          ? this.generateSsrNginxConf(serverNames, 'localhost', 3000)
+        const siteSlug = this.envRegularPm2AppName(opts.projectSlug, opts.environmentName);
+        const nginxConf = this.usesPm2RuntimeFramework(opts.frameworkType)
+          ? this.generateSsrNginxConf(serverNames, '127.0.0.1', opts.servicePort)
           : this.generateStaticNginxConf(serverNames, opts.deployPath);
 
         if (opts.serverOs === ServerOs.MACOS) {
-          macNginxOut = await this.sshExec(conn, this.buildMacosNginxInstallScript(opts.projectSlug, nginxConf));
+          macNginxOut = await this.sshExec(conn, this.buildMacosNginxInstallScript(siteSlug, nginxConf));
           const filtered = macNginxOut
             .split('\n')
             .filter((l) => !l.trim().startsWith('SHIPYARD_NGINX_SKIPPED='))
@@ -2055,8 +2079,7 @@ export class DeployApplicationService {
             '当前不支持在 Windows 目标上自动写入 Nginx；请去掉环境域名或改用手动配置 Web 服务器',
           );
         } else {
-          const slug = opts.projectSlug;
-          await this.sshWriteLinuxSiteNginxAtomic(conn, slug, nginxConf, opts.deploymentId);
+          await this.sshWriteLinuxSiteNginxAtomic(conn, siteSlug, nginxConf, opts.deploymentId);
         }
       }
 

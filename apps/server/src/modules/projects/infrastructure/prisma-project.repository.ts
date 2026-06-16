@@ -9,7 +9,9 @@ export class PrismaProjectRepository {
     return this.prisma.project.findMany({
       where: { organizationId: orgId },
       include: {
-        pipelineConfig: { select: { buildCommand: true, outputDir: true, nodeVersion: true } },
+        pipelineConfig: {
+          select: { buildCommand: true, outputDir: true, nodeVersion: true, servicePort: true },
+        },
         environments: { select: { id: true, name: true } },
         _count: { select: { deployments: true } },
       },
@@ -34,6 +36,7 @@ export class PrismaProjectRepository {
             cacheEnabled: true,
             timeoutSeconds: true,
             ssrEntryPoint: true,
+            servicePort: true,
             previewHealthCheckPath: true,
             containerImageEnabled: true,
             containerImageName: true,
@@ -73,8 +76,12 @@ export class PrismaProjectRepository {
     slug: string;
     frameworkType: string;
     repoFullName: string;
+    installCommand: string;
     buildCommand: string;
     outputDir: string;
+    nodeVersion: string;
+    ssrEntryPoint?: string | null;
+    servicePort: number;
   }) {
     return this.prisma.project.create({
       data: {
@@ -85,8 +92,12 @@ export class PrismaProjectRepository {
         repoFullName: data.repoFullName,
         pipelineConfig: {
           create: {
+            installCommand: data.installCommand,
             buildCommand: data.buildCommand,
             outputDir: data.outputDir,
+            nodeVersion: data.nodeVersion,
+            ssrEntryPoint: data.ssrEntryPoint,
+            servicePort: data.servicePort,
           },
         },
       },
@@ -176,6 +187,7 @@ export class PrismaProjectRepository {
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
+      servicePort?: number;
       previewHealthCheckPath?: string | null;
       containerImageEnabled?: boolean;
       containerImageName?: string | null;

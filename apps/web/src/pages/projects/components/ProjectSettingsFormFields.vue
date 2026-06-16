@@ -28,8 +28,14 @@
     <n-form-item label="Node 版本">
       <n-select v-model:value="form.nodeVersion" :options="nodeVersionOptions" />
     </n-form-item>
-    <n-form-item v-if="form.frameworkType === 'ssr'" label="SSR 入口">
-      <n-input v-model:value="form.ssrEntryPoint" placeholder="dist/index.js" />
+    <n-form-item v-if="form.frameworkType !== 'static'" :label="form.frameworkType === 'nodejs' ? 'Node 入口' : 'SSR 入口'">
+      <n-input
+        v-model:value="form.ssrEntryPoint"
+        :placeholder="form.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
+      />
+    </n-form-item>
+    <n-form-item v-if="form.frameworkType !== 'static'" label="服务端口">
+      <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" :step="1" class="w-full" />
     </n-form-item>
     <n-form-item v-if="form.frameworkType === 'ssr'" label="预览健康路径">
       <n-input v-model:value="form.previewHealthCheckPath" placeholder="/ 或 /health" />
@@ -69,7 +75,7 @@
       </n-text>
     </template>
 
-    <template v-if="showPrPreviewSection">
+    <template v-if="showPrPreviewSection && form.frameworkType !== 'nodejs'">
       <n-divider title-placement="left">PR 预览（GitHub pull_request）</n-divider>
       <n-form-item label="启用 PR 预览">
         <n-switch v-model:value="form.previewEnabled" />
@@ -131,6 +137,7 @@ defineProps<{
 const frameworkOptions = [
   { label: '静态站点', value: 'static' },
   { label: 'SSR（服务端渲染）', value: 'ssr' },
+  { label: 'Node.js 后端', value: 'nodejs' },
 ];
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));

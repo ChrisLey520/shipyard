@@ -14,6 +14,7 @@ export type ProjectEditFormValues = {
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string;
+  servicePort: number;
   /** PR 预览 SSR 健康检查 path，空则 / */
   previewHealthCheckPath: string;
   previewEnabled: boolean;
@@ -39,6 +40,7 @@ export function emptyProjectEditForm(): ProjectEditFormValues {
     cacheEnabled: true,
     timeoutSeconds: 900,
     ssrEntryPoint: 'dist/index.js',
+    servicePort: 3000,
     previewHealthCheckPath: '',
     previewEnabled: false,
     previewServerId: null,
@@ -68,6 +70,7 @@ export function projectDetailToEditForm(project: ProjectDetail | null): ProjectE
     cacheEnabled: pc?.cacheEnabled ?? true,
     timeoutSeconds: pc?.timeoutSeconds ?? 900,
     ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    servicePort: pc?.servicePort ?? 3000,
     previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
     previewEnabled: p.previewEnabled ?? false,
     previewServerId: p.previewServerId ?? null,

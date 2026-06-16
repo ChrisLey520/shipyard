@@ -84,6 +84,7 @@
               <n-radio-group v-model:value="form.frameworkType">
                 <n-radio value="static">静态站点</n-radio>
                 <n-radio value="ssr">SSR（服务端渲染）</n-radio>
+                <n-radio value="nodejs">Node.js 后端</n-radio>
               </n-radio-group>
             </n-form-item>
             <n-form-item label="仓库（自动拉取，可搜索）">
@@ -126,8 +127,14 @@
           <n-form-item label="Node.js 版本">
             <n-select v-model:value="form.nodeVersion" :options="nodeVersionOptions" placeholder="请选择 Node.js 版本" />
           </n-form-item>
-          <n-form-item v-if="form.frameworkType === 'ssr'" label="SSR 入口文件">
-            <n-input v-model:value="form.ssrEntryPoint" placeholder="dist/index.js" />
+          <n-form-item v-if="form.frameworkType !== 'static'" :label="form.frameworkType === 'nodejs' ? 'Node 入口文件' : 'SSR 入口文件'">
+            <n-input
+              v-model:value="form.ssrEntryPoint"
+              :placeholder="form.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
+            />
+          </n-form-item>
+          <n-form-item v-if="form.frameworkType !== 'static'" label="服务端口">
+            <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" />
           </n-form-item>
         </n-form>
         <n-space>
@@ -177,7 +184,7 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
-  NInput, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, useMessage,
+  NInput, NInputNumber, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, useMessage,
 } from 'naive-ui';
 import { useProjectCreationFlow, type GitAccountListItem } from '@/composables/projects/useProjectCreationFlow';
 import {
@@ -229,6 +236,7 @@ const form = ref({
   outputDir: 'dist',
   nodeVersion: '20',
   ssrEntryPoint: 'dist/index.js',
+  servicePort: 3000,
 });
 
 const gitProviderOptions = GIT_PROVIDER_SELECT_OPTIONS;
@@ -249,6 +257,15 @@ function autoSlug() {
 }
 
 async function handleCreate() {
+  if (
+    form.value.frameworkType !== 'static' &&
+    (!Number.isInteger(form.value.servicePort) ||
+      form.value.servicePort < 1 ||
+      form.value.servicePort > 65535)
+  ) {
+    message.error('服务端口须为 1-65535 的整数');
+    return;
+  }
   try {
     await creation.createProject({
       ...form.value,

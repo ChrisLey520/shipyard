@@ -175,6 +175,7 @@ model PipelineConfig {
   cacheEnabled   Boolean  @default(true)
   timeoutSeconds Int      @default(900)
   ssrEntryPoint  String?
+  servicePort    Int      @default(3000)
   /// PR 预览 SSR 蓝绿前远端 curl 使用的路径，如 /health；空则 /
   previewHealthCheckPath String?
   /// 启用后构建结束额外 docker build + push（Worker 须可用 Docker）
