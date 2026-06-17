@@ -69,6 +69,7 @@ export class PipelineApplicationService {
       ? ({
           buildCommand: project.pipelineConfig.buildCommand,
           installCommand: project.pipelineConfig.installCommand,
+          workingDirectory: project.pipelineConfig.workingDirectory ?? null,
           outputDir: project.pipelineConfig.outputDir,
           nodeVersion: project.pipelineConfig.nodeVersion,
           ssrEntryPoint: project.pipelineConfig.ssrEntryPoint ?? null,
@@ -146,6 +147,7 @@ export class PipelineApplicationService {
       ? ({
           buildCommand: project.pipelineConfig.buildCommand,
           installCommand: project.pipelineConfig.installCommand,
+          workingDirectory: project.pipelineConfig.workingDirectory ?? null,
           outputDir: project.pipelineConfig.outputDir,
           nodeVersion: project.pipelineConfig.nodeVersion,
           ssrEntryPoint: project.pipelineConfig.ssrEntryPoint ?? null,

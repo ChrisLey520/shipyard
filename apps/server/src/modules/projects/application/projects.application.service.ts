@@ -50,6 +50,7 @@ export class ProjectsApplicationService {
       gitAccountId: string;
       installCommand?: string;
       buildCommand?: string;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       ssrEntryPoint?: string | null;
@@ -79,6 +80,7 @@ export class ProjectsApplicationService {
       repoFullName: data.repoFullName,
       installCommand: data.installCommand ?? 'pnpm install',
       buildCommand: data.buildCommand ?? 'pnpm build',
+      workingDirectory: data.workingDirectory?.trim() || null,
       outputDir: data.outputDir ?? 'dist',
       nodeVersion: data.nodeVersion ?? '20',
       ssrEntryPoint: resolveRuntimeEntryPoint(data.frameworkType, data.ssrEntryPoint),
@@ -114,6 +116,39 @@ export class ProjectsApplicationService {
     await this.repo.setProjectGitConnectionId(project.id, gitConn.id);
 
     return this.repo.findProjectCreatedPayload(project.id);
+  }
+
+  async createProjectsBulk(
+    orgId: string,
+    items: Array<{
+      name: string;
+      slug: string;
+      frameworkType: string;
+      repoFullName: string;
+      gitAccountId: string;
+      installCommand?: string;
+      buildCommand?: string;
+      workingDirectory?: string | null;
+      outputDir?: string;
+      nodeVersion?: string;
+      ssrEntryPoint?: string | null;
+      servicePort?: number;
+    }>,
+  ) {
+    if (items.length === 0) {
+      throw new BadRequestException('projects 不能为空');
+    }
+    const seen = new Set<string>();
+    const created: Array<Awaited<ReturnType<typeof this.createProject>>> = [];
+    for (const item of items) {
+      const slug = item.slug.trim();
+      if (seen.has(slug)) {
+        throw new BadRequestException(`批量创建中存在重复 slug：${slug}`);
+      }
+      seen.add(slug);
+      created.push(await this.createProject(orgId, item));
+    }
+    return created;
   }
 
   private static readonly NOTIFICATION_TEMPLATE_MAX = 16_000;
@@ -257,6 +292,7 @@ export class ProjectsApplicationService {
       buildCommand?: string;
       lintCommand?: string | null;
       testCommand?: string | null;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       cacheEnabled?: boolean;
@@ -284,6 +320,13 @@ export class ProjectsApplicationService {
       if (!Number.isInteger(data.servicePort) || data.servicePort < 1 || data.servicePort > 65535) {
         throw new BadRequestException('servicePort 须为 1-65535 的整数');
       }
+    }
+    if (data.workingDirectory !== undefined) {
+      const next = data.workingDirectory?.trim() ?? '';
+      if (next.startsWith('/') || next.startsWith('\\') || next.includes('..')) {
+        throw new BadRequestException('workingDirectory 必须是仓库内相对路径，且不能包含 ..');
+      }
+      data = { ...data, workingDirectory: next || null };
     }
     if (data.ssrEntryPoint !== undefined) {
       data = {

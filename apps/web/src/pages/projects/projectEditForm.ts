@@ -10,6 +10,7 @@ export type ProjectEditFormValues = {
   buildCommand: string;
   lintCommand: string;
   testCommand: string;
+  workingDirectory: string;
   outputDir: string;
   nodeVersion: string;
   cacheEnabled: boolean;
@@ -36,6 +37,7 @@ export function emptyProjectEditForm(): ProjectEditFormValues {
     buildCommand: 'pnpm build',
     lintCommand: '',
     testCommand: '',
+    workingDirectory: '',
     outputDir: 'dist',
     nodeVersion: '20',
     cacheEnabled: true,
@@ -66,6 +68,7 @@ export function projectDetailToEditForm(project: ProjectDetail | null): ProjectE
     buildCommand: pc?.buildCommand ?? 'pnpm build',
     lintCommand: pc?.lintCommand ?? '',
     testCommand: pc?.testCommand ?? '',
+    workingDirectory: pc?.workingDirectory ?? '',
     outputDir: pc?.outputDir ?? 'dist',
     nodeVersion: pc?.nodeVersion ?? '20',
     cacheEnabled: pc?.cacheEnabled ?? true,

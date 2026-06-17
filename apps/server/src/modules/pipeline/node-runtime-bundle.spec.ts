@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   findPackageRootForOutputDir,
+  isRelativeSubdir,
   toPosixRelativeSubpath,
   usesPm2RuntimeFramework,
 } from './node-runtime-bundle';
@@ -44,5 +45,14 @@ describe('node-runtime-bundle helpers', () => {
     const target = path.join(root, 'apps', 'server');
     expect(toPosixRelativeSubpath(root, target)).toBe('apps/server');
     expect(toPosixRelativeSubpath(root, root)).toBe('.');
+  });
+
+  it('validates workingDirectory as a repo-relative subdir', () => {
+    expect(isRelativeSubdir('')).toBe(true);
+    expect(isRelativeSubdir('.')).toBe(true);
+    expect(isRelativeSubdir('apps/web')).toBe(true);
+    expect(isRelativeSubdir('/apps/web')).toBe(false);
+    expect(isRelativeSubdir('../apps/web')).toBe(false);
+    expect(isRelativeSubdir('apps/../web')).toBe(false);
   });
 });

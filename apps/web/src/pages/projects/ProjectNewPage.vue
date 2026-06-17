@@ -87,6 +87,9 @@
                 <n-radio value="nodejs">Node.js 后端</n-radio>
               </n-radio-group>
             </n-form-item>
+            <n-form-item>
+              <n-checkbox v-model:checked="batchMode">同仓多应用批量创建</n-checkbox>
+            </n-form-item>
             <n-form-item label="仓库（自动拉取，可搜索）">
               <n-space vertical style="width: 100%">
                 <n-button
@@ -114,12 +117,15 @@
 
       <!-- Step 2: 构建配置 -->
       <div v-else-if="step === 2" style="margin-top: 24px">
-        <n-form :model="form" label-placement="top">
+        <n-form v-if="!batchMode" :model="form" label-placement="top">
           <n-form-item label="安装命令">
             <n-input v-model:value="form.installCommand" placeholder="pnpm install" />
           </n-form-item>
           <n-form-item label="构建命令">
             <n-input v-model:value="form.buildCommand" placeholder="pnpm build" />
+          </n-form-item>
+          <n-form-item label="工作目录">
+            <n-input v-model:value="form.workingDirectory" placeholder="留空为仓库根目录，例如 apps/web" />
           </n-form-item>
           <n-form-item label="输出目录">
             <n-input v-model:value="form.outputDir" placeholder="dist" />
@@ -137,9 +143,63 @@
             <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" />
           </n-form-item>
         </n-form>
+        <div v-else class="flex flex-col gap-4">
+          <n-alert type="info" :show-icon="false">
+            适合同一个 monorepo 仓库一次创建多个项目，例如 `apps/web` 与 `apps/server`。
+          </n-alert>
+          <n-card v-for="(item, idx) in batchProjects" :key="idx" size="small" :title="`应用 ${idx + 1}`">
+            <n-form :model="item" label-placement="top">
+              <n-form-item label="项目名称">
+                <n-input v-model:value="item.name" />
+              </n-form-item>
+              <n-form-item label="URL 标识">
+                <n-input v-model:value="item.slug" placeholder="只能包含小写字母、数字和连字符" />
+              </n-form-item>
+              <n-form-item label="框架类型">
+                <n-radio-group v-model:value="item.frameworkType">
+                  <n-radio value="static">静态站点</n-radio>
+                  <n-radio value="ssr">SSR（服务端渲染）</n-radio>
+                  <n-radio value="nodejs">Node.js 后端</n-radio>
+                </n-radio-group>
+              </n-form-item>
+              <n-form-item label="安装命令">
+                <n-input v-model:value="item.installCommand" placeholder="pnpm install" />
+              </n-form-item>
+              <n-form-item label="构建命令">
+                <n-input v-model:value="item.buildCommand" placeholder="pnpm build" />
+              </n-form-item>
+              <n-form-item label="工作目录">
+                <n-input v-model:value="item.workingDirectory" placeholder="例如 apps/web 或 apps/server" />
+              </n-form-item>
+              <n-form-item label="输出目录">
+                <n-input v-model:value="item.outputDir" placeholder="dist" />
+              </n-form-item>
+              <n-form-item label="Node.js 版本">
+                <n-select v-model:value="item.nodeVersion" :options="nodeVersionOptions" />
+              </n-form-item>
+              <n-form-item v-if="item.frameworkType !== 'static'" :label="item.frameworkType === 'nodejs' ? 'Node 入口文件' : 'SSR 入口文件'">
+                <n-input
+                  v-model:value="item.ssrEntryPoint"
+                  :placeholder="item.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
+                />
+              </n-form-item>
+              <n-form-item v-if="item.frameworkType !== 'static'" label="服务端口">
+                <n-input-number v-model:value="item.servicePort" :min="1" :max="65535" />
+              </n-form-item>
+            </n-form>
+            <div class="mt-2 flex justify-end">
+              <n-button v-if="batchProjects.length > 1" size="small" type="error" tertiary @click="removeBatchProject(idx)">
+                移除应用
+              </n-button>
+            </div>
+          </n-card>
+          <div class="flex justify-start">
+            <n-button secondary @click="addBatchProject">+ 添加应用</n-button>
+          </div>
+        </div>
         <n-space>
           <n-button @click="step = 1">上一步</n-button>
-          <n-button type="primary" @click="handleCreate" :loading="creating">创建项目</n-button>
+          <n-button type="primary" @click="handleCreate" :loading="creatingAny">创建项目</n-button>
         </n-space>
       </div>
 
@@ -185,6 +245,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
   NInput, NInputNumber, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, useMessage,
+  NCheckbox, NAlert,
 } from 'naive-ui';
 import { useProjectCreationFlow, type GitAccountListItem } from '@/composables/projects/useProjectCreationFlow';
 import {
@@ -207,6 +268,8 @@ const step = ref(1);
 
 const creation = useProjectCreationFlow(orgSlug);
 const creating = creation.creatingProject;
+const creatingBulk = creation.creatingProjectsBulk;
+const creatingAny = computed(() => creating.value || creatingBulk.value);
 const loadingRepos = ref(false);
 const repoOptions = ref<Array<{ label: string; value: string }>>([]);
 const loadingAccounts = ref(false);
@@ -226,6 +289,37 @@ const accountForm = ref({
   gitUsername: '',
 });
 
+type ProjectCreateDraft = {
+  name: string;
+  slug: string;
+  frameworkType: string;
+  installCommand: string;
+  buildCommand: string;
+  workingDirectory: string;
+  outputDir: string;
+  nodeVersion: string;
+  ssrEntryPoint: string;
+  servicePort: number;
+};
+
+function createDraft(): ProjectCreateDraft {
+  return {
+    name: '',
+    slug: '',
+    frameworkType: 'static',
+    installCommand: 'pnpm install',
+    buildCommand: 'pnpm build',
+    workingDirectory: '',
+    outputDir: 'dist',
+    nodeVersion: '20',
+    ssrEntryPoint: '',
+    servicePort: 3000,
+  };
+}
+
+const batchMode = ref(false);
+const batchProjects = ref<ProjectCreateDraft[]>([createDraft(), createDraft()]);
+
 const form = ref({
   name: '',
   slug: '',
@@ -234,6 +328,7 @@ const form = ref({
   gitAccountId: '',
   installCommand: 'pnpm install',
   buildCommand: 'pnpm build',
+  workingDirectory: '',
   outputDir: 'dist',
   nodeVersion: '20',
   ssrEntryPoint: '',
@@ -258,6 +353,48 @@ function autoSlug() {
 }
 
 async function handleCreate() {
+  if (batchMode.value) {
+    if (!form.value.repoFullName || !form.value.gitAccountId) return;
+    const payload = batchProjects.value.map((item) => ({
+      name: item.name.trim(),
+      slug: item.slug.trim(),
+      frameworkType: item.frameworkType,
+      repoFullName: form.value.repoFullName ?? '',
+      gitAccountId: form.value.gitAccountId,
+      installCommand: item.installCommand.trim() || 'pnpm install',
+      buildCommand: item.buildCommand.trim() || 'pnpm build',
+      workingDirectory: item.workingDirectory.trim() || null,
+      outputDir: item.outputDir.trim() || 'dist',
+      nodeVersion: item.nodeVersion,
+      ssrEntryPoint: item.frameworkType === 'static' ? null : item.ssrEntryPoint.trim() || null,
+      servicePort: item.frameworkType === 'static' ? 3000 : item.servicePort,
+    }));
+    for (const item of batchProjects.value) {
+      if (!item.name.trim() || !isValidUrlSlug(item.slug.trim())) {
+        message.error('批量模式下请为每个应用填写合法的名称与 URL 标识');
+        return;
+      }
+      if (item.workingDirectory.trim().startsWith('/') || item.workingDirectory.includes('..')) {
+        message.error('工作目录必须是仓库内相对路径，且不能包含 ..');
+        return;
+      }
+      if (
+        item.frameworkType !== 'static' &&
+        (!Number.isInteger(item.servicePort) || item.servicePort < 1 || item.servicePort > 65535)
+      ) {
+        message.error('服务端口须为 1-65535 的整数');
+        return;
+      }
+    }
+    try {
+      await creation.createProjectsBulk({ projects: payload });
+      message.success(`已创建 ${payload.length} 个项目`);
+      void router.push(`/orgs/${orgSlug.value}/projects`);
+    } catch {
+      /* 接口错误由全局 axios 拦截器提示 */
+    }
+    return;
+  }
   if (
     form.value.frameworkType !== 'static' &&
     (!Number.isInteger(form.value.servicePort) ||
@@ -265,6 +402,10 @@ async function handleCreate() {
       form.value.servicePort > 65535)
   ) {
     message.error('服务端口须为 1-65535 的整数');
+    return;
+  }
+  if (form.value.workingDirectory.trim().startsWith('/') || form.value.workingDirectory.includes('..')) {
+    message.error('工作目录必须是仓库内相对路径，且不能包含 ..');
     return;
   }
   try {
@@ -367,4 +508,28 @@ watch(
     );
   },
 );
+
+watch(
+  () => batchProjects.value.map((item) => item.frameworkType),
+  (next, prev) => {
+    next.forEach((frameworkType, index) => {
+      const item = batchProjects.value[index];
+      if (!item) return;
+      item.ssrEntryPoint = deriveRuntimeEntryPointForFramework(
+        frameworkType,
+        item.ssrEntryPoint,
+        prev?.[index],
+      );
+    });
+  },
+  { deep: true },
+);
+
+function addBatchProject() {
+  batchProjects.value.push(createDraft());
+}
+
+function removeBatchProject(index: number) {
+  batchProjects.value.splice(index, 1);
+}
 </script>

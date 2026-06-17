@@ -75,6 +75,7 @@ export const UpdatePipelineConfigDto = z.object({
   buildCommand: z.string().min(1),
   lintCommand: z.string().optional(),
   testCommand: z.string().optional(),
+  workingDirectory: z.string().optional(),
   outputDir: z.string().min(1),
   nodeVersion: z.string().optional(),
   cacheEnabled: z.boolean().optional(),

@@ -22,6 +22,9 @@
     <n-form-item label="构建命令">
       <n-input v-model:value="form.buildCommand" placeholder="pnpm build" />
     </n-form-item>
+    <n-form-item label="工作目录">
+      <n-input v-model:value="form.workingDirectory" placeholder="留空为仓库根目录，例如 apps/web" />
+    </n-form-item>
     <n-form-item label="输出目录">
       <n-input v-model:value="form.outputDir" placeholder="dist" />
     </n-form-item>

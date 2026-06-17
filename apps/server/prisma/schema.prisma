@@ -170,6 +170,8 @@ model PipelineConfig {
   buildCommand   String   @default("pnpm build")
   lintCommand    String?
   testCommand    String?
+  /// monorepo 子应用工作目录；空则仓库根目录
+  workingDirectory String?
   outputDir      String   @default("dist")
   nodeVersion    String   @default("20")
   cacheEnabled   Boolean  @default(true)

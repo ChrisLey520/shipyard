@@ -35,6 +35,7 @@ export class ProjectsController {
       gitAccountId: string;
       installCommand?: string;
       buildCommand?: string;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       ssrEntryPoint?: string | null;
@@ -42,6 +43,31 @@ export class ProjectsController {
     },
   ) {
     return this.projects.createProject(orgId, body);
+  }
+
+  @Post('bulk')
+  @Roles(OrgRole.DEVELOPER)
+  createBulk(
+    @OrgId() orgId: string,
+    @Body()
+    body: {
+      projects: Array<{
+        name: string;
+        slug: string;
+        frameworkType: string;
+        repoFullName: string;
+        gitAccountId: string;
+        installCommand?: string;
+        buildCommand?: string;
+        workingDirectory?: string | null;
+        outputDir?: string;
+        nodeVersion?: string;
+        ssrEntryPoint?: string | null;
+        servicePort?: number;
+      }>;
+    },
+  ) {
+    return this.projects.createProjectsBulk(orgId, body.projects ?? []);
   }
 
   @Get(':projectSlug')
@@ -87,6 +113,7 @@ export class ProjectsController {
       buildCommand?: string;
       lintCommand?: string;
       testCommand?: string;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       cacheEnabled?: boolean;

@@ -28,6 +28,10 @@ export function validateProjectEditForm(v: ProjectEditFormValues, message: Messa
     message.error('请填写安装命令、构建命令与输出目录');
     return false;
   }
+  if (v.workingDirectory.trim().startsWith('/') || v.workingDirectory.includes('..')) {
+    message.error('工作目录必须是仓库内相对路径，且不能包含 ..');
+    return false;
+  }
   if (v.timeoutSeconds == null || v.timeoutSeconds < 60) {
     message.error('构建超时至少 60 秒');
     return false;
@@ -92,6 +96,7 @@ export async function saveProjectSettings(
       await ctx.api.updatePipelineConfig(slugAfter, {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
+        workingDirectory: v.workingDirectory.trim() || null,
         outputDir: v.outputDir.trim(),
         nodeVersion: v.nodeVersion,
         cacheEnabled: v.cacheEnabled,

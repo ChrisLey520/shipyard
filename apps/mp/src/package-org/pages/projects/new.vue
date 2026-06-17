@@ -50,6 +50,7 @@
         />
         <wd-input v-model="form.installCommand" :label="t('projectNew.installCmd')" />
         <wd-input v-model="form.buildCommand" :label="t('projectNew.buildCmd')" />
+        <wd-input v-model="form.workingDirectory" label="工作目录" placeholder="留空为仓库根目录，例如 apps/web" />
         <wd-input v-model="form.outputDir" :label="t('projectNew.outputDir')" />
         <wd-input
           v-model="form.nodeVersion"
@@ -114,6 +115,7 @@ const form = ref({
   frameworkType: 'static',
   installCommand: 'pnpm install',
   buildCommand: 'pnpm build',
+  workingDirectory: '',
   outputDir: 'dist',
   nodeVersion: '20',
   ssrEntryPoint: '',
@@ -221,6 +223,10 @@ async function submit() {
       return;
     }
   }
+  if (f.workingDirectory.trim().startsWith('/') || f.workingDirectory.includes('..')) {
+    uni.showToast({ title: '工作目录必须是仓库内相对路径，且不能包含 ..', icon: 'none' });
+    return;
+  }
   const payload: Record<string, unknown> = {
     name: f.name.trim(),
     slug: f.slug.trim(),
@@ -229,6 +235,7 @@ async function submit() {
     frameworkType: f.frameworkType.trim() || 'static',
     installCommand: f.installCommand.trim() || 'pnpm install',
     buildCommand: f.buildCommand.trim() || 'pnpm build',
+    workingDirectory: f.workingDirectory.trim() || null,
     outputDir: f.outputDir.trim() || 'dist',
     nodeVersion: f.nodeVersion.trim() || '20',
     ssrEntryPoint: f.frameworkType.trim() === 'static' ? null : f.ssrEntryPoint.trim() || null,

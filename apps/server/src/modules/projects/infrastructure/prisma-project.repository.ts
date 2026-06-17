@@ -10,7 +10,13 @@ export class PrismaProjectRepository {
       where: { organizationId: orgId },
       include: {
         pipelineConfig: {
-          select: { buildCommand: true, outputDir: true, nodeVersion: true, servicePort: true },
+          select: {
+            buildCommand: true,
+            workingDirectory: true,
+            outputDir: true,
+            nodeVersion: true,
+            servicePort: true,
+          },
         },
         environments: { select: { id: true, name: true } },
         _count: { select: { deployments: true } },
@@ -31,6 +37,7 @@ export class PrismaProjectRepository {
             buildCommand: true,
             lintCommand: true,
             testCommand: true,
+            workingDirectory: true,
             outputDir: true,
             nodeVersion: true,
             cacheEnabled: true,
@@ -78,6 +85,7 @@ export class PrismaProjectRepository {
     repoFullName: string;
     installCommand: string;
     buildCommand: string;
+    workingDirectory?: string | null;
     outputDir: string;
     nodeVersion: string;
     ssrEntryPoint?: string | null;
@@ -94,6 +102,7 @@ export class PrismaProjectRepository {
           create: {
             installCommand: data.installCommand,
             buildCommand: data.buildCommand,
+            workingDirectory: data.workingDirectory,
             outputDir: data.outputDir,
             nodeVersion: data.nodeVersion,
             ssrEntryPoint: data.ssrEntryPoint,
@@ -182,6 +191,7 @@ export class PrismaProjectRepository {
       buildCommand?: string;
       lintCommand?: string | null;
       testCommand?: string | null;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       cacheEnabled?: boolean;

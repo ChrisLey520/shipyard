@@ -15,6 +15,7 @@ export interface PipelineConfigShape {
   buildCommand: string;
   lintCommand: string | null;
   testCommand: string | null;
+  workingDirectory: string | null;
   outputDir: string;
   nodeVersion: string;
   cacheEnabled: boolean;
@@ -87,6 +88,7 @@ export type UpdatePipelineConfigPayload = Partial<{
   buildCommand: string;
   lintCommand: string | null;
   testCommand: string | null;
+  workingDirectory: string | null;
   outputDir: string;
   nodeVersion: string;
   cacheEnabled: boolean;

@@ -5,6 +5,15 @@ export function usesPm2RuntimeFramework(frameworkType: string): boolean {
   return frameworkType !== 'static';
 }
 
+export function isRelativeSubdir(input: string): boolean {
+  const normalized = input.trim().replace(/\\/g, '/');
+  if (!normalized || normalized === '.') return true;
+  if (normalized.startsWith('/') || normalized.startsWith('../') || normalized.includes('/../')) {
+    return false;
+  }
+  return normalized !== '..';
+}
+
 export function findPackageRootForOutputDir(repoRoot: string, outputDir: string): string | null {
   const root = path.resolve(repoRoot);
   let current = path.resolve(outputDir);

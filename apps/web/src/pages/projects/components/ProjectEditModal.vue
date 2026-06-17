@@ -65,6 +65,7 @@ watch(
     form.buildCommand = v.buildCommand ?? 'pnpm build';
     form.lintCommand = v.lintCommand ?? '';
     form.testCommand = v.testCommand ?? '';
+    form.workingDirectory = v.workingDirectory ?? '';
     form.outputDir = v.outputDir ?? 'dist';
     form.nodeVersion = v.nodeVersion ?? '20';
     form.cacheEnabled = v.cacheEnabled ?? true;

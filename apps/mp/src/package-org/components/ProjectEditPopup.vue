@@ -16,6 +16,7 @@
       <text class="text-sm text-gray-600">构建配置</text>
       <wd-input v-model="form.installCommand" label="安装命令" />
       <wd-input v-model="form.buildCommand" label="构建命令" />
+      <wd-input v-model="form.workingDirectory" label="工作目录" placeholder="留空为仓库根目录，例如 apps/server" />
       <wd-input v-model="form.outputDir" label="输出目录" />
       <picker mode="selector" :range="nodeVersionOptions" range-key="label" :value="nodeVersionIndex" @change="onNodeVersionChange">
         <wd-cell title="Node 版本" :value="nodeVersionOptions[nodeVersionIndex]?.label ?? '—'" is-link />
@@ -118,6 +119,7 @@ const form = ref({
   frameworkType: 'static' as 'static' | 'ssr' | 'nodejs',
   installCommand: 'pnpm install',
   buildCommand: 'pnpm build',
+  workingDirectory: '',
   outputDir: 'dist',
   nodeVersion: '20',
   lintCommand: '',
@@ -202,6 +204,7 @@ function syncFromProject(p: ProjectDetail) {
     frameworkType: ft,
     installCommand: pc?.installCommand ?? 'pnpm install',
     buildCommand: pc?.buildCommand ?? 'pnpm build',
+    workingDirectory: pc?.workingDirectory ?? '',
     outputDir: pc?.outputDir ?? 'dist',
     nodeVersion: pc?.nodeVersion ?? '20',
     lintCommand: pc?.lintCommand ?? '',
@@ -269,6 +272,10 @@ async function save() {
     uni.showToast({ title: '请填写安装命令、构建命令与输出目录', icon: 'none' });
     return;
   }
+  if (v.workingDirectory.trim().startsWith('/') || v.workingDirectory.includes('..')) {
+    uni.showToast({ title: '工作目录必须是仓库内相对路径，且不能包含 ..', icon: 'none' });
+    return;
+  }
   const ts = Number(v.timeoutSeconds);
   if (!Number.isFinite(ts) || ts < 60) {
     uni.showToast({ title: '构建超时至少 60 秒', icon: 'none' });
@@ -312,6 +319,7 @@ async function save() {
       const body: UpdatePipelineConfigPayload = {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
+        workingDirectory: v.workingDirectory.trim() || null,
         outputDir: v.outputDir.trim(),
         nodeVersion: v.nodeVersion.trim(),
         cacheEnabled: v.cacheEnabled,

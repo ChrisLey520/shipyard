@@ -30,6 +30,7 @@ import { resolveCacheMaxBytes, runDepsCacheEvictionPipeline } from './build-deps
 import {
   findPackageRootForOutputDir,
   hasPnpmWorkspace,
+  isRelativeSubdir,
   toPosixRelativeSubpath,
   usesPm2RuntimeFramework,
 } from './node-runtime-bundle';
@@ -135,6 +136,12 @@ export class BuildWorkerService implements OnModuleInit {
         this.prisma.gitConnection.findUniqueOrThrow({ where: { projectId } }),
         this.prisma.pipelineConfig.findUniqueOrThrow({ where: { projectId } }),
       ]);
+      const tmpAbs = path.resolve(tmpDir);
+      const workingDirInput = pipelineConfig.workingDirectory?.trim() ?? '';
+      if (workingDirInput && !isRelativeSubdir(workingDirInput)) {
+        throw new Error('工作目录配置非法：必须是仓库根目录内的相对路径，且不能包含 ..');
+      }
+      const workingDirAbs = workingDirInput ? path.resolve(tmpAbs, workingDirInput) : tmpAbs;
 
       const token = await this.gitTokens.getAccessTokenForProject(projectId);
       const cloneUrl = buildCloneUrl(
@@ -306,7 +313,7 @@ export class BuildWorkerService implements OnModuleInit {
       if (pipelineConfig.lintCommand) {
         const [bin, ...args] = pipelineConfig.lintCommand.split(' ');
         await this.appendLog(deploymentId, logSeq++, '[lint] 开始代码检查…');
-        await runCmd(bin!, args, tmpDir, 'lint');
+        await runCmd(bin!, args, workingDirAbs, 'lint');
       } else {
         await this.appendLog(deploymentId, logSeq++, '[lint] 已跳过（未配置 lintCommand）');
       }
@@ -315,7 +322,7 @@ export class BuildWorkerService implements OnModuleInit {
       if (pipelineConfig.testCommand) {
         const [bin, ...args] = pipelineConfig.testCommand.split(' ');
         await this.appendLog(deploymentId, logSeq++, '[test] 开始测试…');
-        await runCmd(bin!, args, tmpDir, 'test');
+        await runCmd(bin!, args, workingDirAbs, 'test');
       } else {
         await this.appendLog(deploymentId, logSeq++, '[test] 已跳过（未配置 testCommand）');
       }
@@ -323,14 +330,13 @@ export class BuildWorkerService implements OnModuleInit {
       // build
       const [buildBin, ...buildArgs] = pipelineConfig.buildCommand.split(' ');
       await this.appendLog(deploymentId, logSeq++, '[build] 开始构建…');
-      await runCmd(buildBin!, buildArgs, tmpDir, 'build');
+      await runCmd(buildBin!, buildArgs, workingDirAbs, 'build');
 
       // 打包产物（outputDir 为仓库根下的相对路径，需与真实构建输出一致）
       const artifactDir = process.env['ARTIFACT_STORE_PATH'] ?? './artifacts';
       mkdirSync(artifactDir, { recursive: true });
       const artifactPath = path.join(artifactDir, `${deploymentId}.tar.gz`);
-      const tmpAbs = path.resolve(tmpDir);
-      const outputDir = path.resolve(tmpAbs, pipelineConfig.outputDir);
+      const outputDir = path.resolve(workingDirAbs, pipelineConfig.outputDir);
       const relToRepo = path.relative(tmpAbs, outputDir);
       if (relToRepo.startsWith('..') || path.isAbsolute(relToRepo)) {
         throw new Error('输出目录配置非法：必须位于仓库根目录内');

@@ -139,6 +139,10 @@ async function saveEdit(v: ProjectEditFormValues) {
     message.error('请填写安装命令、构建命令与输出目录');
     return;
   }
+  if (v.workingDirectory.trim().startsWith('/') || v.workingDirectory.includes('..')) {
+    message.error('工作目录必须是仓库内相对路径，且不能包含 ..');
+    return;
+  }
   if (v.timeoutSeconds == null || v.timeoutSeconds < 60) {
     message.error('构建超时至少 60 秒');
     return;
@@ -178,6 +182,7 @@ async function saveEdit(v: ProjectEditFormValues) {
       await listActions.updatePipelineConfig(slugAfter, {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
+        workingDirectory: v.workingDirectory.trim() || null,
         outputDir: v.outputDir.trim(),
         nodeVersion: v.nodeVersion,
         cacheEnabled: v.cacheEnabled,
