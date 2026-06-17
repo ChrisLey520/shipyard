@@ -487,6 +487,7 @@ async function handleCreate() {
         const baseDomain = normalizeBaseDomain(envTemplate.value.baseDomain);
         const envName = envTemplate.value.name.trim() || 'production';
         const branch = envTemplate.value.triggerBranch.trim() || 'main';
+        const draftBySlug = new Map(batchProjects.value.map((item) => [item.slug.trim(), item]));
         const settled = await Promise.allSettled(
           created.map((project) =>
             createEnvironment(orgSlug.value, project.slug, {
@@ -495,6 +496,7 @@ async function handleCreate() {
               serverId: envTemplate.value.serverId,
               deployPath: `${deployRoot}/${project.slug}`,
               domain: baseDomain ? `${project.slug}.${baseDomain}` : undefined,
+              healthCheckUrl: buildDefaultHealthCheckUrl(draftBySlug.get(project.slug), baseDomain),
               protected: envTemplate.value.protected,
             }),
           ),
@@ -682,5 +684,28 @@ function trimTrailingSlashes(input: string): string {
 
 function normalizeBaseDomain(input: string): string {
   return input.trim().replace(/^\.+/, '').replace(/\.+$/, '');
+}
+
+function inferDefaultHealthCheckPath(project: ProjectCreateDraft | undefined): string | null {
+  if (!project || project.frameworkType !== 'nodejs') return null;
+  const hint = [
+    project.name,
+    project.slug,
+    project.workingDirectory,
+    project.buildCommand,
+  ]
+    .join(' ')
+    .toLowerCase();
+  return /\bnest(js)?\b/.test(hint) ? '/healthz' : '/health';
+}
+
+function buildDefaultHealthCheckUrl(
+  project: ProjectCreateDraft | undefined,
+  baseDomain: string,
+): string | undefined {
+  const healthPath = inferDefaultHealthCheckPath(project);
+  const slug = project?.slug.trim();
+  if (!healthPath || !baseDomain || !slug) return undefined;
+  return `http://${slug}.${baseDomain}${healthPath}`;
 }
 </script>
