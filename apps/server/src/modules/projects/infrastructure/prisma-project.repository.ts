@@ -9,7 +9,15 @@ export class PrismaProjectRepository {
     return this.prisma.project.findMany({
       where: { organizationId: orgId },
       include: {
-        pipelineConfig: { select: { buildCommand: true, outputDir: true, nodeVersion: true } },
+        pipelineConfig: {
+          select: {
+            buildCommand: true,
+            workingDirectory: true,
+            outputDir: true,
+            nodeVersion: true,
+            servicePort: true,
+          },
+        },
         environments: { select: { id: true, name: true } },
         _count: { select: { deployments: true } },
       },
@@ -29,11 +37,13 @@ export class PrismaProjectRepository {
             buildCommand: true,
             lintCommand: true,
             testCommand: true,
+            workingDirectory: true,
             outputDir: true,
             nodeVersion: true,
             cacheEnabled: true,
             timeoutSeconds: true,
             ssrEntryPoint: true,
+            servicePort: true,
             previewHealthCheckPath: true,
             containerImageEnabled: true,
             containerImageName: true,
@@ -73,8 +83,13 @@ export class PrismaProjectRepository {
     slug: string;
     frameworkType: string;
     repoFullName: string;
+    installCommand: string;
     buildCommand: string;
+    workingDirectory?: string | null;
     outputDir: string;
+    nodeVersion: string;
+    ssrEntryPoint?: string | null;
+    servicePort: number;
   }) {
     return this.prisma.project.create({
       data: {
@@ -85,8 +100,13 @@ export class PrismaProjectRepository {
         repoFullName: data.repoFullName,
         pipelineConfig: {
           create: {
+            installCommand: data.installCommand,
             buildCommand: data.buildCommand,
+            workingDirectory: data.workingDirectory,
             outputDir: data.outputDir,
+            nodeVersion: data.nodeVersion,
+            ssrEntryPoint: data.ssrEntryPoint,
+            servicePort: data.servicePort,
           },
         },
       },
@@ -171,11 +191,13 @@ export class PrismaProjectRepository {
       buildCommand?: string;
       lintCommand?: string | null;
       testCommand?: string | null;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
+      servicePort?: number;
       previewHealthCheckPath?: string | null;
       containerImageEnabled?: boolean;
       containerImageName?: string | null;

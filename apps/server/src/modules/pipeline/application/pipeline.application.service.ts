@@ -69,9 +69,11 @@ export class PipelineApplicationService {
       ? ({
           buildCommand: project.pipelineConfig.buildCommand,
           installCommand: project.pipelineConfig.installCommand,
+          workingDirectory: project.pipelineConfig.workingDirectory ?? null,
           outputDir: project.pipelineConfig.outputDir,
           nodeVersion: project.pipelineConfig.nodeVersion,
           ssrEntryPoint: project.pipelineConfig.ssrEntryPoint ?? null,
+          servicePort: project.pipelineConfig.servicePort,
           previewHealthCheckPath: project.pipelineConfig.previewHealthCheckPath ?? null,
         } satisfies Prisma.InputJsonValue)
       : undefined;
@@ -145,9 +147,11 @@ export class PipelineApplicationService {
       ? ({
           buildCommand: project.pipelineConfig.buildCommand,
           installCommand: project.pipelineConfig.installCommand,
+          workingDirectory: project.pipelineConfig.workingDirectory ?? null,
           outputDir: project.pipelineConfig.outputDir,
           nodeVersion: project.pipelineConfig.nodeVersion,
           ssrEntryPoint: project.pipelineConfig.ssrEntryPoint ?? null,
+          servicePort: project.pipelineConfig.servicePort,
           previewHealthCheckPath: project.pipelineConfig.previewHealthCheckPath ?? null,
         } satisfies Prisma.InputJsonValue)
       : undefined;

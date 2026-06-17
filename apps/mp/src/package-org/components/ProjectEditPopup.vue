@@ -16,6 +16,7 @@
       <text class="text-sm text-gray-600">构建配置</text>
       <wd-input v-model="form.installCommand" label="安装命令" />
       <wd-input v-model="form.buildCommand" label="构建命令" />
+      <wd-input v-model="form.workingDirectory" label="工作目录" placeholder="留空为仓库根目录，例如 apps/server" />
       <wd-input v-model="form.outputDir" label="输出目录" />
       <picker mode="selector" :range="nodeVersionOptions" range-key="label" :value="nodeVersionIndex" @change="onNodeVersionChange">
         <wd-cell title="Node 版本" :value="nodeVersionOptions[nodeVersionIndex]?.label ?? '—'" is-link />
@@ -27,8 +28,15 @@
         <text class="text-sm mr-2">依赖缓存</text>
         <wd-switch v-model="form.cacheEnabled" />
       </view>
+      <template v-if="form.frameworkType !== 'static'">
+        <wd-input
+          v-model="form.ssrEntryPoint"
+          :label="form.frameworkType === 'nodejs' ? 'Node 入口' : 'SSR 入口'"
+          :placeholder="form.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
+        />
+        <wd-input v-model="form.servicePort" label="服务端口" type="number" />
+      </template>
       <template v-if="form.frameworkType === 'ssr'">
-        <wd-input v-model="form.ssrEntryPoint" label="SSR 入口" />
         <wd-input v-model="form.previewHealthCheckPath" label="预览健康路径" />
       </template>
       <view class="flex items-center mt-2">
@@ -44,7 +52,7 @@
         placeholder="留空则保留已保存凭据"
         show-password
       />
-      <template v-if="showPrPreviewSection">
+      <template v-if="showPrPreviewSection && form.frameworkType !== 'nodejs'">
         <view class="h-px bg-gray-200 my-3" />
         <text class="text-sm text-gray-600">PR 预览（GitHub）</text>
         <view class="flex items-center mt-2">
@@ -74,7 +82,11 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
+import {
+  URL_SLUG_VALIDATION_MESSAGE,
+  deriveRuntimeEntryPointForFramework,
+  isValidUrlSlug,
+} from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail, UpdatePipelineConfigPayload } from '@/api/projects';
 import { listServers } from '@/package-org/api/servers';
@@ -96,6 +108,7 @@ const saving = ref(false);
 const frameworkOptions = [
   { label: '静态站点', value: 'static' as const },
   { label: 'SSR（服务端渲染）', value: 'ssr' as const },
+  { label: 'Node.js 后端', value: 'nodejs' as const },
 ];
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));
@@ -103,16 +116,18 @@ const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, 
 const form = ref({
   name: '',
   slug: '',
-  frameworkType: 'static' as 'static' | 'ssr',
+  frameworkType: 'static' as 'static' | 'ssr' | 'nodejs',
   installCommand: 'pnpm install',
   buildCommand: 'pnpm build',
+  workingDirectory: '',
   outputDir: 'dist',
   nodeVersion: '20',
   lintCommand: '',
   testCommand: '',
   timeoutSeconds: 900,
   cacheEnabled: true,
-  ssrEntryPoint: 'dist/index.js',
+  ssrEntryPoint: '',
+  servicePort: 3000,
   previewHealthCheckPath: '',
   previewEnabled: false,
   previewServerId: '',
@@ -182,20 +197,22 @@ function onPreviewServerChange(ev: { detail: { value: number } }) {
 
 function syncFromProject(p: ProjectDetail) {
   const pc = p.pipelineConfig;
-  const ft = p.frameworkType === 'ssr' ? 'ssr' : 'static';
+  const ft = p.frameworkType === 'nodejs' ? 'nodejs' : p.frameworkType === 'ssr' ? 'ssr' : 'static';
   form.value = {
     name: p.name,
     slug: p.slug,
     frameworkType: ft,
     installCommand: pc?.installCommand ?? 'pnpm install',
     buildCommand: pc?.buildCommand ?? 'pnpm build',
+    workingDirectory: pc?.workingDirectory ?? '',
     outputDir: pc?.outputDir ?? 'dist',
     nodeVersion: pc?.nodeVersion ?? '20',
     lintCommand: pc?.lintCommand ?? '',
     testCommand: pc?.testCommand ?? '',
     timeoutSeconds: pc?.timeoutSeconds ?? 900,
     cacheEnabled: pc?.cacheEnabled ?? true,
-    ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    ssrEntryPoint: deriveRuntimeEntryPointForFramework(ft, pc?.ssrEntryPoint),
+    servicePort: pc?.servicePort ?? 3000,
     previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
     previewEnabled: p.previewEnabled ?? false,
     previewServerId: p.previewServerId ?? '',
@@ -229,6 +246,18 @@ watch(
   },
 );
 
+watch(
+  () => form.value.frameworkType,
+  (next, prev) => {
+    if (!next || next === prev) return;
+    form.value.ssrEntryPoint = deriveRuntimeEntryPointForFramework(
+      next,
+      form.value.ssrEntryPoint,
+      prev,
+    );
+  },
+);
+
 async function save() {
   const v = form.value;
   if (!v.name.trim() || !v.slug.trim()) {
@@ -243,12 +272,24 @@ async function save() {
     uni.showToast({ title: '请填写安装命令、构建命令与输出目录', icon: 'none' });
     return;
   }
+  if (v.workingDirectory.trim().startsWith('/') || v.workingDirectory.includes('..')) {
+    uni.showToast({ title: '工作目录必须是仓库内相对路径，且不能包含 ..', icon: 'none' });
+    return;
+  }
   const ts = Number(v.timeoutSeconds);
   if (!Number.isFinite(ts) || ts < 60) {
     uni.showToast({ title: '构建超时至少 60 秒', icon: 'none' });
     return;
   }
-  if (showPrPreviewSection.value && v.previewEnabled) {
+  const servicePort = Number(v.servicePort);
+  if (
+    v.frameworkType !== 'static' &&
+    (!Number.isFinite(servicePort) || servicePort < 1 || servicePort > 65535)
+  ) {
+    uni.showToast({ title: '服务端口须为 1-65535', icon: 'none' });
+    return;
+  }
+  if (showPrPreviewSection.value && v.frameworkType !== 'nodejs' && v.previewEnabled) {
     if (!v.previewServerId.trim()) {
       uni.showToast({ title: '启用 PR 预览时请选择一个预览服务器', icon: 'none' });
       return;
@@ -266,9 +307,11 @@ async function save() {
       name: v.name.trim(),
       slug: v.slug.trim(),
       frameworkType: v.frameworkType,
-      previewEnabled: v.previewEnabled,
-      previewServerId: v.previewEnabled ? v.previewServerId.trim() : null,
-      previewBaseDomain: v.previewEnabled ? v.previewBaseDomain.trim() : null,
+      previewEnabled: v.frameworkType === 'nodejs' ? false : v.previewEnabled,
+      previewServerId:
+        v.frameworkType === 'nodejs' ? null : (v.previewEnabled ? v.previewServerId.trim() : null),
+      previewBaseDomain:
+        v.frameworkType === 'nodejs' ? null : (v.previewEnabled ? v.previewBaseDomain.trim() : null),
     });
     const slugAfter = v.slug.trim();
 
@@ -276,13 +319,15 @@ async function save() {
       const body: UpdatePipelineConfigPayload = {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
+        workingDirectory: v.workingDirectory.trim() || null,
         outputDir: v.outputDir.trim(),
         nodeVersion: v.nodeVersion.trim(),
         cacheEnabled: v.cacheEnabled,
         timeoutSeconds: ts,
         lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
         testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
-        ssrEntryPoint: v.frameworkType === 'ssr' ? v.ssrEntryPoint.trim() || null : null,
+        ssrEntryPoint: v.frameworkType === 'static' ? null : v.ssrEntryPoint.trim() || null,
+        servicePort: v.frameworkType === 'static' ? 3000 : servicePort,
         previewHealthCheckPath:
           v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
             ? v.previewHealthCheckPath.trim()

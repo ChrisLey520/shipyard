@@ -75,11 +75,13 @@ export const UpdatePipelineConfigDto = z.object({
   buildCommand: z.string().min(1),
   lintCommand: z.string().optional(),
   testCommand: z.string().optional(),
+  workingDirectory: z.string().optional(),
   outputDir: z.string().min(1),
   nodeVersion: z.string().optional(),
   cacheEnabled: z.boolean().optional(),
   timeoutSeconds: z.number().int().min(60).max(3600).optional(),
   ssrEntryPoint: z.string().optional(),
+  servicePort: z.number().int().min(1).max(65535).optional(),
 });
 
 // 服务器

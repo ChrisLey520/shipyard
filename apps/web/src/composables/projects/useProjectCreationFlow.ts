@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query';
 import {
   createGitAccount,
   createProject,
+  createProjectsBulk,
   listGitAccounts,
   listReposForGitAccount,
   type GitAccountListItem,
@@ -22,6 +23,14 @@ export function useProjectCreationFlow(orgSlug: MaybeRefOrGetter<string>) {
     },
   });
 
+  const createProjectsBulkMutation = useMutation({
+    mutationFn: (payload: { projects: Array<Record<string, unknown>> }) =>
+      createProjectsBulk(org.value, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects', 'list', org.value] });
+    },
+  });
+
   async function loadGitAccounts(): Promise<GitAccountListItem[]> {
     return listGitAccounts(org.value);
   }
@@ -36,7 +45,10 @@ export function useProjectCreationFlow(orgSlug: MaybeRefOrGetter<string>) {
 
   return {
     creatingProject: computed(() => createProjectMutation.isPending.value),
+    creatingProjectsBulk: computed(() => createProjectsBulkMutation.isPending.value),
     createProject: (payload: Record<string, unknown>) => createProjectMutation.mutateAsync(payload),
+    createProjectsBulk: (payload: { projects: Array<Record<string, unknown>> }) =>
+      createProjectsBulkMutation.mutateAsync(payload),
     loadGitAccounts,
     loadReposForAccount,
     addGitAccount,

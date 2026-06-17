@@ -15,11 +15,13 @@ export interface PipelineConfigShape {
   buildCommand: string;
   lintCommand: string | null;
   testCommand: string | null;
+  workingDirectory: string | null;
   outputDir: string;
   nodeVersion: string;
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  servicePort: number;
   previewHealthCheckPath: string | null;
   containerImageEnabled?: boolean;
   containerImageName?: string | null;
@@ -86,11 +88,13 @@ export type UpdatePipelineConfigPayload = Partial<{
   buildCommand: string;
   lintCommand: string | null;
   testCommand: string | null;
+  workingDirectory: string | null;
   outputDir: string;
   nodeVersion: string;
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  servicePort: number;
   previewHealthCheckPath: string | null;
   containerImageEnabled: boolean;
   containerImageName: string | null;

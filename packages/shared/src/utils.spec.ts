@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDirectServerSiteAccessUrl,
   buildPm2StaticSiteRootUrl,
+  defaultRuntimeEntryPoint,
+  deriveRuntimeEntryPointForFramework,
   isBlockedOutboundIp,
   isSameHttpSiteHost,
   normalizeHttpRootUrlWithSlash,
+  resolveRuntimeEntryPoint,
   stripTrailingSlashes,
 } from './utils';
 
@@ -14,6 +17,25 @@ describe('stripTrailingSlashes', () => {
     expect(stripTrailingSlashes('https://a')).toBe('https://a');
     expect(stripTrailingSlashes('https://a/')).toBe('https://a');
     expect(stripTrailingSlashes('https://a///')).toBe('https://a');
+  });
+});
+
+describe('runtime entry point helpers', () => {
+  it('按框架返回默认入口并在空配置时回退', () => {
+    expect(defaultRuntimeEntryPoint('static')).toBeNull();
+    expect(defaultRuntimeEntryPoint('ssr')).toBe('dist/index.js');
+    expect(defaultRuntimeEntryPoint('nodejs')).toBe('dist/main.js');
+    expect(resolveRuntimeEntryPoint('nodejs', '')).toBe('dist/main.js');
+    expect(resolveRuntimeEntryPoint('ssr', 'server/entry.js')).toBe('server/entry.js');
+  });
+
+  it('切换框架时仅替换默认入口，不覆盖自定义值', () => {
+    expect(deriveRuntimeEntryPointForFramework('nodejs', '', 'static')).toBe('dist/main.js');
+    expect(deriveRuntimeEntryPointForFramework('nodejs', 'dist/index.js', 'ssr')).toBe('dist/main.js');
+    expect(deriveRuntimeEntryPointForFramework('ssr', 'apps/api/dist/bootstrap.js', 'nodejs')).toBe(
+      'apps/api/dist/bootstrap.js',
+    );
+    expect(deriveRuntimeEntryPointForFramework('static', 'dist/main.js', 'nodejs')).toBe('');
   });
 });
 

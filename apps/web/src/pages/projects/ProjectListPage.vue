@@ -71,6 +71,7 @@ import {
 } from '@/composables/projects/useProjectListPageActions';
 import { useProjectListQuery } from '@/composables/projects/useProjectListQuery';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
+import { emptyProjectEditForm, projectDetailToEditForm } from './projectEditForm';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 import { listServers } from '@/api/servers';
 import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
@@ -89,28 +90,7 @@ const saving = ref(false);
 const editing = ref<ProjectListItem | null>(null);
 const editingDetail = ref<ProjectDetail | null>(null);
 const previewServerOptions = ref<{ label: string; value: string }[]>([]);
-const editInitial = ref<ProjectEditFormValues>({
-  name: '',
-  slug: '',
-  frameworkType: 'static',
-  installCommand: 'pnpm install',
-  buildCommand: 'pnpm build',
-  lintCommand: '',
-  testCommand: '',
-  outputDir: 'dist',
-  nodeVersion: '20',
-  cacheEnabled: true,
-  timeoutSeconds: 900,
-  ssrEntryPoint: 'dist/index.js',
-  previewEnabled: false,
-  previewServerId: null,
-  previewBaseDomain: '',
-  previewHealthCheckPath: '',
-  containerImageEnabled: false,
-  containerImageName: '',
-  registryUsername: '',
-  registryPassword: '',
-});
+const editInitial = ref<ProjectEditFormValues>(emptyProjectEditForm());
 
 async function openEdit(p: ProjectListItem) {
   editing.value = p;
@@ -125,30 +105,7 @@ async function openEdit(p: ProjectListItem) {
       previewServerOptions.value = [];
     }
     editingDetail.value = await listActions.fetchProjectDetail(p.slug);
-    const pc = editingDetail.value.pipelineConfig;
-    const d = editingDetail.value;
-    editInitial.value = {
-      name: d.name,
-      slug: d.slug,
-      frameworkType: d.frameworkType,
-      installCommand: pc?.installCommand ?? 'pnpm install',
-      buildCommand: pc?.buildCommand ?? 'pnpm build',
-      lintCommand: pc?.lintCommand ?? '',
-      testCommand: pc?.testCommand ?? '',
-      outputDir: pc?.outputDir ?? 'dist',
-      nodeVersion: pc?.nodeVersion ?? '20',
-      cacheEnabled: pc?.cacheEnabled ?? true,
-      timeoutSeconds: pc?.timeoutSeconds ?? 900,
-      ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
-      previewEnabled: d.previewEnabled ?? false,
-      previewServerId: d.previewServerId ?? null,
-      previewBaseDomain: d.previewBaseDomain ?? '',
-      previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
-      containerImageEnabled: pc?.containerImageEnabled ?? false,
-      containerImageName: pc?.containerImageName ?? '',
-      registryUsername: '',
-      registryPassword: '',
-    };
+    editInitial.value = projectDetailToEditForm(editingDetail.value);
     showEdit.value = true;
   } catch {
     editing.value = null;
@@ -182,11 +139,21 @@ async function saveEdit(v: ProjectEditFormValues) {
     message.error('请填写安装命令、构建命令与输出目录');
     return;
   }
+  if (v.workingDirectory.trim().startsWith('/') || v.workingDirectory.includes('..')) {
+    message.error('工作目录必须是仓库内相对路径，且不能包含 ..');
+    return;
+  }
   if (v.timeoutSeconds == null || v.timeoutSeconds < 60) {
     message.error('构建超时至少 60 秒');
     return;
   }
-  if (v.previewEnabled) {
+  if (v.frameworkType !== 'static') {
+    if (!Number.isInteger(v.servicePort) || v.servicePort < 1 || v.servicePort > 65535) {
+      message.error('服务端口须为 1-65535 的整数');
+      return;
+    }
+  }
+  if (v.frameworkType !== 'nodejs' && v.previewEnabled) {
     if (!v.previewServerId) {
       message.error('启用 PR 预览时请选择一个预览服务器');
       return;
@@ -203,9 +170,11 @@ async function saveEdit(v: ProjectEditFormValues) {
       name: v.name,
       slug: v.slug,
       frameworkType: v.frameworkType,
-      previewEnabled: v.previewEnabled,
-      previewServerId: v.previewEnabled ? v.previewServerId : null,
-      previewBaseDomain: v.previewEnabled ? v.previewBaseDomain.trim() : null,
+      previewEnabled: v.frameworkType === 'nodejs' ? false : v.previewEnabled,
+      previewServerId:
+        v.frameworkType === 'nodejs' ? null : (v.previewEnabled ? v.previewServerId : null),
+      previewBaseDomain:
+        v.frameworkType === 'nodejs' ? null : (v.previewEnabled ? v.previewBaseDomain.trim() : null),
     });
     const slugAfter = v.slug;
 
@@ -213,13 +182,15 @@ async function saveEdit(v: ProjectEditFormValues) {
       await listActions.updatePipelineConfig(slugAfter, {
         installCommand: v.installCommand.trim(),
         buildCommand: v.buildCommand.trim(),
+        workingDirectory: v.workingDirectory.trim() || null,
         outputDir: v.outputDir.trim(),
         nodeVersion: v.nodeVersion,
         cacheEnabled: v.cacheEnabled,
         timeoutSeconds: v.timeoutSeconds,
         lintCommand: v.lintCommand.trim() ? v.lintCommand.trim() : null,
         testCommand: v.testCommand.trim() ? v.testCommand.trim() : null,
-        ssrEntryPoint: v.frameworkType === 'ssr' ? (v.ssrEntryPoint.trim() || null) : null,
+        ssrEntryPoint: v.frameworkType === 'static' ? null : (v.ssrEntryPoint.trim() || null),
+        servicePort: v.frameworkType === 'static' ? 3000 : v.servicePort,
         previewHealthCheckPath:
           v.frameworkType === 'ssr' && v.previewHealthCheckPath.trim()
             ? v.previewHealthCheckPath.trim()

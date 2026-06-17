@@ -30,11 +30,13 @@ export interface ProjectDetail {
     buildCommand: string;
     lintCommand: string | null;
     testCommand: string | null;
+    workingDirectory: string | null;
     outputDir: string;
     nodeVersion: string;
     cacheEnabled: boolean;
     timeoutSeconds: number;
     ssrEntryPoint: string | null;
+    servicePort: number;
     previewHealthCheckPath: string | null;
     containerImageEnabled?: boolean;
     containerImageName?: string | null;
@@ -96,6 +98,13 @@ export async function listProjects(orgSlug: string) {
 
 export async function createProject(orgSlug: string, payload: Record<string, unknown>) {
   return http.post(`/orgs/${orgSlug}/projects`, payload).then((r) => r.data);
+}
+
+export async function createProjectsBulk(
+  orgSlug: string,
+  payload: { projects: Array<Record<string, unknown>> },
+) {
+  return http.post(`/orgs/${orgSlug}/projects/bulk`, payload).then((r) => r.data);
 }
 
 export async function listGithubReposByPat(pat: string) {
@@ -182,11 +191,13 @@ export type UpdatePipelineConfigPayload = Partial<{
   buildCommand: string;
   lintCommand: string | null;
   testCommand: string | null;
+  workingDirectory: string | null;
   outputDir: string;
   nodeVersion: string;
   cacheEnabled: boolean;
   timeoutSeconds: number;
   ssrEntryPoint: string | null;
+  servicePort: number;
   previewHealthCheckPath: string | null;
   containerImageEnabled: boolean;
   containerImageName: string | null;
@@ -266,4 +277,3 @@ export async function upsertProjectBuildEnv(
 export async function deleteProjectBuildEnv(orgSlug: string, projectSlug: string, varId: string) {
   return http.delete(`/orgs/${orgSlug}/projects/${projectSlug}/build-env/${varId}`).then((r) => r.data);
 }
-

@@ -1,4 +1,4 @@
-import { GitProvider } from './enums';
+import { FrameworkType, GitProvider } from './enums';
 
 /** 是否为本地回环类主机名（用于部署域名 / SSH host 判断） */
 export function isLoopbackHostLabel(s: string | null | undefined): boolean {
@@ -9,6 +9,45 @@ export function isLoopbackHostLabel(s: string | null | undefined): boolean {
 /** 去掉字符串末尾连续斜杠（规范 HTTP(S) base URL） */
 export function stripTrailingSlashes(input: string): string {
   return input.replace(/\/+$/, '');
+}
+
+/** 不同运行时框架的默认启动入口 */
+export function defaultRuntimeEntryPoint(frameworkType: string): string | null {
+  switch (frameworkType) {
+    case FrameworkType.NODEJS:
+      return 'dist/main.js';
+    case FrameworkType.SSR:
+      return 'dist/index.js';
+    default:
+      return null;
+  }
+}
+
+/** 读取配置值；为空时回退到框架约定入口 */
+export function resolveRuntimeEntryPoint(
+  frameworkType: string,
+  configuredEntryPoint: string | null | undefined,
+): string | null {
+  const entry = configuredEntryPoint?.trim();
+  return entry ? entry : defaultRuntimeEntryPoint(frameworkType);
+}
+
+/**
+ * 表单切换框架时，仅当当前值为空或仍是旧框架默认值时，替换为新框架默认值。
+ * 若用户已填写自定义入口，则保持不变。
+ */
+export function deriveRuntimeEntryPointForFramework(
+  frameworkType: string,
+  currentEntryPoint: string | null | undefined,
+  previousFrameworkType?: string | null,
+): string {
+  const current = currentEntryPoint?.trim() ?? '';
+  const nextDefault = defaultRuntimeEntryPoint(frameworkType) ?? '';
+  if (!previousFrameworkType) {
+    return current || nextDefault;
+  }
+  const prevDefault = defaultRuntimeEntryPoint(previousFrameworkType) ?? '';
+  return !current || current === prevDefault ? nextDefault : current;
 }
 
 /**

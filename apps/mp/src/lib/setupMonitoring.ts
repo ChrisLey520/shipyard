@@ -1,33 +1,53 @@
 import type { App } from 'vue';
-import { initUniMonitoring } from '@shipyard/monitoring-sdk/uni';
 import { readUniPlatformLabel } from '@/utils/uniPlatform';
 
 /** 小程序端监控；开发默认关闭，生产默认开启（可用 VITE_MONITORING_DISABLED 关闭） */
 export function setupMonitoring(app: App): void {
-  const endpoint = import.meta.env.VITE_MONITORING_ENDPOINT as string | undefined;
-  const projectKey = import.meta.env.VITE_MONITORING_PROJECT_KEY as string | undefined;
-  const token = import.meta.env.VITE_MONITORING_INGEST_TOKEN as string | undefined;
+  void (async () => {
+    const endpoint = import.meta.env.VITE_MONITORING_ENDPOINT as string | undefined;
+    const projectKey = import.meta.env.VITE_MONITORING_PROJECT_KEY as string | undefined;
+    const token = import.meta.env.VITE_MONITORING_INGEST_TOKEN as string | undefined;
 
-  const prodOn =
-    import.meta.env.PROD && String(import.meta.env.VITE_MONITORING_DISABLED || '').toLowerCase() !== 'true';
-  const devOn = String(import.meta.env.VITE_MONITORING_ENABLED || '').toLowerCase() === 'true';
-  const enabled = (prodOn || devOn) && Boolean(endpoint && projectKey && token);
-  // 未开启时完全不初始化 SDK，避免对 uni.request / 定时器等产生任何介入（便于排查工具链误报）
-  if (!enabled) {
-    return;
-  }
+    const prodOn =
+      import.meta.env.PROD && String(import.meta.env.VITE_MONITORING_DISABLED || '').toLowerCase() !== 'true';
+    const devOn = String(import.meta.env.VITE_MONITORING_ENABLED || '').toLowerCase() === 'true';
+    const enabled = (prodOn || devOn) && Boolean(endpoint && projectKey && token);
+    // 未开启时完全不初始化 SDK，避免对 uni.request / 定时器等产生任何介入（便于排查工具链误报）
+    if (!enabled) {
+      return;
+    }
 
-  const opts = {
-    enabled: true,
-    app,
-    endpoint: endpoint ?? '',
-    projectKey: projectKey ?? '',
-    ingestToken: token ?? '',
-    env: import.meta.env.MODE,
-    ...(import.meta.env.VITE_MONITORING_RELEASE
-      ? { release: String(import.meta.env.VITE_MONITORING_RELEASE) }
-      : {}),
-    platform: readUniPlatformLabel(),
-  };
-  initUniMonitoring(opts);
+    const opts = {
+      enabled: true,
+      app,
+      endpoint: endpoint ?? '',
+      projectKey: projectKey ?? '',
+      ingestToken: token ?? '',
+      env: import.meta.env.MODE,
+      ...(import.meta.env.VITE_MONITORING_RELEASE
+        ? { release: String(import.meta.env.VITE_MONITORING_RELEASE) }
+        : {}),
+      platform: readUniPlatformLabel(),
+    };
+
+    try {
+      const moduleName = '@prism/sdk/uni';
+      // 用变量名避免在构建期静态解析依赖（SDK 不在当前 monorepo 时也能正常 build）
+      const mod = (await import(moduleName)) as unknown as {
+        initUniMonitoring?: (args: {
+          enabled: boolean;
+          app: App;
+          endpoint: string;
+          projectKey: string;
+          ingestToken: string;
+          env: string;
+          release?: string;
+          platform?: string;
+        }) => void;
+      };
+      mod.initUniMonitoring?.(opts);
+    } catch {
+      // @prism/sdk/uni 未安装时不影响主流程
+    }
+  })();
 }

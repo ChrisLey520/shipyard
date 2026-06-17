@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
+import { resolveRuntimeEntryPoint } from '@shipyard/shared';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { createHmac, randomBytes } from 'crypto';
@@ -47,8 +48,13 @@ export class ProjectsApplicationService {
       frameworkType: string;
       repoFullName: string;
       gitAccountId: string;
+      installCommand?: string;
       buildCommand?: string;
+      workingDirectory?: string | null;
       outputDir?: string;
+      nodeVersion?: string;
+      ssrEntryPoint?: string | null;
+      servicePort?: number;
     },
   ) {
     const existing = await this.repo.findFirstProjectByOrgSlug(orgId, data.slug);
@@ -59,6 +65,12 @@ export class ProjectsApplicationService {
 
     const decryptedToken = this.crypto.decrypt(gitAccount.accessToken);
     const webhookSecret = randomBytes(32).toString('hex');
+    if (
+      data.servicePort !== undefined &&
+      (!Number.isInteger(data.servicePort) || data.servicePort < 1 || data.servicePort > 65535)
+    ) {
+      throw new BadRequestException('servicePort 须为 1-65535 的整数');
+    }
 
     const project = await this.repo.createProjectWithPipeline({
       organizationId: orgId,
@@ -66,8 +78,13 @@ export class ProjectsApplicationService {
       slug: data.slug,
       frameworkType: data.frameworkType,
       repoFullName: data.repoFullName,
+      installCommand: data.installCommand ?? 'pnpm install',
       buildCommand: data.buildCommand ?? 'pnpm build',
+      workingDirectory: data.workingDirectory?.trim() || null,
       outputDir: data.outputDir ?? 'dist',
+      nodeVersion: data.nodeVersion ?? '20',
+      ssrEntryPoint: resolveRuntimeEntryPoint(data.frameworkType, data.ssrEntryPoint),
+      servicePort: data.servicePort ?? 3000,
     });
 
     const gitConn = await this.repo.createGitConnection({
@@ -99,6 +116,39 @@ export class ProjectsApplicationService {
     await this.repo.setProjectGitConnectionId(project.id, gitConn.id);
 
     return this.repo.findProjectCreatedPayload(project.id);
+  }
+
+  async createProjectsBulk(
+    orgId: string,
+    items: Array<{
+      name: string;
+      slug: string;
+      frameworkType: string;
+      repoFullName: string;
+      gitAccountId: string;
+      installCommand?: string;
+      buildCommand?: string;
+      workingDirectory?: string | null;
+      outputDir?: string;
+      nodeVersion?: string;
+      ssrEntryPoint?: string | null;
+      servicePort?: number;
+    }>,
+  ) {
+    if (items.length === 0) {
+      throw new BadRequestException('projects 不能为空');
+    }
+    const seen = new Set<string>();
+    const created: Array<Awaited<ReturnType<typeof this.createProject>>> = [];
+    for (const item of items) {
+      const slug = item.slug.trim();
+      if (seen.has(slug)) {
+        throw new BadRequestException(`批量创建中存在重复 slug：${slug}`);
+      }
+      seen.add(slug);
+      created.push(await this.createProject(orgId, item));
+    }
+    return created;
   }
 
   private static readonly NOTIFICATION_TEMPLATE_MAX = 16_000;
@@ -145,11 +195,18 @@ export class ProjectsApplicationService {
       patch.slug = next;
     }
     if (data.previewEnabled !== undefined) patch.previewEnabled = data.previewEnabled;
-    if (data.previewBaseDomain !== undefined) {
+    if (data.frameworkType === 'nodejs') {
+      patch.previewEnabled = false;
+      patch.previewServerId = null;
+      patch.previewBaseDomain = null;
+    }
+    if (data.previewBaseDomain !== undefined && data.frameworkType !== 'nodejs') {
       patch.previewBaseDomain = data.previewBaseDomain?.trim() || null;
     }
     if (data.previewServerId !== undefined) {
-      if (data.previewServerId === null) {
+      if (data.frameworkType === 'nodejs') {
+        patch.previewServerId = null;
+      } else if (data.previewServerId === null) {
         patch.previewServerId = null;
       } else {
         const srv = await this.prisma.server.findFirst({
@@ -180,7 +237,8 @@ export class ProjectsApplicationService {
     const previewTouched =
       data.previewEnabled !== undefined ||
       data.previewServerId !== undefined ||
-      data.previewBaseDomain !== undefined;
+      data.previewBaseDomain !== undefined ||
+      data.frameworkType === 'nodejs';
     if (previewTouched) {
       const meta = await this.repo.findGitConnectionWebhookMeta(project.id);
       if (meta?.remoteWebhookId && meta.gitProvider === 'github') {
@@ -234,11 +292,13 @@ export class ProjectsApplicationService {
       buildCommand?: string;
       lintCommand?: string | null;
       testCommand?: string | null;
+      workingDirectory?: string | null;
       outputDir?: string;
       nodeVersion?: string;
       cacheEnabled?: boolean;
       timeoutSeconds?: number;
       ssrEntryPoint?: string | null;
+      servicePort?: number;
       previewHealthCheckPath?: string | null;
       containerImageEnabled?: boolean;
       containerImageName?: string | null;
@@ -255,6 +315,24 @@ export class ProjectsApplicationService {
       data = { ...data, previewHealthCheckPath: withSlash };
     } else if (data.previewHealthCheckPath === '' || data.previewHealthCheckPath === null) {
       data = { ...data, previewHealthCheckPath: null };
+    }
+    if (data.servicePort !== undefined) {
+      if (!Number.isInteger(data.servicePort) || data.servicePort < 1 || data.servicePort > 65535) {
+        throw new BadRequestException('servicePort 须为 1-65535 的整数');
+      }
+    }
+    if (data.workingDirectory !== undefined) {
+      const next = data.workingDirectory?.trim() ?? '';
+      if (next.startsWith('/') || next.startsWith('\\') || next.includes('..')) {
+        throw new BadRequestException('workingDirectory 必须是仓库内相对路径，且不能包含 ..');
+      }
+      data = { ...data, workingDirectory: next || null };
+    }
+    if (data.ssrEntryPoint !== undefined) {
+      data = {
+        ...data,
+        ssrEntryPoint: resolveRuntimeEntryPoint(project.frameworkType, data.ssrEntryPoint),
+      };
     }
 
     const { containerRegistryAuth, ...rest } = data;
