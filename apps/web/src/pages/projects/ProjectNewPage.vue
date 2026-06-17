@@ -151,6 +151,39 @@
             <n-button secondary @click="applyBatchPreset('web_server')">填充 Web + Server 模板</n-button>
             <n-button secondary @click="applyBatchPreset('web_nest')">填充 Web + NestJS 模板</n-button>
           </n-space>
+          <n-card size="small" title="环境模板（可选）">
+            <n-form :model="envTemplate" label-placement="top">
+              <n-form-item>
+                <n-checkbox v-model:checked="envTemplate.enabled">创建项目后自动生成默认环境</n-checkbox>
+              </n-form-item>
+              <template v-if="envTemplate.enabled">
+                <n-form-item label="环境名称">
+                  <n-input v-model:value="envTemplate.name" placeholder="production" />
+                </n-form-item>
+                <n-form-item label="触发分支">
+                  <n-input v-model:value="envTemplate.triggerBranch" placeholder="main" />
+                </n-form-item>
+                <n-form-item label="部署服务器">
+                  <n-select
+                    v-model:value="envTemplate.serverId"
+                    :options="batchServerOptions"
+                    :loading="loadingServers"
+                    clearable
+                    placeholder="请选择一台用于默认环境的服务器"
+                  />
+                </n-form-item>
+                <n-form-item label="部署根目录">
+                  <n-input v-model:value="envTemplate.deployRoot" placeholder="/var/www/shipyard" />
+                </n-form-item>
+                <n-form-item label="基础域名（可选）">
+                  <n-input v-model:value="envTemplate.baseDomain" placeholder="如 apps.example.com，将生成 {slug}.apps.example.com" />
+                </n-form-item>
+                <n-form-item label="受保护">
+                  <n-switch v-model:value="envTemplate.protected" />
+                </n-form-item>
+              </template>
+            </n-form>
+          </n-card>
           <n-card v-for="(item, idx) in batchProjects" :key="idx" size="small" :title="`应用 ${idx + 1}`">
             <n-form :model="item" label-placement="top">
               <n-form-item label="项目名称">
@@ -248,10 +281,12 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
-  NInput, NInputNumber, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, useMessage,
+  NInput, NInputNumber, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, NSwitch, useMessage,
   NCheckbox, NAlert,
 } from 'naive-ui';
 import { useProjectCreationFlow, type GitAccountListItem } from '@/composables/projects/useProjectCreationFlow';
+import { createEnvironment } from '@/api/projects/environments';
+import { listServers, type ServerItem } from '@/api/servers';
 import {
   DEFAULT_GITLAB_BASE_URL,
   GIT_PROVIDER_SELECT_OPTIONS,
@@ -273,11 +308,14 @@ const step = ref(1);
 const creation = useProjectCreationFlow(orgSlug);
 const creating = creation.creatingProject;
 const creatingBulk = creation.creatingProjectsBulk;
-const creatingAny = computed(() => creating.value || creatingBulk.value);
+const creatingEnvironments = ref(false);
+const creatingAny = computed(() => creating.value || creatingBulk.value || creatingEnvironments.value);
 const loadingRepos = ref(false);
+const loadingServers = ref(false);
 const repoOptions = ref<Array<{ label: string; value: string }>>([]);
 const loadingAccounts = ref(false);
 const gitAccounts = ref<GitAccountListItem[]>([]);
+const orgServers = ref<ServerItem[]>([]);
 
 const selectedAccount = computed(() =>
   gitAccounts.value.find((a) => a.id === form.value.gitAccountId) ?? null,
@@ -328,12 +366,13 @@ function createDraftFromPreset(
 ): ProjectCreateDraft {
   const normalizedName = name.trim();
   const isNode = kind === 'nodejs';
+  const filterPath = workingDirectory.startsWith('.') ? workingDirectory : `./${workingDirectory}`;
   return {
     name: normalizedName,
     slug: slugifyFromDisplayName(normalizedName),
     frameworkType: kind,
     installCommand: 'pnpm install',
-    buildCommand: `pnpm --filter ${workingDirectory} build`,
+    buildCommand: `pnpm --filter ${filterPath} build`,
     workingDirectory,
     outputDir: 'dist',
     nodeVersion: '20',
@@ -364,6 +403,22 @@ const gitProviderOptions = GIT_PROVIDER_SELECT_OPTIONS;
 const baseUrlInputPlaceholder = `${DEFAULT_GITLAB_BASE_URL} 或 https://gitea.yourdomain.com`;
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));
+const batchServerOptions = computed(() =>
+  orgServers.value.map((server) => ({
+    label: `${server.name} (${server.host})`,
+    value: server.id,
+  })),
+);
+
+const envTemplate = ref({
+  enabled: false,
+  name: 'production',
+  triggerBranch: 'main',
+  serverId: null as string | null,
+  deployRoot: '/var/www/shipyard',
+  baseDomain: '',
+  protected: false,
+});
 
 const canStep1 = computed(
   () =>
@@ -380,6 +435,16 @@ function autoSlug() {
 async function handleCreate() {
   if (batchMode.value) {
     if (!form.value.repoFullName || !form.value.gitAccountId) return;
+    if (envTemplate.value.enabled) {
+      if (!envTemplate.value.serverId) {
+        message.error('启用环境模板时请选择部署服务器');
+        return;
+      }
+      if (!envTemplate.value.deployRoot.trim()) {
+        message.error('启用环境模板时请填写部署根目录');
+        return;
+      }
+    }
     const payload = batchProjects.value.map((item) => ({
       name: item.name.trim(),
       slug: item.slug.trim(),
@@ -412,11 +477,42 @@ async function handleCreate() {
       }
     }
     try {
-      await creation.createProjectsBulk({ projects: payload });
-      message.success(`已创建 ${payload.length} 个项目`);
+      const created = (await creation.createProjectsBulk({ projects: payload })) as Array<{
+        slug: string;
+        frameworkType: string;
+      }>;
+      if (envTemplate.value.enabled && envTemplate.value.serverId) {
+        creatingEnvironments.value = true;
+        const deployRoot = trimTrailingSlashes(envTemplate.value.deployRoot.trim());
+        const baseDomain = normalizeBaseDomain(envTemplate.value.baseDomain);
+        const envName = envTemplate.value.name.trim() || 'production';
+        const branch = envTemplate.value.triggerBranch.trim() || 'main';
+        const settled = await Promise.allSettled(
+          created.map((project) =>
+            createEnvironment(orgSlug.value, project.slug, {
+              name: envName,
+              triggerBranch: branch,
+              serverId: envTemplate.value.serverId,
+              deployPath: `${deployRoot}/${project.slug}`,
+              domain: baseDomain ? `${project.slug}.${baseDomain}` : undefined,
+              protected: envTemplate.value.protected,
+            }),
+          ),
+        );
+        const failed = settled.filter((r) => r.status === 'rejected').length;
+        if (failed > 0) {
+          message.warning(`已创建 ${created.length} 个项目，其中 ${created.length - failed} 个默认环境创建成功，${failed} 个失败`);
+        } else {
+          message.success(`已创建 ${created.length} 个项目，并生成默认环境`);
+        }
+      } else {
+        message.success(`已创建 ${payload.length} 个项目`);
+      }
       void router.push(`/orgs/${orgSlug.value}/projects`);
     } catch {
       /* 接口错误由全局 axios 拦截器提示 */
+    } finally {
+      creatingEnvironments.value = false;
     }
     return;
   }
@@ -476,6 +572,17 @@ async function loadAccounts() {
   }
 }
 
+async function loadServers() {
+  loadingServers.value = true;
+  try {
+    orgServers.value = await listServers(orgSlug.value, { shipyard: { silent: true } });
+  } catch {
+    orgServers.value = [];
+  } finally {
+    loadingServers.value = false;
+  }
+}
+
 async function handleCreateAccount() {
   if (!accountForm.value.name || !accountForm.value.accessToken) return;
   creatingAccount.value = true;
@@ -511,6 +618,7 @@ async function handleCreateAccount() {
 
 watch(orgSlug, () => {
   void loadAccounts();
+  void loadServers();
 }, { immediate: true });
 
 // 选择 Git 账户后自动拉取仓库列表（更符合直觉）
@@ -566,5 +674,13 @@ function applyBatchPreset(kind: 'web_server' | 'web_nest') {
     createDraftFromPreset('static', webName, 'apps/web'),
     createDraftFromPreset('nodejs', apiName, 'apps/server'),
   ];
+}
+
+function trimTrailingSlashes(input: string): string {
+  return input.replace(/\/+$/, '');
+}
+
+function normalizeBaseDomain(input: string): string {
+  return input.trim().replace(/^\.+/, '').replace(/\.+$/, '');
 }
 </script>
