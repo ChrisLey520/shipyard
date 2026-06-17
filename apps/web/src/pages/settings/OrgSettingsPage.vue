@@ -12,7 +12,26 @@
             <n-list-item v-for="c in k8sClusters" :key="c.id">
               <div class="flex w-full flex-col gap-2 min-w-0 sm:flex-row sm:items-center sm:justify-between">
                 <span class="min-w-0 break-words">{{ c.name }}</span>
-                <n-button class="w-full shrink-0 sm:w-auto" size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
+                <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button
+                        quaternary
+                        circle
+                        size="tiny"
+                        :aria-label="`查看「${c.name}」集群 ID`"
+                        @click="openClusterIdModal(c)"
+                      >
+                        <template #icon>
+                          <n-icon :component="KeyOutline" />
+                        </template>
+                      </n-button>
+                    </template>
+                    查看集群 ID
+                  </n-tooltip>
+
+                  <n-button class="w-full sm:w-auto" size="tiny" type="error" @click="confirmRemoveK8s(c)">删除</n-button>
+                </div>
               </div>
             </n-list-item>
           </n-list>
@@ -67,6 +86,29 @@
         </n-space>
       </template>
     </n-modal>
+
+    <n-modal
+      v-model:show="showClusterId"
+      title="集群 ID"
+      preset="card"
+      style="width: min(520px, calc(100vw - 32px))"
+    >
+      <n-space vertical size="small">
+        <n-input :value="selectedClusterId ?? ''" readonly />
+        <n-space justify="end">
+          <n-button
+            :disabled="!selectedClusterId"
+            secondary
+            @click="copySelectedClusterId"
+          >
+            <template #icon>
+              <n-icon :component="CopyOutline" />
+            </template>
+            复制
+          </n-button>
+        </n-space>
+      </n-space>
+    </n-modal>
   </div>
 </template>
 
@@ -81,13 +123,16 @@ import {
   NInput,
   NInputNumber,
   NButton,
+  NIcon,
   NModal,
   NSpace,
   NList,
   NListItem,
   NEmpty,
+  NTooltip,
   useMessage,
 } from 'naive-ui';
+import { CopyOutline, KeyOutline } from '@vicons/ionicons5';
 import {
   createKubernetesCluster,
   deleteKubernetesCluster,
@@ -112,6 +157,9 @@ const k8sClusters = ref<KubernetesClusterRow[]>([]);
 const showK8s = ref(false);
 const k8sSaving = ref(false);
 const k8sForm = ref({ name: '', kubeconfig: '' });
+
+const showClusterId = ref(false);
+const selectedClusterId = ref<string | null>(null);
 
 async function loadK8s() {
   try {
@@ -160,6 +208,45 @@ function confirmRemoveK8s(c: KubernetesClusterRow) {
       await loadK8s();
     },
   });
+}
+
+function openClusterIdModal(c: KubernetesClusterRow) {
+  selectedClusterId.value = c.id;
+  showClusterId.value = true;
+}
+
+async function copyText(text: string) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    message.success('已复制');
+    return;
+  } catch {
+    // 忽略，走降级方案
+  }
+
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', 'true');
+    el.style.position = 'fixed';
+    el.style.top = '-9999px';
+    el.style.left = '-9999px';
+    document.body.appendChild(el);
+    el.select();
+    el.setSelectionRange(0, el.value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    if (ok) message.success('已复制');
+    else message.error('复制失败');
+  } catch {
+    message.error('复制失败');
+  }
+}
+
+async function copySelectedClusterId() {
+  if (!selectedClusterId.value) return;
+  await copyText(selectedClusterId.value);
 }
 
 async function save() {

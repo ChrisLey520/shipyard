@@ -147,6 +147,10 @@
           <n-alert type="info" :show-icon="false">
             适合同一个 monorepo 仓库一次创建多个项目，例如 `apps/web` 与 `apps/server`。
           </n-alert>
+          <n-space>
+            <n-button secondary @click="applyBatchPreset('web_server')">填充 Web + Server 模板</n-button>
+            <n-button secondary @click="applyBatchPreset('web_nest')">填充 Web + NestJS 模板</n-button>
+          </n-space>
           <n-card v-for="(item, idx) in batchProjects" :key="idx" size="small" :title="`应用 ${idx + 1}`">
             <n-form :model="item" label-placement="top">
               <n-form-item label="项目名称">
@@ -314,6 +318,27 @@ function createDraft(): ProjectCreateDraft {
     nodeVersion: '20',
     ssrEntryPoint: '',
     servicePort: 3000,
+  };
+}
+
+function createDraftFromPreset(
+  kind: 'static' | 'nodejs',
+  name: string,
+  workingDirectory: string,
+): ProjectCreateDraft {
+  const normalizedName = name.trim();
+  const isNode = kind === 'nodejs';
+  return {
+    name: normalizedName,
+    slug: slugifyFromDisplayName(normalizedName),
+    frameworkType: kind,
+    installCommand: 'pnpm install',
+    buildCommand: `pnpm --filter ${workingDirectory} build`,
+    workingDirectory,
+    outputDir: 'dist',
+    nodeVersion: '20',
+    ssrEntryPoint: isNode ? 'dist/main.js' : '',
+    servicePort: isNode ? 3000 : 3000,
   };
 }
 
@@ -531,5 +556,15 @@ function addBatchProject() {
 
 function removeBatchProject(index: number) {
   batchProjects.value.splice(index, 1);
+}
+
+function applyBatchPreset(kind: 'web_server' | 'web_nest') {
+  const baseName = form.value.name.trim() || 'Monorepo App';
+  const webName = `${baseName} Web`;
+  const apiName = kind === 'web_nest' ? `${baseName} Nest API` : `${baseName} Server`;
+  batchProjects.value = [
+    createDraftFromPreset('static', webName, 'apps/web'),
+    createDraftFromPreset('nodejs', apiName, 'apps/server'),
+  ];
 }
 </script>
