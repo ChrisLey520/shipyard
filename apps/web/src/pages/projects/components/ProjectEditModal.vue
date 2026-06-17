@@ -69,7 +69,7 @@ watch(
     form.nodeVersion = v.nodeVersion ?? '20';
     form.cacheEnabled = v.cacheEnabled ?? true;
     form.timeoutSeconds = typeof v.timeoutSeconds === 'number' ? v.timeoutSeconds : 900;
-    form.ssrEntryPoint = v.ssrEntryPoint ?? 'dist/index.js';
+    form.ssrEntryPoint = v.ssrEntryPoint ?? '';
     form.servicePort = typeof v.servicePort === 'number' ? v.servicePort : 3000;
     form.previewHealthCheckPath = v.previewHealthCheckPath ?? '';
     form.previewEnabled = v.previewEnabled ?? false;

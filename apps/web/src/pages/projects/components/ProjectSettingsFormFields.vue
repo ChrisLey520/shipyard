@@ -113,6 +113,7 @@
 </template>
 
 <script setup lang="ts">
+import { watch } from 'vue';
 import {
   NForm,
   NFormItem,
@@ -125,9 +126,10 @@ import {
   NPopover,
   NText,
 } from 'naive-ui';
+import { deriveRuntimeEntryPointForFramework } from '@shipyard/shared';
 import type { ProjectEditFormValues } from '../projectEditForm';
 
-defineProps<{
+const props = defineProps<{
   form: ProjectEditFormValues;
   serverOptions?: { label: string; value: string }[];
   /** 仅 GitHub 等已支持 PR 预览的仓库展示 */
@@ -141,4 +143,16 @@ const frameworkOptions = [
 ];
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));
+
+watch(
+  () => props.form.frameworkType,
+  (next, prev) => {
+    if (!next || next === prev) return;
+    props.form.ssrEntryPoint = deriveRuntimeEntryPointForFramework(
+      next,
+      props.form.ssrEntryPoint,
+      prev,
+    );
+  },
+);
 </script>

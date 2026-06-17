@@ -28,7 +28,11 @@
         <wd-switch v-model="form.cacheEnabled" />
       </view>
       <template v-if="form.frameworkType !== 'static'">
-        <wd-input v-model="form.ssrEntryPoint" :label="form.frameworkType === 'nodejs' ? 'Node 入口' : 'SSR 入口'" />
+        <wd-input
+          v-model="form.ssrEntryPoint"
+          :label="form.frameworkType === 'nodejs' ? 'Node 入口' : 'SSR 入口'"
+          :placeholder="form.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
+        />
         <wd-input v-model="form.servicePort" label="服务端口" type="number" />
       </template>
       <template v-if="form.frameworkType === 'ssr'">
@@ -77,7 +81,11 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
+import {
+  URL_SLUG_VALIDATION_MESSAGE,
+  deriveRuntimeEntryPointForFramework,
+  isValidUrlSlug,
+} from '@shipyard/shared';
 import * as projectsApi from '@/api/projects';
 import type { ProjectDetail, UpdatePipelineConfigPayload } from '@/api/projects';
 import { listServers } from '@/package-org/api/servers';
@@ -116,7 +124,7 @@ const form = ref({
   testCommand: '',
   timeoutSeconds: 900,
   cacheEnabled: true,
-  ssrEntryPoint: 'dist/index.js',
+  ssrEntryPoint: '',
   servicePort: 3000,
   previewHealthCheckPath: '',
   previewEnabled: false,
@@ -200,7 +208,7 @@ function syncFromProject(p: ProjectDetail) {
     testCommand: pc?.testCommand ?? '',
     timeoutSeconds: pc?.timeoutSeconds ?? 900,
     cacheEnabled: pc?.cacheEnabled ?? true,
-    ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    ssrEntryPoint: deriveRuntimeEntryPointForFramework(ft, pc?.ssrEntryPoint),
     servicePort: pc?.servicePort ?? 3000,
     previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
     previewEnabled: p.previewEnabled ?? false,
@@ -232,6 +240,18 @@ watch(
       syncFromProject(p);
       await loadServers();
     }
+  },
+);
+
+watch(
+  () => form.value.frameworkType,
+  (next, prev) => {
+    if (!next || next === prev) return;
+    form.value.ssrEntryPoint = deriveRuntimeEntryPointForFramework(
+      next,
+      form.value.ssrEntryPoint,
+      prev,
+    );
   },
 );
 

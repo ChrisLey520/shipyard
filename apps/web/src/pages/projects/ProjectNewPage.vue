@@ -192,6 +192,7 @@ import {
   GIT_PROVIDER_SELECT_OPTIONS,
   GitProvider,
   displayGitProviderBaseUrl,
+  deriveRuntimeEntryPointForFramework,
   gitProviderLabel,
   gitProviderRequiresBaseUrl,
   isValidUrlSlug,
@@ -235,7 +236,7 @@ const form = ref({
   buildCommand: 'pnpm build',
   outputDir: 'dist',
   nodeVersion: '20',
-  ssrEntryPoint: 'dist/index.js',
+  ssrEntryPoint: '',
   servicePort: 3000,
 });
 
@@ -352,6 +353,18 @@ watch(
   async (id, prev) => {
     if (!id || id === prev) return;
     await loadRepos();
+  },
+);
+
+watch(
+  () => form.value.frameworkType,
+  (next, prev) => {
+    if (!next || next === prev) return;
+    form.value.ssrEntryPoint = deriveRuntimeEntryPointForFramework(
+      next,
+      form.value.ssrEntryPoint,
+      prev,
+    );
   },
 );
 </script>

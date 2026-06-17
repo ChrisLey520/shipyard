@@ -4,6 +4,7 @@ import {
   ServerOs,
   GitProvider,
   resolveDeployAccessHost,
+  resolveRuntimeEntryPoint,
   buildNginxServerNameList,
   isLoopbackHostLabel,
   buildPm2StaticSiteRootUrl,
@@ -358,7 +359,7 @@ export class DeployApplicationService {
               sshKeyPath,
               localDir: tmpExtractDir,
               projectSlug: project.slug,
-              ssrEntryPoint: pipelineConfig.ssrEntryPoint ?? 'dist/index.js',
+              ssrEntryPoint: resolveRuntimeEntryPoint('ssr', pipelineConfig.ssrEntryPoint) ?? 'dist/index.js',
               envVars,
             });
             macStaticPort = undefined;
@@ -395,7 +396,9 @@ export class DeployApplicationService {
                 projectSlug: project.slug,
                 environmentName: env.name,
                 domain: isPrimary ? (env.domain ?? null) : null,
-                ssrEntryPoint: pipelineConfig.ssrEntryPoint ?? 'dist/index.js',
+                ssrEntryPoint:
+                  resolveRuntimeEntryPoint(project.frameworkType, pipelineConfig.ssrEntryPoint) ??
+                  'dist/index.js',
                 servicePort: pipelineConfig.servicePort ?? 3000,
                 envVars,
                 skipNginx: !isPrimary,
@@ -671,6 +674,29 @@ export class DeployApplicationService {
       deploymentId,
       `[precheck] 通过（bash/rsync${opts.needNginx ? '/nginx' : ''}${opts.needPm2 ? '/node/pm2' : ''}）`,
     );
+  }
+
+  private async sshAssertRuntimeEntryPoint(
+    conn: SshClient,
+    opts: {
+      deploymentId: string;
+      cwd: string;
+      entryPoint: string;
+      logPrefix: string;
+    },
+  ): Promise<void> {
+    await this.appendLogLine(opts.deploymentId, `${opts.logPrefix} 校验运行入口: ${opts.entryPoint}`);
+    const script = [
+      'set -euo pipefail',
+      `cd ${this.shellSingleQuote(opts.cwd)}`,
+      `if [ ! -f ${this.shellSingleQuote(opts.entryPoint)} ]; then`,
+      `  echo "缺少运行入口文件：${opts.entryPoint}" >&2`,
+      `  echo "当前部署目录：${opts.cwd}" >&2`,
+      '  echo "请检查项目配置中的 Node/SSR 入口，或确认构建产物与 outputDir 是否匹配。" >&2',
+      '  exit 1',
+      'fi',
+    ].join('\n');
+    await this.sshExec(conn, `bash -lc ${this.shellSingleQuote(script)}`);
   }
 
   /** 预览 Nginx 片段：先写临时文件再 rename，避免 include 读到半成品 */
@@ -1058,6 +1084,12 @@ export class DeployApplicationService {
       privateKey: opts.privateKey,
     });
     try {
+      await this.sshAssertRuntimeEntryPoint(conn, {
+        deploymentId: opts.deploymentId,
+        cwd: slotPath,
+        entryPoint: opts.ssrEntryPoint,
+        logPrefix: '[deploy]',
+      });
       const serverNames = buildNginxServerNameList(opts.env.domain!.trim(), server.host);
       const nginxBodyNew = this.generateSsrNginxConf(serverNames, '127.0.0.1', candidatePort);
       const nginxBodyOld = this.generateSsrNginxConf(serverNames, '127.0.0.1', oldPortForNginx);
@@ -1720,7 +1752,9 @@ export class DeployApplicationService {
           );
 
           const pm2Base = this.previewPm2AppName(project.slug, preview.prNumber);
-          const entry = pipelineConfig.ssrEntryPoint ?? 'dist/index.js';
+          const entry =
+            resolveRuntimeEntryPoint(project.frameworkType, pipelineConfig.ssrEntryPoint) ??
+            'dist/index.js';
 
           if (isSsr && newSsrPort != null) {
             const activeSlot = preview.ssrBgSlot;
@@ -1751,6 +1785,12 @@ export class DeployApplicationService {
               deploymentId,
               `[preview-deploy] candidate_up slot=${candidateSlot} pm2=${candPm2Name} port=${newSsrPort}`,
             );
+            await this.sshAssertRuntimeEntryPoint(conn, {
+              deploymentId,
+              cwd,
+              entryPoint: entry,
+              logPrefix: '[preview-deploy]',
+            });
 
             await this.sshExec(
               conn,
@@ -2027,6 +2067,12 @@ export class DeployApplicationService {
       ]);
 
       if (this.usesPm2RuntimeFramework(opts.frameworkType) && !opts.skipPm2) {
+        await this.sshAssertRuntimeEntryPoint(conn, {
+          deploymentId: opts.deploymentId,
+          cwd: opts.deployPath,
+          entryPoint: opts.ssrEntryPoint,
+          logPrefix: '[deploy]',
+        });
         await this.appendLogLine(
           opts.deploymentId,
           `[deploy] ${opts.frameworkType === 'nodejs' ? 'Node.js' : 'SSR'}：开始生成 PM2 配置并启动/重载服务…`,

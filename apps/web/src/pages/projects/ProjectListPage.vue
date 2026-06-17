@@ -71,6 +71,7 @@ import {
 } from '@/composables/projects/useProjectListPageActions';
 import { useProjectListQuery } from '@/composables/projects/useProjectListQuery';
 import ProjectEditModal, { type ProjectEditFormValues } from './components/ProjectEditModal.vue';
+import { emptyProjectEditForm, projectDetailToEditForm } from './projectEditForm';
 import { URL_SLUG_VALIDATION_MESSAGE, isValidUrlSlug } from '@shipyard/shared';
 import { listServers } from '@/api/servers';
 import { openDestructiveNameConfirm } from '@/ui/destructiveNameConfirm';
@@ -89,29 +90,7 @@ const saving = ref(false);
 const editing = ref<ProjectListItem | null>(null);
 const editingDetail = ref<ProjectDetail | null>(null);
 const previewServerOptions = ref<{ label: string; value: string }[]>([]);
-const editInitial = ref<ProjectEditFormValues>({
-  name: '',
-  slug: '',
-  frameworkType: 'static',
-  installCommand: 'pnpm install',
-  buildCommand: 'pnpm build',
-  lintCommand: '',
-  testCommand: '',
-  outputDir: 'dist',
-  nodeVersion: '20',
-  cacheEnabled: true,
-  timeoutSeconds: 900,
-  ssrEntryPoint: 'dist/index.js',
-  servicePort: 3000,
-  previewEnabled: false,
-  previewServerId: null,
-  previewBaseDomain: '',
-  previewHealthCheckPath: '',
-  containerImageEnabled: false,
-  containerImageName: '',
-  registryUsername: '',
-  registryPassword: '',
-});
+const editInitial = ref<ProjectEditFormValues>(emptyProjectEditForm());
 
 async function openEdit(p: ProjectListItem) {
   editing.value = p;
@@ -126,31 +105,7 @@ async function openEdit(p: ProjectListItem) {
       previewServerOptions.value = [];
     }
     editingDetail.value = await listActions.fetchProjectDetail(p.slug);
-    const pc = editingDetail.value.pipelineConfig;
-    const d = editingDetail.value;
-    editInitial.value = {
-      name: d.name,
-      slug: d.slug,
-      frameworkType: d.frameworkType,
-      installCommand: pc?.installCommand ?? 'pnpm install',
-      buildCommand: pc?.buildCommand ?? 'pnpm build',
-      lintCommand: pc?.lintCommand ?? '',
-      testCommand: pc?.testCommand ?? '',
-      outputDir: pc?.outputDir ?? 'dist',
-      nodeVersion: pc?.nodeVersion ?? '20',
-      cacheEnabled: pc?.cacheEnabled ?? true,
-      timeoutSeconds: pc?.timeoutSeconds ?? 900,
-      ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
-      servicePort: pc?.servicePort ?? 3000,
-      previewEnabled: d.previewEnabled ?? false,
-      previewServerId: d.previewServerId ?? null,
-      previewBaseDomain: d.previewBaseDomain ?? '',
-      previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
-      containerImageEnabled: pc?.containerImageEnabled ?? false,
-      containerImageName: pc?.containerImageName ?? '',
-      registryUsername: '',
-      registryPassword: '',
-    };
+    editInitial.value = projectDetailToEditForm(editingDetail.value);
     showEdit.value = true;
   } catch {
     editing.value = null;

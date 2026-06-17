@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
+import { resolveRuntimeEntryPoint } from '@shipyard/shared';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { createHmac, randomBytes } from 'crypto';
@@ -80,8 +81,7 @@ export class ProjectsApplicationService {
       buildCommand: data.buildCommand ?? 'pnpm build',
       outputDir: data.outputDir ?? 'dist',
       nodeVersion: data.nodeVersion ?? '20',
-      ssrEntryPoint:
-        data.frameworkType === 'static' ? null : (data.ssrEntryPoint?.trim() || 'dist/index.js'),
+      ssrEntryPoint: resolveRuntimeEntryPoint(data.frameworkType, data.ssrEntryPoint),
       servicePort: data.servicePort ?? 3000,
     });
 
@@ -284,6 +284,12 @@ export class ProjectsApplicationService {
       if (!Number.isInteger(data.servicePort) || data.servicePort < 1 || data.servicePort > 65535) {
         throw new BadRequestException('servicePort 须为 1-65535 的整数');
       }
+    }
+    if (data.ssrEntryPoint !== undefined) {
+      data = {
+        ...data,
+        ssrEntryPoint: resolveRuntimeEntryPoint(project.frameworkType, data.ssrEntryPoint),
+      };
     }
 
     const { containerRegistryAuth, ...rest } = data;

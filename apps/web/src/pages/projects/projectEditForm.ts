@@ -1,4 +1,5 @@
 import type { ProjectDetail } from '@/api/projects';
+import { deriveRuntimeEntryPointForFramework } from '@shipyard/shared';
 
 /** 项目编辑表单（Modal 与项目设置页共用） */
 export type ProjectEditFormValues = {
@@ -39,7 +40,7 @@ export function emptyProjectEditForm(): ProjectEditFormValues {
     nodeVersion: '20',
     cacheEnabled: true,
     timeoutSeconds: 900,
-    ssrEntryPoint: 'dist/index.js',
+    ssrEntryPoint: '',
     servicePort: 3000,
     previewHealthCheckPath: '',
     previewEnabled: false,
@@ -69,7 +70,7 @@ export function projectDetailToEditForm(project: ProjectDetail | null): ProjectE
     nodeVersion: pc?.nodeVersion ?? '20',
     cacheEnabled: pc?.cacheEnabled ?? true,
     timeoutSeconds: pc?.timeoutSeconds ?? 900,
-    ssrEntryPoint: pc?.ssrEntryPoint ?? 'dist/index.js',
+    ssrEntryPoint: deriveRuntimeEntryPointForFramework(p.frameworkType ?? 'static', pc?.ssrEntryPoint),
     servicePort: pc?.servicePort ?? 3000,
     previewHealthCheckPath: pc?.previewHealthCheckPath ?? '',
     previewEnabled: p.previewEnabled ?? false,

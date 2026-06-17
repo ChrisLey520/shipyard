@@ -60,6 +60,7 @@
           v-if="form.frameworkType.trim() !== 'static'"
           v-model="form.ssrEntryPoint"
           :label="form.frameworkType.trim() === 'nodejs' ? 'Node 入口' : 'SSR 入口'"
+          :placeholder="form.frameworkType.trim() === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
         />
         <wd-input
           v-if="form.frameworkType.trim() !== 'static'"
@@ -94,7 +95,7 @@ import * as projectsApi from '@/api/projects';
 import * as gitApi from '@/package-org/api/git-accounts';
 import type { GitAccountItem } from '@/package-org/api/git-accounts';
 import MpPageEmpty from '@/components/MpPageEmpty.vue';
-import { slugifyFromDisplayName } from '@shipyard/shared';
+import { deriveRuntimeEntryPointForFramework, slugifyFromDisplayName } from '@shipyard/shared';
 
 const { pageMetaBg, pageMetaBgText } = useMpPageRootMeta();
 
@@ -115,7 +116,7 @@ const form = ref({
   buildCommand: 'pnpm build',
   outputDir: 'dist',
   nodeVersion: '20',
-  ssrEntryPoint: 'dist/index.js',
+  ssrEntryPoint: '',
   servicePort: '3000',
 });
 
@@ -170,6 +171,18 @@ watch(
   },
 );
 
+watch(
+  () => form.value.frameworkType,
+  (next, prev) => {
+    if (!next || next === prev) return;
+    form.value.ssrEntryPoint = deriveRuntimeEntryPointForFramework(
+      next.trim(),
+      form.value.ssrEntryPoint,
+      prev?.trim(),
+    );
+  },
+);
+
 function goAddGitAccount() {
   const o = encodeURIComponent(orgSlug.value);
   uni.navigateTo({ url: `/package-org/pages/git-accounts/index?orgSlug=${o}` });
@@ -218,7 +231,7 @@ async function submit() {
     buildCommand: f.buildCommand.trim() || 'pnpm build',
     outputDir: f.outputDir.trim() || 'dist',
     nodeVersion: f.nodeVersion.trim() || '20',
-    ssrEntryPoint: f.frameworkType.trim() === 'static' ? null : f.ssrEntryPoint.trim() || 'dist/index.js',
+    ssrEntryPoint: f.frameworkType.trim() === 'static' ? null : f.ssrEntryPoint.trim() || null,
     servicePort: f.frameworkType.trim() === 'static' ? 3000 : Number(f.servicePort) || 3000,
   };
 
