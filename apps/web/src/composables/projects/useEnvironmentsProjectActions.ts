@@ -11,6 +11,7 @@ import {
   upsertEnvVar,
   type UpdateEnvironmentPayload,
 } from '@/api/projects/environments';
+import { listKubernetesClusters } from '@/api/kubernetes-clusters';
 
 export type { Env, EnvVar } from '@/api/projects/environments';
 
@@ -36,6 +37,9 @@ export function useEnvironmentsProjectActions(
       deleteEnvVar(org.value, project.value, envId, varId),
 
     listServersForOrg: () => listServersForOrg(org.value),
+
+    listKubernetesClusters: () =>
+      listKubernetesClusters(org.value, { shipyard: { silent: true } }),
 
     listProjectBranches: () => listProjectBranches(org.value, project.value),
 

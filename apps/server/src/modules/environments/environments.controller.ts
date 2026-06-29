@@ -53,7 +53,7 @@ export class EnvironmentsController {
     body: {
       name: string;
       triggerBranch: string;
-      serverId: string;
+      serverId?: string | null;
       deployPath: string;
       domain?: string;
       healthCheckUrl?: string;
@@ -76,7 +76,7 @@ export class EnvironmentsController {
     body: Partial<{
       name: string;
       triggerBranch: string;
-      serverId: string;
+      serverId: string | null;
       deployPath: string;
       domain: string;
       healthCheckUrl: string;

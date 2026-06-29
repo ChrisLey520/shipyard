@@ -235,6 +235,9 @@
           <template v-if="deployment?.environment?.server?.host">
             （服务器 {{ deployment.environment.server.host }}）
           </template>
+          <template v-else-if="deploymentEnvironmentExecutor === 'local'">
+            （本机 Worker）
+          </template>
           。可在「环境」设置中补充域名或健康检查地址，下次部署成功后会显示可点击链接。
         </n-alert>
       </n-space>
@@ -545,6 +548,15 @@ const pm2StaticAccessUrl = computed(() =>
     deployment.value?.environment?.domain,
   ),
 );
+
+const deploymentEnvironmentExecutor = computed(() => {
+  const rc = deployment.value?.environment?.releaseConfig;
+  if (rc && typeof rc === 'object' && !Array.isArray(rc)) {
+    const ex = (rc as Record<string, unknown>).executor;
+    if (typeof ex === 'string') return ex;
+  }
+  return 'ssh';
+});
 
 const primaryAccessUrl = computed(() => {
   const env = deployment.value?.environment;

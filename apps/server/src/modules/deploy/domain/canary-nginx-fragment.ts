@@ -82,7 +82,7 @@ export function resolveCanaryNginxBodyForDeploy(rc: {
   kind: 'manual' | 'generated' | 'none';
   generatedTemplate?: 'split_clients' | 'upstream_weight';
 } {
-  if (rc.strategy !== 'canary' || rc.executor !== 'ssh') {
+  if (rc.strategy !== 'canary' || (rc.executor !== 'ssh' && rc.executor !== 'local')) {
     return { body: null, kind: 'none' };
   }
   const ssh = rc.ssh ?? {};

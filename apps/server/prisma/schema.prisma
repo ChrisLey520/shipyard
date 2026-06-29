@@ -138,7 +138,7 @@ model Project {
   gitConnectionId String? @unique
   /// PR 预览：总开关
   previewEnabled    Boolean  @default(false)
-  /// 预览部署目标 SSH 服务器（与 Environment.server 同源）
+  /// 预览部署目标 SSH 服务器（与 SSH Environment.server 同源）
   previewServerId   String?
   /// 通配父域，例如 preview.example.com → FQDN 为 pr-{n}-{id8}.preview.example.com
   previewBaseDomain String?
@@ -280,7 +280,8 @@ model Environment {
   projectId      String
   name           String
   triggerBranch  String
-  serverId       String
+  /// SSH 部署目标服务器；local / kubernetes / object_storage 执行器可为空
+  serverId       String?
   deployPath     String
   domain         String?
   accessUrl      String?
@@ -294,7 +295,7 @@ model Environment {
   updatedAt      DateTime @updatedAt
 
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  server      Server       @relation(fields: [serverId], references: [id])
+  server      Server?      @relation(fields: [serverId], references: [id])
   environmentServers EnvironmentServer[]
   envVariables EnvVariable[]
   deployments  Deployment[]

@@ -58,7 +58,7 @@ export interface ProjectDetail {
     domain: string | null;
     accessUrl?: string | null;
     healthCheckUrl: string | null;
-    server: { id: string; name: string; host: string; os: string };
+    server: { id: string; name: string; host: string; os: string } | null;
     releaseConfig?: unknown;
     blueGreenActiveSlot?: number | null;
     environmentServers?: Array<{

@@ -21,18 +21,24 @@ export async function validateAndNormalizeReleaseConfig(
 
   if (cfg.executor === 'kubernetes') {
     const k = cfg.kubernetes;
-    if (!k?.namespace || !k.deploymentName || !k.clusterId) {
-      throw new BadRequestException('Kubernetes 执行器须填写 kubernetes.namespace、deploymentName、clusterId');
+    if (!k?.namespace || !k.deploymentName) {
+      throw new BadRequestException('Kubernetes 执行器须填写 kubernetes.namespace、deploymentName');
     }
     if (!k.containerName?.trim()) {
       throw new BadRequestException(
         'Kubernetes 执行器须填写 kubernetes.containerName（须与 Deployment 模板中容器名一致，例如 shipyard-server → server）',
       );
     }
-    const cluster = await prisma.kubernetesCluster.findFirst({
-      where: { id: k.clusterId, organizationId: orgId },
-    });
-    if (!cluster) throw new BadRequestException('Kubernetes 集群不存在或不属于当前组织');
+    const source = k.kubeconfigSource ?? 'registered';
+    if (source === 'registered') {
+      if (!k.clusterId) {
+        throw new BadRequestException('Kubernetes 使用登记集群时须填写 kubernetes.clusterId');
+      }
+      const cluster = await prisma.kubernetesCluster.findFirst({
+        where: { id: k.clusterId, organizationId: orgId },
+      });
+      if (!cluster) throw new BadRequestException('Kubernetes 集群不存在或不属于当前组织');
+    }
   }
 
   if (cfg.executor === 'object_storage') {
@@ -42,17 +48,25 @@ export async function validateAndNormalizeReleaseConfig(
     }
   }
 
-  const ssh = cfg.ssh;
-  if (ssh?.targets?.length) {
-    const ids = [...new Set(ssh.targets.map((t) => t.serverId))];
-    const n = await prisma.server.count({ where: { organizationId: orgId, id: { in: ids } } });
-    if (n !== ids.length) throw new BadRequestException('releaseConfig.ssh.targets 含有无效或不属于当前组织的服务器');
+  if (cfg.executor === 'local') {
+    if (cfg.ssh?.targets?.length || cfg.ssh?.primaryServerId) {
+      throw new BadRequestException('local 执行器不支持 releaseConfig.ssh.targets / primaryServerId');
+    }
   }
-  if (ssh?.primaryServerId) {
-    const s = await prisma.server.findFirst({
-      where: { id: ssh.primaryServerId, organizationId: orgId },
-    });
-    if (!s) throw new BadRequestException('primaryServerId 无效或不属于当前组织');
+
+  if (cfg.executor === 'ssh') {
+    const ssh = cfg.ssh;
+    if (ssh?.targets?.length) {
+      const ids = [...new Set(ssh.targets.map((t) => t.serverId))];
+      const n = await prisma.server.count({ where: { organizationId: orgId, id: { in: ids } } });
+      if (n !== ids.length) throw new BadRequestException('releaseConfig.ssh.targets 含有无效或不属于当前组织的服务器');
+    }
+    if (ssh?.primaryServerId) {
+      const s = await prisma.server.findFirst({
+        where: { id: ssh.primaryServerId, organizationId: orgId },
+      });
+      if (!s) throw new BadRequestException('primaryServerId 无效或不属于当前组织');
+    }
   }
 
   return cfg;
