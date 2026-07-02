@@ -197,6 +197,9 @@ async function saveEdit(v: ProjectEditFormValues) {
             : null,
         containerImageEnabled: v.containerImageEnabled,
         containerImageName: v.containerImageEnabled ? v.containerImageName.trim() || null : null,
+        containerDockerfilePath: v.containerImageEnabled
+          ? v.containerDockerfilePath.trim() || null
+          : null,
         ...(v.registryPassword.trim()
           ? {
               containerRegistryAuth: {

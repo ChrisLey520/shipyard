@@ -202,6 +202,7 @@ export class PrismaProjectRepository {
       containerImageEnabled?: boolean;
       containerImageName?: string | null;
       containerRegistryAuthEncrypted?: string | null;
+      containerDockerfilePath?: string | null;
     },
   ) {
     return this.prisma.pipelineConfig.update({

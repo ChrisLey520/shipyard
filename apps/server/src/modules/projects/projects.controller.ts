@@ -124,6 +124,7 @@ export class ProjectsController {
       containerImageEnabled?: boolean;
       containerImageName?: string | null;
       containerRegistryAuth?: { username?: string; password?: string } | null;
+      containerDockerfilePath?: string | null;
     },
   ) {
     return this.projects.updatePipelineConfig(orgId, projectSlug, body);

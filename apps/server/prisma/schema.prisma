@@ -186,6 +186,8 @@ model PipelineConfig {
   containerImageName    String?
   /// 加密 JSON：{ "username"?: string, "password"?: string } 供 docker login
   containerRegistryAuthEncrypted String? @db.Text
+  /// 容器镜像构建使用的 Dockerfile 相对路径（相对仓库根，如 apps/web/Dockerfile）；留空用根 Dockerfile
+  containerDockerfilePath String?
   updatedAt      DateTime @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
