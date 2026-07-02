@@ -557,14 +557,16 @@ export class BuildWorkerService implements OnModuleInit {
 
     if (opts.packageManager === 'pnpm' && hasPnpmWorkspace(opts.repoRoot)) {
       const filter = packageRootRel === '.' ? '.' : `./${packageRootRel}`;
+      // pnpm v10 起 `deploy` 默认仅支持 inject-workspace-packages 的工作区；
+      // 用 --legacy 保持既有（非注入）打包行为，兼容本项目的 workspace 配置。
       await this.appendLog(
         opts.deploymentId,
         opts.nextLog(),
-        `[archive] Node.js 运行时 bundle：pnpm deploy --filter ${filter} --prod ${bundleDir}`,
+        `[archive] Node.js 运行时 bundle：pnpm deploy --filter ${filter} --prod --legacy ${bundleDir}`,
       );
       await opts.runCmd(
         'pnpm',
-        ['--filter', filter, 'deploy', '--prod', bundleDir],
+        ['--filter', filter, 'deploy', '--prod', '--legacy', bundleDir],
         opts.repoRoot,
         'archive',
       );
