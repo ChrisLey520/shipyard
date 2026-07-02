@@ -15,7 +15,6 @@ import {
 } from './common/filters/prisma-exception.filter';
 import { I18nHttpExceptionFilter } from './common/filters/i18n-exception.filter';
 import helmet from 'helmet';
-import express from 'express';
 import { join } from 'path';
 
 const bootstrapLogger = new Logger('Bootstrap');
@@ -26,7 +25,8 @@ async function bootstrap() {
   });
 
   app.use(helmet());
-  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
+  // NestExpressApplication 内置静态资源托管（底层即 express.static），无需直接依赖 express
+  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
   app.enableCors({
     origin: process.env['CORS_ORIGIN'] ?? 'http://localhost:5173',
