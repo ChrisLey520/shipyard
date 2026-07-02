@@ -23,7 +23,7 @@ const nginxUpstreamNameSchema = z
 
 export const releaseConfigSchema = z
   .object({
-    executor: z.enum(['ssh', 'kubernetes', 'object_storage']).default('ssh'),
+    executor: z.enum(['ssh', 'local', 'kubernetes', 'object_storage']).default('ssh'),
     strategy: z.enum(['direct', 'blue_green', 'rolling', 'canary']).default('direct'),
     ssh: z
       .object({
@@ -53,7 +53,11 @@ export const releaseConfigSchema = z
         namespace: z.string().min(1).max(253),
         deploymentName: z.string().min(1).max(253),
         containerName: z.string().min(1).max(253).optional(),
-        clusterId: z.string().uuid(),
+        /** registered: 使用组织登记 kubeconfig；local: 使用 Deploy Worker 宿主机 kubeconfig */
+        kubeconfigSource: z.enum(['registered', 'local']).optional(),
+        clusterId: z.string().uuid().optional(),
+        /** kubeconfigSource=local 时可选；留空则使用 kubectl 默认 KUBECONFIG / ~/.kube/config / in-cluster 配置 */
+        kubeconfigPath: z.string().min(1).max(500).optional(),
         /** kubectl rollout status --timeout（秒），60–3600 */
         rolloutTimeoutSeconds: z.number().int().min(60).max(3600).optional(),
         /** strategy=rolling 时 strategic patch，如 25%、1 */
@@ -125,6 +129,18 @@ export const releaseConfigSchema = z
       });
     }
 
+    if (cfg.executor === 'kubernetes') {
+      const k = cfg.kubernetes;
+      const source = k?.kubeconfigSource ?? 'registered';
+      if (source === 'registered' && !k?.clusterId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Kubernetes 使用登记集群时须配置 kubernetes.clusterId',
+          path: ['kubernetes', 'clusterId'],
+        });
+      }
+    }
+
     if (cfg.executor === 'object_storage') {
       if (cfg.strategy !== 'direct') {
         ctx.addIssue({
@@ -150,7 +166,7 @@ export const releaseConfigSchema = z
       }
     }
 
-    if (cfg.strategy !== 'canary' || cfg.executor !== 'ssh') return;
+    if (cfg.strategy !== 'canary' || (cfg.executor !== 'ssh' && cfg.executor !== 'local')) return;
 
     const ssh = cfg.ssh;
     const path = ssh?.nginxCanaryPath?.trim() ?? '';

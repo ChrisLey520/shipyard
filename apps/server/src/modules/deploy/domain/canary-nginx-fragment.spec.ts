@@ -68,6 +68,21 @@ describe('resolveCanaryNginxBodyForDeploy', () => {
     expect(r.body).toContain('ca');
   });
 
+  it('generates for local executor with the same canary config shape', () => {
+    const r = resolveCanaryNginxBodyForDeploy({
+      strategy: 'canary',
+      executor: 'local',
+      ssh: {
+        nginxCanaryPath: '/etc/nginx/snippets/x.conf',
+        canaryPercent: 5,
+        nginxCanaryStableUpstream: 'st',
+        nginxCanaryCandidateUpstream: 'ca',
+      },
+    });
+    expect(r.kind).toBe('generated');
+    expect(r.body).toContain('split_clients');
+  });
+
   it('returns none when strategy not canary', () => {
     expect(resolveCanaryNginxBodyForDeploy({ strategy: 'direct', executor: 'ssh' }).kind).toBe('none');
   });

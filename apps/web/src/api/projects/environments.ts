@@ -46,7 +46,7 @@ export async function createEnvironment(orgSlug: string, projectSlug: string, pa
 export type UpdateEnvironmentPayload = Partial<{
   name: string;
   triggerBranch: string;
-  serverId: string;
+  serverId: string | null;
   deployPath: string;
   domain: string | null;
   healthCheckUrl: string | null;

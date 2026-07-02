@@ -93,7 +93,7 @@
                   </n-tag>
                 </div>
                 <n-text depth="3" style="display:block;margin-top:8px;font-size:12px">
-                  {{ env.server?.name }} ({{ env.server?.host }}) · {{ env.deployPath }}
+                  {{ environmentTargetLabel(env) }} · {{ env.deployPath }}
                 </n-text>
                 <n-text depth="3" style="display:block;margin-top:6px;font-size:12px">
                   访问地址：
@@ -336,6 +336,24 @@ function serverDirectSiteUrl(env: ProjectDetail['environments'][number]): string
   if (!direct) return null;
   if (primary && isSameHttpSiteHost(primary, direct)) return null;
   return direct;
+}
+
+function environmentExecutor(env: ProjectDetail['environments'][number]): string {
+  const rc = env.releaseConfig;
+  if (rc && typeof rc === 'object' && !Array.isArray(rc)) {
+    const ex = (rc as Record<string, unknown>).executor;
+    if (typeof ex === 'string') return ex;
+  }
+  return 'ssh';
+}
+
+function environmentTargetLabel(env: ProjectDetail['environments'][number]): string {
+  if (env.server) return `${env.server.name} (${env.server.host})`;
+  const ex = environmentExecutor(env);
+  if (ex === 'local') return '本机 Worker';
+  if (ex === 'kubernetes') return 'Kubernetes';
+  if (ex === 'object_storage') return '对象存储';
+  return '未选择服务器';
 }
 
 function confirmDeleteDeployment(row: DeploymentListItem) {

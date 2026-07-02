@@ -5,6 +5,7 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { normalizeHttpRootUrlWithSlash, resolveDeployAccessHost } from '@shipyard/shared';
 import { validateAndNormalizeReleaseConfig } from './release-config.validation';
+import { parseReleaseConfig, type ReleaseConfig } from '../domain/release-config.schema';
 
 @Injectable()
 export class EnvironmentsApplicationService {
@@ -13,12 +14,16 @@ export class EnvironmentsApplicationService {
     private readonly crypto: CryptoService,
   ) {}
 
-  private computeAccessUrl(domain: string | null | undefined, serverHost: string): string | null {
+  private computeAccessUrl(domain: string | null | undefined, serverHost?: string | null): string | null {
     const d = domain?.trim() ?? '';
     if (!d) return null;
-    const host = resolveDeployAccessHost(d, serverHost);
+    const host = resolveDeployAccessHost(d, serverHost ?? 'localhost');
     if (!host) return null;
     return normalizeHttpRootUrlWithSlash(host) || null;
+  }
+
+  private isServerBoundExecutor(rc: ReleaseConfig): boolean {
+    return rc.executor === 'ssh';
   }
 
   async listEnvironments(projectId: string) {
@@ -36,11 +41,11 @@ export class EnvironmentsApplicationService {
 
   /** 部署目标顺序列表；缺省为单台 primaryServerId */
   private normalizeTargetRows(
-    primaryServerId: string,
+    primaryServerId: string | null | undefined,
     environmentTargets?: Array<{ serverId: string; sortOrder?: number; weight?: number }>,
   ): Array<{ serverId: string; sortOrder: number; weight: number }> {
     if (!environmentTargets?.length) {
-      return [{ serverId: primaryServerId, sortOrder: 0, weight: 100 }];
+      return primaryServerId ? [{ serverId: primaryServerId, sortOrder: 0, weight: 100 }] : [];
     }
     const sorted = [...environmentTargets].sort(
       (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
@@ -87,7 +92,7 @@ export class EnvironmentsApplicationService {
     data: {
       name: string;
       triggerBranch: string;
-      serverId: string;
+      serverId?: string | null;
       deployPath: string;
       domain?: string;
       healthCheckUrl?: string;
@@ -96,25 +101,37 @@ export class EnvironmentsApplicationService {
       environmentTargets?: Array<{ serverId: string; sortOrder?: number; weight?: number }>;
     },
   ) {
-    const rows = this.normalizeTargetRows(data.serverId, data.environmentTargets);
-    if (rows[0]!.serverId !== data.serverId) {
-      throw new BadRequestException('environmentTargets 首项 serverId 须与主服务器 serverId 一致');
-    }
-    await this.assertServersInOrg(
-      orgId,
-      rows.map((r) => r.serverId),
-    );
-
     const releaseParsed = await validateAndNormalizeReleaseConfig(
       this.prisma,
       orgId,
       data.releaseConfig,
     );
+    const effectiveReleaseConfig = releaseParsed ?? parseReleaseConfig({});
+    const serverBound = this.isServerBoundExecutor(effectiveReleaseConfig);
 
-    const primary = await this.prisma.server.findFirstOrThrow({
-      where: { id: data.serverId, organizationId: orgId },
-    });
-    const accessUrl = this.computeAccessUrl(data.domain, primary.host);
+    let rows: Array<{ serverId: string; sortOrder: number; weight: number }> = [];
+    let primaryHost: string | null = null;
+    let primaryServerId: string | null = null;
+    if (serverBound) {
+      primaryServerId = data.serverId?.trim() || null;
+      if (!primaryServerId) throw new BadRequestException('SSH 执行器须选择服务器');
+      rows = this.normalizeTargetRows(primaryServerId, data.environmentTargets);
+      if (rows[0]!.serverId !== primaryServerId) {
+        throw new BadRequestException('environmentTargets 首项 serverId 须与主服务器 serverId 一致');
+      }
+      await this.assertServersInOrg(
+        orgId,
+        rows.map((r) => r.serverId),
+      );
+      const primary = await this.prisma.server.findFirstOrThrow({
+        where: { id: primaryServerId, organizationId: orgId },
+      });
+      primaryHost = primary.host;
+    } else if (data.environmentTargets?.length) {
+      throw new BadRequestException('非 SSH 执行器不支持附加部署服务器');
+    }
+
+    const accessUrl = this.computeAccessUrl(data.domain, primaryHost);
 
     const rcValue =
       releaseParsed === undefined
@@ -127,7 +144,7 @@ export class EnvironmentsApplicationService {
           projectId,
           name: data.name,
           triggerBranch: data.triggerBranch,
-          serverId: data.serverId,
+          serverId: primaryServerId,
           deployPath: data.deployPath,
           domain: data.domain,
           healthCheckUrl: data.healthCheckUrl,
@@ -157,7 +174,7 @@ export class EnvironmentsApplicationService {
     data: Partial<{
       name: string;
       triggerBranch: string;
-      serverId: string;
+      serverId: string | null;
       deployPath: string;
       domain: string | null;
       healthCheckUrl: string | null;
@@ -167,12 +184,6 @@ export class EnvironmentsApplicationService {
     }>,
   ) {
     const current = await this.getEnv(envId, projectId);
-    if (data.serverId !== undefined) {
-      const server = await this.prisma.server.findFirst({
-        where: { id: data.serverId, organizationId: orgId },
-      });
-      if (!server) throw new ForbiddenException('服务器不存在或不属于当前组织');
-    }
 
     const payload: Record<string, unknown> = { ...data };
     delete payload['environmentTargets'];
@@ -194,33 +205,66 @@ export class EnvironmentsApplicationService {
             : (releaseParsed as unknown as Prisma.InputJsonValue);
     }
 
-    let nextPrimary = (payload['serverId'] as string | undefined) ?? current.serverId;
-    if (data.environmentTargets !== undefined) {
-      const rows = this.normalizeTargetRows(nextPrimary, data.environmentTargets);
-      if (data.serverId !== undefined && rows[0]!.serverId !== data.serverId) {
-        throw new BadRequestException('environmentTargets 首项 serverId 须与主服务器 serverId 一致');
+    const currentReleaseConfig = parseReleaseConfig(current.releaseConfig ?? {});
+    const nextReleaseConfig =
+      data.releaseConfig !== undefined ? (releaseParsed ?? parseReleaseConfig({})) : currentReleaseConfig;
+    const serverBound = this.isServerBoundExecutor(nextReleaseConfig);
+    const incomingServerId =
+      data.serverId === undefined ? undefined : data.serverId?.trim() || null;
+
+    let rows: Array<{ serverId: string; sortOrder: number; weight: number }> = [];
+    let nextPrimary: string | null = incomingServerId !== undefined ? incomingServerId : current.serverId;
+    if (serverBound) {
+      if (!nextPrimary) throw new BadRequestException('SSH 执行器须选择服务器');
+      if (data.environmentTargets !== undefined) {
+        rows = this.normalizeTargetRows(nextPrimary, data.environmentTargets);
+        if (incomingServerId !== undefined && rows[0]!.serverId !== incomingServerId) {
+          throw new BadRequestException('environmentTargets 首项 serverId 须与主服务器 serverId 一致');
+        }
+        nextPrimary = rows[0]!.serverId;
+      } else if (incomingServerId !== undefined) {
+        rows = this.normalizeTargetRows(incomingServerId);
       }
-      nextPrimary = rows[0]!.serverId;
       payload['serverId'] = nextPrimary;
       await this.assertServersInOrg(
         orgId,
-        rows.map((r) => r.serverId),
+        rows.length ? rows.map((r) => r.serverId) : [nextPrimary],
       );
-    } else if (data.serverId !== undefined) {
-      await this.assertServersInOrg(orgId, [data.serverId]);
+    } else {
+      if (data.environmentTargets?.length) {
+        throw new BadRequestException('非 SSH 执行器不支持附加部署服务器');
+      }
+      nextPrimary = null;
+      payload['serverId'] = null;
+    }
+
+    if (incomingServerId !== undefined && serverBound && incomingServerId !== null) {
+      const server = await this.prisma.server.findFirst({
+        where: { id: incomingServerId, organizationId: orgId },
+      });
+      if (!server) throw new ForbiddenException('服务器不存在或不属于当前组织');
+    }
+
+    if (data.environmentTargets !== undefined && serverBound) {
+      if (!rows.length) {
+        throw new BadRequestException('environmentTargets 首项 serverId 须与主服务器 serverId 一致');
+      }
     }
 
     // 如果 domain / server 发生变更，则重置 accessUrl 为“环境域名推导的初始值”
-    const nextServerId = (payload['serverId'] as string | undefined) ?? current.serverId;
+    const nextServerId = nextPrimary;
     const domainChanged = Object.prototype.hasOwnProperty.call(data, 'domain');
     const serverChanged = nextServerId !== current.serverId;
-    if (domainChanged || serverChanged) {
-      const server = await this.prisma.server.findUnique({
-        where: { id: nextServerId },
-        select: { host: true },
-      });
+    const executorChanged = nextReleaseConfig.executor !== currentReleaseConfig.executor;
+    if (domainChanged || serverChanged || executorChanged) {
+      const server = nextServerId
+        ? await this.prisma.server.findUnique({
+            where: { id: nextServerId },
+            select: { host: true },
+          })
+        : null;
       const nextDomain = (payload['domain'] as string | null | undefined) ?? current.domain ?? null;
-      payload['accessUrl'] = server ? this.computeAccessUrl(nextDomain, server.host) : null;
+      payload['accessUrl'] = this.computeAccessUrl(nextDomain, server?.host ?? null);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -228,16 +272,14 @@ export class EnvironmentsApplicationService {
         where: { id: envId },
         data: payload as Prisma.EnvironmentUpdateInput,
       });
-      if (data.environmentTargets !== undefined) {
-        const rows = this.normalizeTargetRows(
-          (payload['serverId'] as string) ?? current.serverId,
-          data.environmentTargets,
-        );
+      if (serverBound && data.environmentTargets !== undefined) {
         await this.replaceEnvironmentServers(tx, envId, rows);
-      } else if (data.serverId !== undefined) {
+      } else if (serverBound && incomingServerId !== undefined && nextPrimary) {
         await this.replaceEnvironmentServers(tx, envId, [
-          { serverId: data.serverId, sortOrder: 0, weight: 100 },
+          { serverId: nextPrimary, sortOrder: 0, weight: 100 },
         ]);
+      } else if (!serverBound && (data.releaseConfig !== undefined || data.serverId !== undefined)) {
+        await this.replaceEnvironmentServers(tx, envId, []);
       }
       return tx.environment.findUniqueOrThrow({
         where: { id: envId },

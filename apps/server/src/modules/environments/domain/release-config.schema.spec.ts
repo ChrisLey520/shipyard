@@ -34,6 +34,24 @@ describe('releaseConfigSchema', () => {
     expect(c.objectStorage?.bucket).toBe('my-bucket');
   });
 
+  it('accepts local + direct', () => {
+    const c = parseReleaseConfig({
+      executor: 'local',
+      strategy: 'direct',
+    });
+    expect(c.executor).toBe('local');
+    expect(c.strategy).toBe('direct');
+  });
+
+  it('accepts local + rolling', () => {
+    const c = parseReleaseConfig({
+      executor: 'local',
+      strategy: 'rolling',
+    });
+    expect(c.executor).toBe('local');
+    expect(c.strategy).toBe('rolling');
+  });
+
   it('accepts kubernetes additionalDeployments（同镜像多 Deployment）', () => {
     const c = parseReleaseConfig({
       executor: 'kubernetes',
@@ -49,6 +67,34 @@ describe('releaseConfigSchema', () => {
       },
     });
     expect(c.kubernetes?.additionalDeployments?.[0]?.deploymentName).toBe('shipyard-worker');
+  });
+
+  it('accepts kubernetes with local kubeconfig source without clusterId', () => {
+    const c = parseReleaseConfig({
+      executor: 'kubernetes',
+      strategy: 'rolling',
+      kubernetes: {
+        kubeconfigSource: 'local',
+        namespace: 'shipyard',
+        deploymentName: 'shipyard-server',
+        containerName: 'server',
+      },
+    });
+    expect(c.kubernetes?.kubeconfigSource).toBe('local');
+    expect(c.kubernetes?.clusterId).toBeUndefined();
+  });
+
+  it('rejects kubernetes registered kubeconfig source without clusterId', () => {
+    const r = safeParseReleaseConfig({
+      executor: 'kubernetes',
+      strategy: 'direct',
+      kubernetes: {
+        namespace: 'shipyard',
+        deploymentName: 'shipyard-server',
+        containerName: 'server',
+      },
+    });
+    expect(r.ok).toBe(false);
   });
 
   it('accepts canary upstream_weight ssh', () => {

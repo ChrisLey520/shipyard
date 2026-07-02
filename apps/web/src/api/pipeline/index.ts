@@ -20,7 +20,8 @@ export interface DeploymentDetail {
     domain: string | null;
     healthCheckUrl: string | null;
     deployPath: string;
-    server?: { id: string; name: string; host: string };
+    server?: { id: string; name: string; host: string } | null;
+    releaseConfig?: unknown;
   };
   project?: { id: string; slug: string; name: string; frameworkType: string };
 }
@@ -54,4 +55,3 @@ export async function getDeploymentLogs(
     )
     .then((r) => r.data);
 }
-

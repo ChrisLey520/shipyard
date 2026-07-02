@@ -20,14 +20,25 @@
           placeholder="选择或输入分支（如 main）"
         />
       </n-form-item>
-      <n-form-item label="服务器">
+      <n-form-item label="执行器">
+        <n-select
+          v-model:value="envForm.executor"
+          :options="executorOptions"
+          placeholder="选择部署执行器"
+        />
+      </n-form-item>
+      <n-form-item v-if="envForm.executor === 'ssh'" label="服务器">
         <n-select
           v-model:value="envForm.serverId"
           :options="serverOptions"
           clearable
-          placeholder="请选择服务器"
+          placeholder="请选择 SSH 服务器"
         />
       </n-form-item>
+
+      <n-alert v-if="envForm.executor === 'local'" type="info" :show-icon="false" class="mb-3">
+        本机部署会在运行 Shipyard Worker 的机器上执行，不走 SSH，也不需要添加服务器。若 Worker 跑在 K8s Pod 内，部署路径需是 Pod 可见的挂载目录。
+      </n-alert>
 
       <n-form-item>
         <template #label>
@@ -75,8 +86,8 @@
                 </n-button>
               </template>
               <div style="font-size: 12px; line-height: 1.6">
-                须与浏览器里实际输入的主机名一致。远程服务器不要填 localhost（会指到您自己的电脑）。
-                本机调试且服务器填 127.0.0.1/localhost 时：站点由 Nginx 提供在
+                须与浏览器里实际输入的主机名一致。远程 SSH 服务器不要填 localhost（会指到您自己的电脑）。
+                本机执行器或 SSH 目标为 127.0.0.1/localhost 时：站点由 Nginx 提供在
                 <n-text strong>80 端口</n-text>
                 ，与 Shipyard API、Vite 等不是同一端口；需本机已安装 Nginx、主配置包含站点 include，且 80 未被占用。
                 若 SSH 登记的是局域网 IP，部署会为 Nginx 同时写入 localhost、127.0.0.1 与该 IP，便于本机多种方式访问。
@@ -93,7 +104,7 @@
         <n-switch v-model:value="envForm.protected" />
       </n-form-item>
 
-      <n-form-item label="附加部署服务器">
+      <n-form-item v-if="envForm.executor === 'ssh'" label="附加部署服务器">
         <n-select
           v-model:value="envForm.extraServerIds"
           :options="extraServerOptions"
@@ -104,13 +115,6 @@
         />
       </n-form-item>
 
-      <n-form-item label="执行器">
-        <n-select
-          v-model:value="envForm.executor"
-          :options="executorOptions"
-          placeholder="SSH 或 Kubernetes"
-        />
-      </n-form-item>
       <n-form-item label="发布策略">
         <n-select
           v-model:value="envForm.strategy"
@@ -120,6 +124,40 @@
       </n-form-item>
 
       <template v-if="envForm.executor === 'kubernetes'">
+        <n-alert type="info" :show-icon="false" class="mb-3">
+          选择「本机 Worker kubeconfig」时，部署会直接使用运行 Deploy Worker 的 Ubuntu 宿主机上的
+          <n-text code>kubectl</n-text>
+          与 kubeconfig，不需要登记集群，也不走 SSH。
+        </n-alert>
+        <n-form-item label="kubeconfig 来源">
+          <n-select
+            v-model:value="envForm.k8sKubeconfigSource"
+            :options="k8sKubeconfigSourceOptions"
+            style="width: 100%"
+          />
+        </n-form-item>
+        <n-form-item v-if="envForm.k8sKubeconfigSource === 'registered'" label="登记集群" required>
+          <n-select
+            v-model:value="envForm.k8sClusterId"
+            :options="k8sClusterOptions"
+            :loading="loadingClusters"
+            clearable
+            filterable
+            placeholder="请选择组织已登记的 Kubernetes 集群"
+          />
+        </n-form-item>
+        <n-form-item v-if="envForm.k8sKubeconfigSource === 'local'" label="本机 kubeconfig 路径">
+          <n-input
+            v-model:value="envForm.k8sKubeconfigPath"
+            placeholder="可选；留空使用 KUBECONFIG / ~/.kube/config"
+          />
+        </n-form-item>
+        <n-form-item label="命名空间" required>
+          <n-input
+            v-model:value="envForm.k8sNamespace"
+            placeholder="如 shipyard 或 default（须与集群实际 Namespace 一致）"
+          />
+        </n-form-item>
         <n-form-item label="主 Deployment 名称" required>
           <n-input
             v-model:value="envForm.k8sPrimaryDeploymentName"
@@ -190,7 +228,7 @@
         </n-form-item>
       </template>
 
-      <template v-if="envForm.strategy === 'canary' && envForm.executor === 'ssh'">
+      <template v-if="envForm.strategy === 'canary' && (envForm.executor === 'ssh' || envForm.executor === 'local')">
         <n-form-item label="金丝雀生成模板">
           <n-select
             v-model:value="envForm.canaryTemplate"
@@ -328,6 +366,7 @@ const envApi = useEnvironmentsProjectActions(toRef(props, 'orgSlug'), toRef(prop
 
 const executorOptions = [
   { label: 'SSH', value: 'ssh' },
+  { label: '本机', value: 'local' },
   { label: 'Kubernetes', value: 'kubernetes' },
   { label: '对象存储 S3', value: 'object_storage' },
 ];
@@ -342,6 +381,11 @@ const strategyOptions = [
 const canaryTemplateOptions = [
   { label: 'split_clients（按 upstream 名分流）', value: 'split_clients' },
   { label: 'upstream_weight（双 server 权重）', value: 'upstream_weight' },
+];
+
+const k8sKubeconfigSourceOptions = [
+  { label: '本机 Worker kubeconfig', value: 'local' },
+  { label: '组织登记集群', value: 'registered' },
 ];
 
 const showProxy = computed({
@@ -361,7 +405,7 @@ type EnvFormState = {
   healthCheckUrl: string;
   protected: boolean;
   extraServerIds: string[];
-  executor: 'ssh' | 'kubernetes' | 'object_storage';
+  executor: 'ssh' | 'local' | 'kubernetes' | 'object_storage';
   strategy: 'direct' | 'blue_green' | 'rolling' | 'canary';
   canaryTemplate: 'split_clients' | 'upstream_weight';
   canaryPath: string;
@@ -375,6 +419,10 @@ type EnvFormState = {
   k8sRolloutTimeoutSeconds: number | null;
   k8sMaxSurge: string;
   k8sMaxUnavailable: string;
+  k8sKubeconfigSource: 'local' | 'registered';
+  k8sClusterId: string | null;
+  k8sKubeconfigPath: string;
+  k8sNamespace: string;
   /** 主 Deployment / 容器名（写入 kubernetes.deploymentName / containerName） */
   k8sPrimaryDeploymentName: string;
   k8sPrimaryContainerName: string;
@@ -409,6 +457,10 @@ const envForm = ref<EnvFormState>({
   k8sRolloutTimeoutSeconds: null,
   k8sMaxSurge: '',
   k8sMaxUnavailable: '',
+  k8sKubeconfigSource: 'local',
+  k8sClusterId: null,
+  k8sKubeconfigPath: '',
+  k8sNamespace: '',
   k8sPrimaryDeploymentName: '',
   k8sPrimaryContainerName: '',
   k8sAdditionalRollouts: [],
@@ -434,12 +486,17 @@ watchEffect(() => {
   if (!allowed.includes(envForm.value.strategy)) {
     envForm.value.strategy = 'direct';
   }
+  if (envForm.value.executor !== 'ssh') {
+    envForm.value.extraServerIds = [];
+  }
 });
 
 const submitting = ref(false);
 const loadingBranches = ref(false);
+const loadingClusters = ref(false);
 const branchOptions = ref<Array<{ label: string; value: string }>>([]);
 const serverOptions = ref<Array<{ label: string; value: string }>>([]);
+const k8sClusterOptions = ref<Array<{ label: string; value: string }>>([]);
 
 const extraServerOptions = computed(() =>
   serverOptions.value.filter((o) => o.value !== envForm.value.serverId),
@@ -479,6 +536,10 @@ function releaseConfigFormMeta(rc: unknown) {
     k8sRolloutTimeoutSeconds: null as number | null,
     k8sMaxSurge: '',
     k8sMaxUnavailable: '',
+    k8sKubeconfigSource: 'local' as EnvFormState['k8sKubeconfigSource'],
+    k8sClusterId: null as string | null,
+    k8sKubeconfigPath: '',
+    k8sNamespace: '',
     ossBucket: '',
     ossPrefix: '',
     ossRegion: '',
@@ -495,7 +556,9 @@ function releaseConfigFormMeta(rc: unknown) {
       ? 'object_storage'
       : o.executor === 'kubernetes'
         ? 'kubernetes'
-        : 'ssh';
+        : o.executor === 'local'
+          ? 'local'
+          : 'ssh';
   const s = o.strategy;
   const strategy: EnvFormState['strategy'] =
     s === 'blue_green' || s === 'rolling' || s === 'canary' ? s : 'direct';
@@ -513,6 +576,12 @@ function releaseConfigFormMeta(rc: unknown) {
       : {};
   const tmpl: EnvFormState['canaryTemplate'] =
     ssh.nginxCanaryTemplate === 'upstream_weight' ? 'upstream_weight' : 'split_clients';
+  const k8sKubeconfigSource: EnvFormState['k8sKubeconfigSource'] =
+    k.kubeconfigSource === 'local'
+      ? 'local'
+      : k.kubeconfigSource === 'registered' || typeof k.clusterId === 'string'
+        ? 'registered'
+        : 'local';
   return {
     executor,
     strategy,
@@ -535,6 +604,10 @@ function releaseConfigFormMeta(rc: unknown) {
     k8sMaxSurge: typeof k.rollingUpdateMaxSurge === 'string' ? k.rollingUpdateMaxSurge : '',
     k8sMaxUnavailable:
       typeof k.rollingUpdateMaxUnavailable === 'string' ? k.rollingUpdateMaxUnavailable : '',
+    k8sKubeconfigSource,
+    k8sClusterId: typeof k.clusterId === 'string' ? k.clusterId : null,
+    k8sKubeconfigPath: typeof k.kubeconfigPath === 'string' ? k.kubeconfigPath : '',
+    k8sNamespace: typeof k.namespace === 'string' ? k.namespace.trim() : '',
     ossBucket: typeof os.bucket === 'string' ? os.bucket : '',
     ossPrefix: typeof os.prefix === 'string' ? os.prefix : '',
     ossRegion: typeof os.region === 'string' ? os.region : '',
@@ -588,6 +661,10 @@ function resetFromInitial() {
       k8sRolloutTimeoutSeconds: meta.k8sRolloutTimeoutSeconds,
       k8sMaxSurge: meta.k8sMaxSurge,
       k8sMaxUnavailable: meta.k8sMaxUnavailable,
+      k8sKubeconfigSource: meta.k8sKubeconfigSource,
+      k8sClusterId: meta.k8sClusterId,
+      k8sKubeconfigPath: meta.k8sKubeconfigPath,
+      k8sNamespace: meta.k8sNamespace,
       k8sPrimaryDeploymentName: meta.k8sPrimaryDeploymentName ?? '',
       k8sPrimaryContainerName: meta.k8sPrimaryContainerName ?? '',
       ossBucket: meta.ossBucket,
@@ -621,6 +698,10 @@ function resetFromInitial() {
     k8sRolloutTimeoutSeconds: null,
     k8sMaxSurge: '',
     k8sMaxUnavailable: '',
+    k8sKubeconfigSource: 'local',
+    k8sClusterId: null,
+    k8sKubeconfigPath: '',
+    k8sNamespace: '',
     k8sPrimaryDeploymentName: '',
     k8sPrimaryContainerName: '',
     ossBucket: '',
@@ -641,17 +722,20 @@ function releaseConfigToJsonString(rc: unknown): string {
 }
 
 async function ensureOptionsLoaded() {
-  const servers = await envApi.listServersForOrg();
+  const [servers, branches, clusters] = await Promise.all([
+    envApi.listServersForOrg().catch(() => []),
+    envApi.listProjectBranches().catch(() => []),
+    envApi.listKubernetesClusters().catch(() => []),
+  ]);
   serverOptions.value = (servers ?? []).map((s) => ({
     label: `${s.name}（${serverOsLabel(s.os)}）`,
     value: s.id,
   }));
-  try {
-    const branches = await envApi.listProjectBranches();
-    branchOptions.value = (branches ?? []).map((b) => ({ label: b, value: b }));
-  } catch {
-    branchOptions.value = [];
-  }
+  branchOptions.value = (branches ?? []).map((b) => ({ label: b, value: b }));
+  k8sClusterOptions.value = (clusters ?? []).map((c) => ({
+    label: c.name,
+    value: c.id,
+  }));
 }
 
 watch(
@@ -659,6 +743,7 @@ watch(
   async ([open]) => {
     if (!open) return;
     loadingBranches.value = true;
+    loadingClusters.value = true;
     try {
       // 须先拉取服务器/分支选项，再写入表单；否则 NSelect 在 options 为空时绑定已有 value 可能抛错
       await ensureOptionsLoaded();
@@ -666,9 +751,11 @@ watch(
     } catch {
       serverOptions.value = [];
       branchOptions.value = [];
+      k8sClusterOptions.value = [];
       resetFromInitial();
     } finally {
       loadingBranches.value = false;
+      loadingClusters.value = false;
     }
   },
 );
@@ -706,6 +793,11 @@ function composeReleaseConfigForSubmit():
 
   const out: Record<string, unknown> = { ...base, executor, strategy };
 
+  if (executor === 'local') {
+    delete out.kubernetes;
+    delete out.objectStorage;
+  }
+
   if (executor === 'object_storage') {
     delete out.kubernetes;
     delete out.ssh;
@@ -719,7 +811,9 @@ function composeReleaseConfigForSubmit():
     return { ok: true, value: out };
   }
 
-  delete out.objectStorage;
+  if (executor !== 'local') {
+    delete out.objectStorage;
+  }
 
   if (executor === 'kubernetes') {
     const prev =
@@ -739,6 +833,32 @@ function composeReleaseConfigForSubmit():
     else delete prev.rollingUpdateMaxUnavailable;
     const pdn = envForm.value.k8sPrimaryDeploymentName.trim();
     const pcn = envForm.value.k8sPrimaryContainerName.trim();
+    const ns = envForm.value.k8sNamespace.trim();
+    const prevSource =
+      prev.kubeconfigSource === 'local'
+        ? 'local'
+        : prev.kubeconfigSource === 'registered' || typeof prev.clusterId === 'string'
+          ? 'registered'
+          : null;
+    const preserveJsonRegistered =
+      envForm.value.k8sKubeconfigSource === 'local' &&
+      !envForm.value.k8sKubeconfigPath.trim() &&
+      !envForm.value.k8sClusterId &&
+      prevSource === 'registered';
+    const kubeconfigSource = preserveJsonRegistered ? 'registered' : envForm.value.k8sKubeconfigSource;
+    prev.kubeconfigSource = kubeconfigSource;
+    if (kubeconfigSource === 'local') {
+      delete prev.clusterId;
+      const kp = envForm.value.k8sKubeconfigPath.trim();
+      if (kp) prev.kubeconfigPath = kp;
+      else delete prev.kubeconfigPath;
+    } else {
+      delete prev.kubeconfigPath;
+      const clusterId = envForm.value.k8sClusterId?.trim();
+      if (clusterId) prev.clusterId = clusterId;
+      else delete prev.clusterId;
+    }
+    if (ns) prev.namespace = ns;
     if (pdn) prev.deploymentName = pdn;
     if (pcn) prev.containerName = pcn;
     const k8sRows = envForm.value.k8sAdditionalRollouts.filter((r) => r.deploymentName.trim());
@@ -760,7 +880,14 @@ function composeReleaseConfigForSubmit():
     delete out.kubernetes;
   }
 
-  if (strategy === 'canary' && executor === 'ssh') {
+  if (executor === 'local' && out.ssh && typeof out.ssh === 'object' && out.ssh !== null) {
+    const ssh = { ...(out.ssh as Record<string, unknown>) };
+    delete ssh.targets;
+    delete ssh.primaryServerId;
+    out.ssh = ssh;
+  }
+
+  if (strategy === 'canary' && (executor === 'ssh' || executor === 'local')) {
     const prev =
       out.ssh && typeof out.ssh === 'object' && out.ssh !== null
         ? { ...(out.ssh as Record<string, unknown>) }
@@ -816,6 +943,16 @@ function composeReleaseConfigForSubmit():
     else out.ssh = ssh;
   }
 
+  if (
+    executor === 'local' &&
+    out.ssh &&
+    typeof out.ssh === 'object' &&
+    out.ssh !== null &&
+    Object.keys(out.ssh).length === 0
+  ) {
+    delete out.ssh;
+  }
+
   return { ok: true, value: out };
 }
 
@@ -834,7 +971,8 @@ function buildEnvironmentTargets(primary: string): Array<{ serverId: string; sor
 }
 
 async function handleSubmit() {
-  if (!envForm.value.serverId) {
+  const requiresServer = envForm.value.executor === 'ssh';
+  if (requiresServer && !envForm.value.serverId) {
     message.warning('请选择服务器');
     return;
   }
@@ -868,12 +1006,23 @@ async function handleSubmit() {
       const kube = (v as Record<string, unknown>).kubernetes;
       if (kube && typeof kube === 'object') {
         const ku = kube as Record<string, unknown>;
+        const ns = typeof ku.namespace === 'string' ? ku.namespace.trim() : '';
         const dn = typeof ku.deploymentName === 'string' ? ku.deploymentName.trim() : '';
         const cn = typeof ku.containerName === 'string' ? ku.containerName.trim() : '';
-        if (!dn || !cn) {
+        const source =
+          ku.kubeconfigSource === 'local'
+            ? 'local'
+            : ku.kubeconfigSource === 'registered' || typeof ku.clusterId === 'string'
+              ? 'registered'
+              : 'local';
+        if (!ns || !dn || !cn) {
           message.error(
-            'Kubernetes 须填写主 Deployment 名称与主容器名称（表单顶部两项，或在发布配置 JSON 的 kubernetes 中提供 deploymentName、containerName）',
+            'Kubernetes 须填写命名空间、主 Deployment 名称与主容器名称（表单顶部三项，或在发布配置 JSON 的 kubernetes 中提供 namespace、deploymentName、containerName）',
           );
+          return;
+        }
+        if (source === 'registered' && typeof ku.clusterId !== 'string') {
+          message.error('Kubernetes 使用组织登记集群时请选择集群');
           return;
         }
       }
@@ -882,13 +1031,18 @@ async function handleSubmit() {
 
   submitting.value = true;
   try {
-    const targets = buildEnvironmentTargets(envForm.value.serverId);
+    const targets = requiresServer && envForm.value.serverId
+      ? buildEnvironmentTargets(envForm.value.serverId)
+      : [];
+    const serverPayload = requiresServer
+      ? { serverId: envForm.value.serverId, environmentTargets: targets }
+      : { serverId: null, environmentTargets: [] };
     if (props.mode === 'edit') {
       if (!props.initialEnv?.id) throw new Error('missing env id');
       await envApi.updateEnvironment(props.initialEnv.id, {
         name,
         triggerBranch,
-        serverId: envForm.value.serverId,
+        ...serverPayload,
         deployPath,
         domain: envForm.value.domain.trim() ? envForm.value.domain.trim() : null,
         healthCheckUrl: envForm.value.healthCheckUrl.trim()
@@ -896,20 +1050,18 @@ async function handleSubmit() {
           : null,
         protected: envForm.value.protected,
         ...(rcParsed.value !== undefined ? { releaseConfig: rcParsed.value } : {}),
-        environmentTargets: targets,
       });
       message.success('已保存');
     } else {
       await envApi.createEnvironment({
         name,
         triggerBranch,
-        serverId: envForm.value.serverId,
+        ...serverPayload,
         deployPath,
         domain: envForm.value.domain.trim() || undefined,
         healthCheckUrl: envForm.value.healthCheckUrl.trim() || undefined,
         protected: envForm.value.protected,
         ...(rcParsed.value !== undefined ? { releaseConfig: rcParsed.value } : {}),
-        environmentTargets: targets,
       });
       message.success('环境创建成功');
     }

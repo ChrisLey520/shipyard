@@ -66,7 +66,7 @@ export class DeployApplicationService {
     domain: string | null;
     healthCheckUrl: string | null;
     deployPath: string;
-    serverHost: string;
+    serverHost?: string | null;
     frameworkType: string;
     staticFallback?: { port: number; host: string };
   }): string[] {
@@ -80,11 +80,11 @@ export class DeployApplicationService {
     }
     if (accessHost) {
       lines.push(`[deploy] 访问地址: ${normalizeHttpRootUrlWithSlash(accessHost)}`);
-      const serverDirect = normalizeHttpRootUrlWithSlash(opts.serverHost);
+      const serverHost = opts.serverHost?.trim() ?? '';
+      const serverDirect = serverHost ? normalizeHttpRootUrlWithSlash(serverHost) : '';
       if (
         serverDirect &&
-        opts.serverHost.trim().length > 0 &&
-        !isSameHttpSiteHost(accessHost, opts.serverHost)
+        !isSameHttpSiteHost(accessHost, serverHost)
       ) {
         lines.push(`[deploy] 服务器直连访问（域名未解析时可先试）: ${serverDirect}`);
       }
@@ -111,8 +111,9 @@ export class DeployApplicationService {
       lines.push(`[deploy] 健康检查 URL: ${hc}`);
     }
     if (!accessHost && !hc) {
+      const host = opts.serverHost?.trim();
       lines.push(
-        `[deploy] 未配置环境域名与健康检查 URL。产物目录: ${opts.deployPath}（服务器 ${opts.serverHost}）`,
+        `[deploy] 未配置环境域名与健康检查 URL。产物目录: ${opts.deployPath}${host ? `（服务器 ${host}）` : ''}`,
       );
       if (opts.frameworkType === 'ssr') {
         lines.push('[deploy] SSR 通常由 Nginx 反代至 Node；请在环境中配置域名或在服务器上自行访问。');
@@ -123,7 +124,7 @@ export class DeployApplicationService {
 
   private computeFinalAccessUrl(opts: {
     domain: string | null;
-    serverHost: string;
+    serverHost?: string | null;
     staticFallback?: { port: number; host: string };
   }): string | null {
     if (opts.staticFallback) {
@@ -226,11 +227,13 @@ export class DeployApplicationService {
 
       const sshKeyPath = path.join('/tmp', `shipyard-deploy-${deploymentId}.pem`);
       let tmpExtractDir: string | null = null;
+      let deploymentAccessHost: string | null = env.server?.host ?? null;
       /** 蓝绿：健康/Prometheus 失败时回滚入口流量 */
       let blueGreenRollback:
         | {
             kind: 'static';
-            connParams: { host: string; port: number; username: string; privateKey: string };
+            connParams?: { host: string; port: number; username: string; privateKey: string };
+            local?: boolean;
             slug: string;
             serverNames: string;
             deployPath: string;
@@ -238,7 +241,8 @@ export class DeployApplicationService {
           }
         | {
             kind: 'ssr';
-            connParams: { host: string; port: number; username: string; privateKey: string };
+            connParams?: { host: string; port: number; username: string; privateKey: string };
+            local?: boolean;
             slug: string;
             serverNames: string;
             oldPort: number;
@@ -273,11 +277,146 @@ export class DeployApplicationService {
           await this.appendLogLine(deploymentId, '[deploy] object_storage：开始 S3 同步…');
           await this.performObjectStorageSync({ deploymentId, localDir: tmpExtractDir, rc });
           await this.appendLogLine(deploymentId, '[deploy] object_storage：同步完成');
+        } else if (rc.executor === 'local') {
+          deploymentAccessHost = 'localhost';
+          const envVars = await this.getDecryptedEnvVars(environmentId);
+          tmpExtractDir = path.join('/tmp', `deploy-${deploymentId}`);
+          mkdirSync(tmpExtractDir, { recursive: true });
+          await this.appendLogLine(deploymentId, '[deploy] local：开始解压产物包…');
+          await tar.extract({ file: deployment.artifact.storagePath, cwd: tmpExtractDir });
+          await this.appendLogLine(
+            deploymentId,
+            '[deploy] local：产物包已解压，将部署到运行 Shipyard Worker 的本机文件系统',
+          );
+          await this.ensureLocalDeployDir(deploymentId, env.deployPath);
+          await this.maybeRunLocalHooks({
+            deploymentId,
+            commands: rc.hooks?.preDeploy,
+            label: 'preDeploy',
+            deployPath: env.deployPath,
+          });
+
+          const localServerOs = this.localServerOs();
+          const canaryResolved = resolveCanaryNginxBodyForDeploy(rc);
+          if (rc.strategy === 'canary' && canaryResolved.kind === 'none') {
+            await this.appendLogLine(
+              deploymentId,
+              '[deploy] canary：配置不足以生成或手写片段（须 nginxCanaryPath，且手写 body 或生成模式字段齐全），本次跳过片段写入',
+            );
+          }
+
+          const useBgStatic =
+            rc.strategy === 'blue_green' &&
+            project.frameworkType !== 'ssr' &&
+            localServerOs === ServerOs.LINUX &&
+            !!env.domain?.trim();
+
+          const useBgSsr =
+            rc.strategy === 'blue_green' &&
+            project.frameworkType === 'ssr' &&
+            localServerOs === ServerOs.LINUX &&
+            !!env.domain?.trim();
+
+          if (useBgStatic) {
+            const bg = await this.localDeployBlueGreenStatic({
+              deploymentId,
+              env: {
+                deployPath: env.deployPath,
+                domain: env.domain,
+                blueGreenActiveSlot: env.blueGreenActiveSlot,
+                name: env.name,
+              },
+              localDir: tmpExtractDir,
+              projectSlug: project.slug,
+            });
+            macStaticPort = undefined;
+            blueGreenRollback = bg.rollback;
+            blueGreenSuccessSlot = bg.candidateSlot;
+          } else if (useBgSsr) {
+            const bg = await this.localDeployBlueGreenSsr({
+              deploymentId,
+              environmentId,
+              env: {
+                deployPath: env.deployPath,
+                domain: env.domain,
+                blueGreenActiveSlot: env.blueGreenActiveSlot,
+                name: env.name,
+                healthCheckUrl: env.healthCheckUrl,
+              },
+              localDir: tmpExtractDir,
+              projectSlug: project.slug,
+              ssrEntryPoint:
+                resolveRuntimeEntryPoint('ssr', pipelineConfig.ssrEntryPoint) ?? 'dist/index.js',
+              envVars,
+            });
+            macStaticPort = undefined;
+            blueGreenRollback = bg.rollback;
+            blueGreenSuccessSlot = bg.candidateSlot;
+            blueGreenSsrCutover = bg.cutover;
+          } else {
+            if (rc.strategy === 'blue_green') {
+              await this.appendLogLine(
+                deploymentId,
+                '[deploy] blue_green：当前不满足静态/SSR 蓝绿条件（须 Linux 且配置域名），回退为与 direct 相同的本机同步语义',
+              );
+            }
+            const localResult = await this.localDeploy({
+              deploymentId,
+              deployPath: env.deployPath,
+              localDir: tmpExtractDir,
+              frameworkType: project.frameworkType,
+              projectSlug: project.slug,
+              environmentName: env.name,
+              domain: env.domain ?? null,
+              ssrEntryPoint:
+                resolveRuntimeEntryPoint(project.frameworkType, pipelineConfig.ssrEntryPoint) ??
+                'dist/index.js',
+              servicePort: pipelineConfig.servicePort ?? 3000,
+              envVars,
+            });
+            macStaticPort = localResult.macStaticPort;
+
+            if (rc.strategy === 'canary' && canaryResolved.body && localServerOs === ServerOs.LINUX) {
+              const fragPath = rc.ssh?.nginxCanaryPath?.trim();
+              if (!fragPath) {
+                await this.appendLogLine(deploymentId, '[deploy] canary：缺少 nginxCanaryPath，跳过片段写入');
+              } else {
+                if (canaryResolved.kind === 'generated') {
+                  const sub =
+                    canaryResolved.generatedTemplate === 'upstream_weight'
+                      ? 'upstream_weight'
+                      : 'split_clients';
+                  await this.appendLogLine(
+                    deploymentId,
+                    `[deploy] canary_fragment_generated ${sub}`,
+                  );
+                } else {
+                  await this.appendLogLine(deploymentId, '[deploy] canary_fragment_manual');
+                }
+                await this.appendLogLine(deploymentId, '[deploy] traffic_switch 写入本机金丝雀 Nginx 片段');
+                await this.localWriteCanaryNginxAtomic({
+                  deploymentId,
+                  fragmentPath: fragPath,
+                  body: canaryResolved.body,
+                });
+              }
+            }
+          }
+
+          await this.maybeRunLocalHooks({
+            deploymentId,
+            commands: rc.hooks?.postDeploy,
+            label: 'postDeploy',
+            deployPath: env.deployPath,
+          });
+          await this.appendLogLine(deploymentId, '[deploy] local：本机同步 / PM2 / Nginx 步骤已完成');
         } else {
           const targets = this.resolveDeployTargetServers(env);
           const primaryId = this.resolvePrimaryServerId(env, rc);
           const primaryServer =
             targets.find((s) => s.id === primaryId) ?? targets[0] ?? env.server;
+          if (!primaryServer) throw new Error('SSH 执行器须选择服务器');
+          deploymentAccessHost = primaryServer.host;
           await this.appendLogLine(
             deploymentId,
             `[deploy] 目标 ${targets.length} 台，入口机 ${primaryServer.host}:${primaryServer.port}，路径 ${env.deployPath}`,
@@ -505,7 +644,7 @@ export class DeployApplicationService {
           ? { ...(prevSnap as Record<string, unknown>) }
           : {};
       if (macStaticPort != null) {
-        snapBase.shipyardAccess = { staticPort: macStaticPort, staticHost: env.server.host };
+        snapBase.shipyardAccess = { staticPort: macStaticPort, staticHost: deploymentAccessHost ?? 'localhost' };
       }
       await this.prisma.deployment.update({
         where: { id: deploymentId },
@@ -526,10 +665,10 @@ export class DeployApplicationService {
       // 将“最终可访问地址”落库到环境上，避免删除部署历史后访问地址消失
       const finalAccessUrl = this.computeFinalAccessUrl({
         domain: env.domain ?? null,
-        serverHost: env.server.host,
+        serverHost: deploymentAccessHost,
         staticFallback:
           macStaticPort != null
-            ? { port: macStaticPort, host: env.server.host }
+            ? { port: macStaticPort, host: deploymentAccessHost ?? 'localhost' }
             : undefined,
       });
       await this.prisma.environment.update({
@@ -541,11 +680,11 @@ export class DeployApplicationService {
         domain: env.domain ?? null,
         healthCheckUrl: env.healthCheckUrl ?? null,
         deployPath: env.deployPath,
-        serverHost: env.server.host,
+        serverHost: deploymentAccessHost,
         frameworkType: project.frameworkType,
         staticFallback:
           macStaticPort != null
-            ? { port: macStaticPort, host: env.server.host }
+            ? { port: macStaticPort, host: deploymentAccessHost ?? 'localhost' }
             : undefined,
       })) {
         await this.appendLogLine(deploymentId, line);
@@ -618,6 +757,14 @@ export class DeployApplicationService {
 
   private usesPm2RuntimeFramework(frameworkType: string): boolean {
     return frameworkType !== 'static';
+  }
+
+  private localServerOs(): string {
+    return process.platform === 'darwin'
+      ? ServerOs.MACOS
+      : process.platform === 'win32'
+        ? ServerOs.WINDOWS
+        : ServerOs.LINUX;
   }
 
   /** 从环境健康检查 URL 推导本地探活 path（与预览路径规则一致，非法则退化为 /） */
@@ -888,19 +1035,28 @@ export class DeployApplicationService {
       user: string;
       privateKey: string;
       os: string;
-    };
-    environmentServers: Array<{ server: (typeof env)['server'] }>;
-  }): Array<(typeof env)['server']> {
+    } | null;
+    environmentServers: Array<{
+      server: {
+        id: string;
+        host: string;
+        port: number;
+        user: string;
+        privateKey: string;
+        os: string;
+      };
+    }>;
+  }): Array<NonNullable<(typeof env)['server']>> {
     if (env.environmentServers?.length) {
       return env.environmentServers.map((es) => es.server);
     }
-    return [env.server];
+    return env.server ? [env.server] : [];
   }
 
   private resolvePrimaryServerId(
-    env: { serverId: string; environmentServers: Array<{ serverId: string; sortOrder: number }> },
+    env: { serverId: string | null; environmentServers: Array<{ serverId: string; sortOrder: number }> },
     rc: ReleaseConfig,
-  ): string {
+  ): string | null {
     if (rc.ssh?.primaryServerId) return rc.ssh.primaryServerId;
     if (env.environmentServers?.length) {
       return [...env.environmentServers].sort((a, b) => a.sortOrder - b.sortOrder)[0]!.serverId;
@@ -914,6 +1070,7 @@ export class DeployApplicationService {
       deployPath: string;
       domain: string | null;
       blueGreenActiveSlot: number | null;
+      name: string;
     };
     primaryServer: { host: string; port: number; user: string; privateKey: string; os: string };
     privateKey: string;
@@ -1193,7 +1350,8 @@ export class DeployApplicationService {
     rb:
       | {
           kind: 'static';
-          connParams: { host: string; port: number; username: string; privateKey: string };
+          connParams?: { host: string; port: number; username: string; privateKey: string };
+          local?: boolean;
           slug: string;
           serverNames: string;
           deployPath: string;
@@ -1201,7 +1359,8 @@ export class DeployApplicationService {
         }
       | {
           kind: 'ssr';
-          connParams: { host: string; port: number; username: string; privateKey: string };
+          connParams?: { host: string; port: number; username: string; privateKey: string };
+          local?: boolean;
           slug: string;
           serverNames: string;
           oldPort: number;
@@ -1218,13 +1377,22 @@ export class DeployApplicationService {
   private async revertBlueGreenNginxRoot(
     deploymentId: string,
     rb: {
-      connParams: { host: string; port: number; username: string; privateKey: string };
+      connParams?: { host: string; port: number; username: string; privateKey: string };
+      local?: boolean;
       slug: string;
       serverNames: string;
       deployPath: string;
       oldSlot: 0 | 1;
     },
   ): Promise<void> {
+    if (rb.local) {
+      const root = `${rb.deployPath}/.shipyard-bg${rb.oldSlot}`;
+      const nginxConf = this.generateStaticNginxConf(rb.serverNames, root);
+      await this.localWriteLinuxSiteNginxAtomic(rb.slug, nginxConf, deploymentId);
+      await this.appendLogLine(deploymentId, '[deploy] rollback 蓝绿：本机 Nginx 已指回旧槽');
+      return;
+    }
+    if (!rb.connParams) throw new Error('蓝绿回滚缺少 SSH 连接参数');
     const c = rb.connParams;
     const conn = await this.createSshClient({
       host: c.host,
@@ -1245,13 +1413,23 @@ export class DeployApplicationService {
   private async revertBlueGreenSsr(
     deploymentId: string,
     rb: {
-      connParams: { host: string; port: number; username: string; privateKey: string };
+      connParams?: { host: string; port: number; username: string; privateKey: string };
+      local?: boolean;
       slug: string;
       serverNames: string;
       oldPort: number;
       candidatePm2Name: string;
     },
   ): Promise<void> {
+    if (rb.local) {
+      const nginxConf = this.generateSsrNginxConf(rb.serverNames, '127.0.0.1', rb.oldPort);
+      await this.localWriteLinuxSiteNginxAtomic(rb.slug, nginxConf, deploymentId);
+      const q = this.shellSingleQuote(rb.candidatePm2Name);
+      await this.localExecBash(`pm2 describe ${q} >/dev/null 2>&1 && pm2 delete ${q} || true`);
+      await this.appendLogLine(deploymentId, '[deploy] rollback 本机蓝绿 SSR：Nginx 已指回旧端口并已摘除候选 PM2');
+      return;
+    }
+    if (!rb.connParams) throw new Error('蓝绿回滚缺少 SSH 连接参数');
     const c = rb.connParams;
     const conn = await this.createSshClient({
       host: c.host,
@@ -1385,9 +1563,26 @@ export class DeployApplicationService {
     if (!image) {
       throw new Error('K8s 部署需要构建启用容器镜像并成功推送（制品须含 imageRef 或 imageDigest + 流水线 imageName）');
     }
-    const kubeconfig = await this.k8sClusters.getDecryptedKubeconfig(orgId, k.clusterId);
-    const kubePath = path.join('/tmp', `shipyard-kube-${deploymentId}.yaml`);
-    await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
+    const kubeSource = k.kubeconfigSource ?? 'registered';
+    let kubePath: string | null = null;
+    if (kubeSource === 'registered') {
+      if (!k.clusterId) throw new Error('缺少 kubernetes.clusterId');
+      const kubeconfig = await this.k8sClusters.getDecryptedKubeconfig(orgId, k.clusterId);
+      kubePath = path.join('/tmp', `shipyard-kube-${deploymentId}.yaml`);
+      await writeFile(kubePath, kubeconfig, { encoding: 'utf8', mode: 0o600 });
+      await this.appendLogLine(deploymentId, '[deploy] k8s kubeconfig=registered');
+    } else {
+      await this.appendLogLine(
+        deploymentId,
+        `[deploy] k8s kubeconfig=local${k.kubeconfigPath?.trim() ? ` path=${k.kubeconfigPath.trim()}` : '（使用 Worker 宿主机 kubectl 默认配置）'}`,
+      );
+    }
+    const kubeArgs = (): string[] => {
+      const localPath = kubeSource === 'local' ? k.kubeconfigPath?.trim() : '';
+      if (localPath) return [`--kubeconfig=${localPath}`];
+      if (kubePath) return [`--kubeconfig=${kubePath}`];
+      return [];
+    };
     try {
       const ns = k.namespace;
       const timeoutSec = k.rolloutTimeoutSeconds ?? 600;
@@ -1447,7 +1642,7 @@ export class DeployApplicationService {
             `[deploy] k8s patch rollingUpdate ${label} surge=${ru.maxSurge ?? '—'} unavail=${ru.maxUnavailable ?? '—'} deploy=${target.deploymentName}`,
           );
           await this.execLocal('kubectl', [
-            `--kubeconfig=${kubePath}`,
+            ...kubeArgs(),
             '-n',
             ns,
             'patch',
@@ -1463,7 +1658,7 @@ export class DeployApplicationService {
           `[deploy] k8s set-image ${label} ns=${ns} deploy=${target.deploymentName} container=${target.containerName}`,
         );
         await this.execLocal('kubectl', [
-          `--kubeconfig=${kubePath}`,
+          ...kubeArgs(),
           '-n',
           ns,
           'set',
@@ -1476,7 +1671,7 @@ export class DeployApplicationService {
           `[deploy] k8s rollout status ${label} timeout=${timeoutSec}s deploy=${target.deploymentName}…`,
         );
         await this.execLocal('kubectl', [
-          `--kubeconfig=${kubePath}`,
+          ...kubeArgs(),
           '-n',
           ns,
           'rollout',
@@ -1495,7 +1690,7 @@ export class DeployApplicationService {
         },
       });
     } finally {
-      await unlink(kubePath).catch(() => undefined);
+      if (kubePath) await unlink(kubePath).catch(() => undefined);
     }
   }
 
@@ -2002,6 +2197,533 @@ export class DeployApplicationService {
     }
   }
 
+  private async appendLocalStdoutToDeployLog(deploymentId: string, out: string): Promise<void> {
+    await this.appendRemoteStdoutToDeployLog(deploymentId, out);
+  }
+
+  private async localExecBash(script: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let output = '';
+      let settled = false;
+      const child = spawn('bash', ['-lc', script], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env['HOME'] ?? ''}/Library/pnpm:${process.env['PATH'] ?? ''}`,
+        },
+      });
+      child.stdout?.on('data', (d: Buffer) => {
+        output += d.toString();
+      });
+      child.stderr?.on('data', (d: Buffer) => {
+        output += d.toString();
+      });
+      child.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      });
+      child.on('close', (code: number | null) => {
+        if (settled) return;
+        settled = true;
+        if (code === 0) resolve(output);
+        else reject(new Error(`本机命令失败 (exit ${code}): ${output}`));
+      });
+    });
+  }
+
+  private async localPrecheck(
+    deploymentId: string,
+    opts: { needNginx: boolean; needPm2: boolean },
+  ): Promise<void> {
+    const parts: string[] = [
+      'command -v bash >/dev/null 2>&1 || { echo "missing: bash"; exit 2; }',
+    ];
+    if (opts.needNginx) {
+      parts.push('command -v nginx >/dev/null 2>&1 || { echo "missing: nginx"; exit 2; }');
+    }
+    if (opts.needPm2) {
+      parts.push('command -v pm2 >/dev/null 2>&1 || { echo "missing: pm2"; exit 2; }');
+      parts.push('command -v node >/dev/null 2>&1 || { echo "missing: node"; exit 2; }');
+    }
+    try {
+      await this.localExecBash(parts.join('; '));
+    } catch (e) {
+      const tail = this.formatDeployFailureMessage(e);
+      throw new Error(
+        `[precheck] 本机环境检测未通过（需 bash${opts.needNginx ? '、nginx' : ''}${opts.needPm2 ? '、node、pm2' : ''}）。详情: ${tail}`,
+      );
+    }
+    await this.appendLogLine(
+      deploymentId,
+      `[precheck] 本机通过（bash${opts.needNginx ? '/nginx' : ''}${opts.needPm2 ? '/node/pm2' : ''}）`,
+    );
+  }
+
+  private async ensureLocalDeployDir(deploymentId: string, deployPath: string): Promise<void> {
+    await this.appendLogLine(deploymentId, '[deploy] local：确保本机部署目录存在…');
+    const qDeployDir = this.shellSingleQuote(deployPath);
+    const ensureDeployDirInner = [
+      'set -euo pipefail',
+      `if ! mkdir -p ${qDeployDir} 2>/dev/null; then`,
+      `  if [ "$(id -u)" -eq 0 ]; then mkdir -p ${qDeployDir}; else sudo mkdir -p ${qDeployDir}; fi`,
+      `fi`,
+      `if command -v sudo >/dev/null 2>&1; then sudo chown -R "$(id -u)":"$(id -g)" ${qDeployDir} 2>/dev/null || true; fi`,
+    ].join('\n');
+    await this.localExecBash(ensureDeployDirInner);
+  }
+
+  private async localAssertRuntimeEntryPoint(opts: {
+    deploymentId: string;
+    cwd: string;
+    entryPoint: string;
+    logPrefix: string;
+  }): Promise<void> {
+    await this.appendLogLine(opts.deploymentId, `${opts.logPrefix} 校验运行入口: ${opts.entryPoint}`);
+    const script = [
+      'set -euo pipefail',
+      `cd ${this.shellSingleQuote(opts.cwd)}`,
+      `if [ ! -f ${this.shellSingleQuote(opts.entryPoint)} ]; then`,
+      `  echo "缺少运行入口文件：${opts.entryPoint}" >&2`,
+      `  echo "当前部署目录：${opts.cwd}" >&2`,
+      '  echo "请检查项目配置中的 Node/SSR 入口，或确认构建产物与 outputDir 是否匹配。" >&2',
+      '  exit 1',
+      'fi',
+    ].join('\n');
+    await this.localExecBash(script);
+  }
+
+  private async localSsrHealthCheck(
+    port: number,
+    deploymentId: string,
+    healthPath: string,
+  ): Promise<void> {
+    const max = 5;
+    const sleepSec = 2;
+    const inner = `for i in $(seq 1 ${max}); do curl -fsS --max-time 5 "http://127.0.0.1:${port}${healthPath}" >/dev/null 2>&1 && exit 0; sleep ${sleepSec}; done; exit 1`;
+    try {
+      await this.localExecBash(inner);
+    } catch {
+      throw new Error(
+        `SSR 候选实例健康检查未通过（http://127.0.0.1:${port}${healthPath} ，已重试 ${max} 次）`,
+      );
+    }
+    await this.appendLogLine(deploymentId, `[deploy] health_ok localhost:${port}${healthPath}`);
+  }
+
+  private async localWriteLinuxSiteNginxAtomic(
+    slug: string,
+    nginxConf: string,
+    deploymentId: string,
+  ): Promise<void> {
+    const tag = `SYLNX_${randomBytes(8).toString('hex')}`;
+    if (nginxConf.includes(tag)) {
+      throw new Error('Nginx 配置与内部分隔符冲突，请调整域名后重试');
+    }
+    const conf = `/etc/nginx/sites-available/${slug}.conf`;
+    const enabled = `/etc/nginx/sites-enabled/${slug}.conf`;
+    const staging = `/tmp/shipyard-local-site-nginx.${randomBytes(12).toString('hex')}.tmp`;
+    const inner = [
+      'set -euo pipefail',
+      'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else command -v sudo >/dev/null 2>&1 || { echo "missing: sudo（写入 /etc/nginx 需要 root 或 sudo）" >&2; exit 2; }; SUDO="sudo"; fi',
+      '$SUDO mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled',
+      `tmp=${this.shellSingleQuote(staging)}`,
+      `cat > "$tmp" <<'${tag}'`,
+      nginxConf,
+      tag,
+      `$SUDO mv -f "$tmp" ${this.shellSingleQuote(conf)}`,
+      `$SUDO ln -sf ${this.shellSingleQuote(conf)} ${this.shellSingleQuote(enabled)}`,
+      '$SUDO nginx -t && $SUDO nginx -s reload',
+    ].join('\n');
+    await this.localExecBash(inner);
+    await this.appendLogLine(deploymentId, '[deploy] 本机 Linux 站点 Nginx 已原子更新并重载');
+  }
+
+  private async localWriteCanaryNginxAtomic(opts: {
+    deploymentId: string;
+    fragmentPath: string;
+    body: string;
+  }): Promise<void> {
+    const dir = opts.fragmentPath.replace(/\/[^/]+$/, '') || '/';
+    const tag = `SYLCY_${randomBytes(8).toString('hex')}`;
+    if (opts.body.includes(tag)) {
+      throw new Error('金丝雀 Nginx 片段与内部分隔符冲突');
+    }
+    const qDir = this.shellSingleQuote(dir);
+    const qFinal = this.shellSingleQuote(opts.fragmentPath);
+    const qBak = this.shellSingleQuote(`${opts.fragmentPath}.shipyard-canary-prev`);
+    const staging = `/tmp/shipyard-local-canary-nginx.${randomBytes(12).toString('hex')}.tmp`;
+    const qStaging = this.shellSingleQuote(staging);
+    const inner = [
+      'set -euo pipefail',
+      'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else command -v sudo >/dev/null 2>&1 || { echo "missing: sudo（写入 Nginx 片段需要 root 或 sudo）" >&2; exit 2; }; SUDO="sudo"; fi',
+      `$SUDO mkdir -p ${qDir}`,
+      `tmp=${qStaging}`,
+      `final=${qFinal}`,
+      `bak=${qBak}`,
+      'if [ -f "$final" ]; then $SUDO cp -a "$final" "$bak"; fi',
+      `cat > "$tmp" <<'${tag}'`,
+      opts.body,
+      tag,
+      '$SUDO mv -f "$tmp" "$final"',
+      'if ! $SUDO nginx -t; then',
+      '  if [ -f "$bak" ]; then $SUDO mv -f "$bak" "$final"; else $SUDO rm -f "$final"; fi',
+      '  exit 1',
+      'fi',
+      '$SUDO nginx -s reload',
+      '$SUDO rm -f "$bak"',
+    ].join('\n');
+    await this.localExecBash(inner);
+    await this.appendLogLine(opts.deploymentId, '[deploy] 本机金丝雀 Nginx 片段已原子更新并重载');
+  }
+
+  private async localDeployBlueGreenStatic(opts: {
+    deploymentId: string;
+    env: {
+      deployPath: string;
+      domain: string | null;
+      blueGreenActiveSlot: number | null;
+      name: string;
+    };
+    localDir: string;
+    projectSlug: string;
+  }): Promise<{
+    candidateSlot: 0 | 1;
+    rollback: {
+      kind: 'static';
+      local: true;
+      slug: string;
+      serverNames: string;
+      deployPath: string;
+      oldSlot: 0 | 1;
+    } | null;
+  }> {
+    const active = opts.env.blueGreenActiveSlot;
+    const candidate: 0 | 1 = active === null || active === 1 ? 0 : 1;
+    const oldSlot: 0 | 1 | null = active === 0 || active === 1 ? active : null;
+    const { deployPath } = opts.env;
+    const slotPath = `${deployPath}/.shipyard-bg${candidate}`;
+
+    await this.localPrecheck(opts.deploymentId, { needNginx: true, needPm2: false });
+    await this.ensureLocalDeployDir(opts.deploymentId, slotPath);
+    await this.appendLogLine(opts.deploymentId, `[deploy] blue_green static：同步候选槽 ${candidate}`);
+    await this.syncLocalDir(opts.deploymentId, opts.localDir, slotPath);
+
+    const serverNames = buildNginxServerNameList(opts.env.domain!.trim(), 'localhost');
+    const nginxConf = this.generateStaticNginxConf(serverNames, slotPath);
+    const siteSlug = this.envRegularPm2AppName(opts.projectSlug, opts.env.name);
+    await this.localWriteLinuxSiteNginxAtomic(siteSlug, nginxConf, opts.deploymentId);
+    await this.appendLogLine(opts.deploymentId, '[deploy] traffic_switch Nginx root → 候选槽');
+
+    const rollback =
+      oldSlot === 0 || oldSlot === 1
+        ? {
+            kind: 'static' as const,
+            local: true as const,
+            slug: siteSlug,
+            serverNames,
+            deployPath,
+            oldSlot,
+          }
+        : null;
+    return { candidateSlot: candidate, rollback };
+  }
+
+  private async localDeployBlueGreenSsr(opts: {
+    deploymentId: string;
+    environmentId: string;
+    env: {
+      deployPath: string;
+      domain: string | null;
+      blueGreenActiveSlot: number | null;
+      name: string;
+      healthCheckUrl: string | null;
+    };
+    localDir: string;
+    projectSlug: string;
+    ssrEntryPoint: string;
+    envVars: Record<string, string>;
+  }): Promise<{
+    candidateSlot: 0 | 1;
+    rollback: {
+      kind: 'ssr';
+      local: true;
+      slug: string;
+      serverNames: string;
+      oldPort: number;
+      candidatePm2Name: string;
+    };
+    cutover: () => Promise<void>;
+  }> {
+    const active = opts.env.blueGreenActiveSlot;
+    const candidate: 0 | 1 = active === null || active === 1 ? 0 : 1;
+    const oldSlot: 0 | 1 | null = active === 0 || active === 1 ? active : null;
+    const { deployPath } = opts.env;
+    const ports = this.envSsrBlueGreenPorts(opts.environmentId);
+    const candidatePort = candidate === 0 ? ports.port0 : ports.port1;
+    const oldPortForNginx = oldSlot === 0 ? ports.port0 : oldSlot === 1 ? ports.port1 : 3000;
+    const slotPath = `${deployPath}/.shipyard-bg${candidate}`;
+
+    await this.localPrecheck(opts.deploymentId, { needNginx: true, needPm2: true });
+    await this.ensureLocalDeployDir(opts.deploymentId, slotPath);
+    await this.appendLogLine(
+      opts.deploymentId,
+      `[deploy] blue_green SSR：槽位=${candidate} 本地端口=${candidatePort}（另一槽 ${oldSlot === 0 || oldSlot === 1 ? (oldSlot === 0 ? ports.port1 : ports.port0) : 'n/a'}，回滚 Nginx 目标端口=${oldPortForNginx}）`,
+    );
+    await this.syncLocalDir(opts.deploymentId, opts.localDir, slotPath);
+
+    await this.localAssertRuntimeEntryPoint({
+      deploymentId: opts.deploymentId,
+      cwd: slotPath,
+      entryPoint: opts.ssrEntryPoint,
+      logPrefix: '[deploy] local',
+    });
+
+    const pm2Base = this.envRegularPm2BgBase(opts.projectSlug, opts.env.name);
+    const candPm2Name = this.previewPm2BgName(pm2Base, candidate);
+    const oldSlotPm2Name =
+      oldSlot === 0 || oldSlot === 1 ? this.previewPm2BgName(pm2Base, oldSlot) : null;
+    const mergedEnv = { ...opts.envVars, PORT: String(candidatePort) };
+    const envStr = Object.entries(mergedEnv)
+      .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+      .join(',\n');
+    const ecosystemJs = `module.exports = {
+  apps: [{
+    name: ${JSON.stringify(candPm2Name)},
+    script: ${JSON.stringify(opts.ssrEntryPoint)},
+    cwd: ${JSON.stringify(slotPath)},
+    env: {\n${envStr}\n    }
+  }]
+};`;
+    const ecoPath = `${slotPath}/ecosystem.bg${candidate}.config.js`;
+    const tag = `SYLOCAL_BG_PM2_${randomBytes(8).toString('hex')}`;
+    if (ecosystemJs.includes(tag)) {
+      throw new Error('PM2 配置与内部分隔符冲突');
+    }
+    await this.localExecBash([
+      'set -euo pipefail',
+      `cat > ${this.shellSingleQuote(ecoPath)} <<'${tag}'`,
+      ecosystemJs,
+      tag,
+    ].join('\n'));
+    const qCand = this.shellSingleQuote(candPm2Name);
+    const qEco = this.shellSingleQuote(ecoPath);
+    await this.appendLogLine(
+      opts.deploymentId,
+      `[deploy] candidate_up SSR pm2=${candPm2Name} cwd=${slotPath}`,
+    );
+    await this.localExecBash(`(pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true); pm2 start ${qEco}`);
+
+    const healthPath = this.envSsrLocalHealthPath(opts.env.healthCheckUrl);
+    if (healthPath !== '/') {
+      await this.appendLogLine(opts.deploymentId, `[deploy] SSR 本地健康路径: ${healthPath}（自 healthCheckUrl 推导）`);
+    }
+    try {
+      await this.localSsrHealthCheck(candidatePort, opts.deploymentId, healthPath);
+    } catch (hcErr) {
+      await this.localExecBash(`pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true`).catch(() => undefined);
+      throw hcErr;
+    }
+
+    const serverNames = buildNginxServerNameList(opts.env.domain!.trim(), 'localhost');
+    const nginxBodyNew = this.generateSsrNginxConf(serverNames, '127.0.0.1', candidatePort);
+    const nginxBodyOld = this.generateSsrNginxConf(serverNames, '127.0.0.1', oldPortForNginx);
+    const siteSlug = this.envRegularPm2AppName(opts.projectSlug, opts.env.name);
+    await this.appendLogLine(opts.deploymentId, '[deploy] traffic_switch Nginx → 候选 SSR 端口');
+    try {
+      await this.localWriteLinuxSiteNginxAtomic(siteSlug, nginxBodyNew, opts.deploymentId);
+    } catch (nginxErr) {
+      await this.localWriteLinuxSiteNginxAtomic(siteSlug, nginxBodyOld, opts.deploymentId).catch((e) =>
+        this.logger.warn(`本机蓝绿 SSR Nginx 回滚失败: ${e}`),
+      );
+      await this.localExecBash(`pm2 describe ${qCand} >/dev/null 2>&1 && pm2 delete ${qCand} || true`).catch(() => undefined);
+      throw nginxErr;
+    }
+
+    const oldNameQ = oldSlotPm2Name ? this.shellSingleQuote(oldSlotPm2Name) : null;
+    const qLegacy = this.shellSingleQuote(this.envRegularPm2AppName(opts.projectSlug, opts.env.name));
+    const cutover = async (): Promise<void> => {
+      const cutoverPm2 = [
+        `pm2 describe ${qLegacy} >/dev/null 2>&1 && pm2 delete ${qLegacy} || true`,
+        oldNameQ
+          ? `pm2 describe ${oldNameQ} >/dev/null 2>&1 && pm2 delete ${oldNameQ} || true`
+          : 'true',
+      ].join('; ');
+      await this.localExecBash(cutoverPm2);
+      await this.appendLogLine(
+        opts.deploymentId,
+        '[deploy] rollback_old_instance 已摘除旧 SSR 槽位/direct PM2',
+      );
+    };
+
+    const rollback = {
+      kind: 'ssr' as const,
+      local: true as const,
+      slug: siteSlug,
+      serverNames,
+      oldPort: oldPortForNginx,
+      candidatePm2Name: candPm2Name,
+    };
+    return { candidateSlot: candidate, rollback, cutover };
+  }
+
+  private async maybeRunLocalHooks(opts: {
+    deploymentId: string;
+    commands: string[] | undefined;
+    label: string;
+    deployPath: string;
+  }): Promise<void> {
+    const cmds = opts.commands?.filter((c) => c.trim().length > 0) ?? [];
+    if (!cmds.length) return;
+    const cwd = this.shellSingleQuote(opts.deployPath);
+    for (const raw of cmds) {
+      const cmd = raw.trim().slice(0, 4096);
+      await this.appendLogLine(opts.deploymentId, `[deploy] local hook ${opts.label}: ${cmd.slice(0, 200)}`);
+      const runner = `bash -lc ${this.shellSingleQuote(cmd)}`;
+      const inner = `set -euo pipefail; cd ${cwd}; if command -v timeout >/dev/null 2>&1; then timeout 120 ${runner}; else ${runner}; fi`;
+      const out = await this.localExecBash(inner);
+      await this.appendLocalStdoutToDeployLog(
+        opts.deploymentId,
+        this.truncateHookLogOutput(out),
+      );
+    }
+  }
+
+  private async syncLocalDir(deploymentId: string, srcDir: string, dstDir: string): Promise<void> {
+    await this.appendLogLine(deploymentId, '[deploy] local：开始同步产物到本机部署目录…');
+    try {
+      await this.execLocal('rsync', ['-a', '--delete', `${srcDir}/`, `${dstDir}/`]);
+    } catch (e) {
+      await this.appendLogLine(
+        deploymentId,
+        `[deploy] local：rsync 不可用或失败，改用 cp 同步（${this.formatDeployFailureMessage(e)}）`,
+      );
+      const copyInner = [
+        'set -euo pipefail',
+        `src=${this.shellSingleQuote(srcDir)}`,
+        `dst=${this.shellSingleQuote(dstDir)}`,
+        'find "$dst" -mindepth 1 -maxdepth 1 -exec rm -rf {} +',
+        'cp -a "$src"/. "$dst"/',
+      ].join('\n');
+      await this.localExecBash(copyInner);
+    }
+  }
+
+  private async localDeploy(opts: {
+    deploymentId: string;
+    deployPath: string;
+    localDir: string;
+    frameworkType: string;
+    projectSlug: string;
+    environmentName: string;
+    domain: string | null;
+    ssrEntryPoint: string;
+    servicePort: number;
+    envVars: Record<string, string>;
+  }): Promise<{ macStaticPort?: number }> {
+    const serverOs = this.localServerOs();
+    if (serverOs === ServerOs.WINDOWS) {
+      throw new Error('local 执行器暂不支持 Windows Worker；请使用 Linux/macOS Worker 或 SSH 执行器');
+    }
+
+    const needNginx = !!opts.domain?.trim();
+    const needPm2 = this.usesPm2RuntimeFramework(opts.frameworkType);
+    await this.localPrecheck(opts.deploymentId, {
+      needNginx: serverOs === ServerOs.LINUX ? needNginx : false,
+      needPm2,
+    });
+
+    await this.syncLocalDir(opts.deploymentId, opts.localDir, opts.deployPath);
+
+    if (this.usesPm2RuntimeFramework(opts.frameworkType)) {
+      await this.localAssertRuntimeEntryPoint({
+        deploymentId: opts.deploymentId,
+        cwd: opts.deployPath,
+        entryPoint: opts.ssrEntryPoint,
+        logPrefix: '[deploy] local',
+      });
+      await this.appendLogLine(
+        opts.deploymentId,
+        `[deploy] local ${opts.frameworkType === 'nodejs' ? 'Node.js' : 'SSR'}：开始生成 PM2 配置并启动/重载服务…`,
+      );
+      const runtimeEnvVars = { ...opts.envVars };
+      if (!runtimeEnvVars['PORT']) {
+        runtimeEnvVars['PORT'] = String(opts.servicePort);
+      }
+      const envStr = Object.entries(runtimeEnvVars)
+        .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+        .join(',\n');
+      const pm2AppName = this.envRegularPm2AppName(opts.projectSlug, opts.environmentName);
+      const ecosystemJs = `module.exports = {
+  apps: [{
+    name: ${JSON.stringify(pm2AppName)},
+    script: ${JSON.stringify(opts.ssrEntryPoint)},
+    cwd: ${JSON.stringify(opts.deployPath)},
+    env: {\n${envStr}\n    }
+  }]
+};`;
+      const tag = `SYLOCAL_PM2_${randomBytes(8).toString('hex')}`;
+      if (ecosystemJs.includes(tag)) {
+        throw new Error('PM2 配置与内部分隔符冲突');
+      }
+      await this.localExecBash([
+        'set -euo pipefail',
+        `cd ${this.shellSingleQuote(opts.deployPath)}`,
+        `cat > ecosystem.config.js <<'${tag}'`,
+        ecosystemJs,
+        tag,
+      ].join('\n'));
+      const pm2Check = `pm2 describe ${this.shellSingleQuote(pm2AppName)} > /dev/null 2>&1`;
+      await this.localExecBash(
+        `${pm2Check} && pm2 reload ${this.shellSingleQuote(`${opts.deployPath}/ecosystem.config.js`)} --update-env || pm2 start ${this.shellSingleQuote(`${opts.deployPath}/ecosystem.config.js`)}`,
+      );
+    }
+
+    let macNginxOut = '';
+    if (opts.domain) {
+      await this.appendLogLine(opts.deploymentId, '[deploy] local：开始生成/更新本机 Nginx 配置…');
+      const serverNames = buildNginxServerNameList(opts.domain.trim(), 'localhost');
+      const siteSlug = this.envRegularPm2AppName(opts.projectSlug, opts.environmentName);
+      const nginxConf = this.usesPm2RuntimeFramework(opts.frameworkType)
+        ? this.generateSsrNginxConf(serverNames, '127.0.0.1', opts.servicePort)
+        : this.generateStaticNginxConf(serverNames, opts.deployPath);
+
+      if (serverOs === ServerOs.MACOS) {
+        macNginxOut = await this.localExecBash(this.buildMacosNginxInstallScript(siteSlug, nginxConf));
+        const filtered = macNginxOut
+          .split('\n')
+          .filter((l) => !l.trim().startsWith('SHIPYARD_NGINX_SKIPPED='))
+          .join('\n');
+        await this.appendLocalStdoutToDeployLog(opts.deploymentId, filtered);
+      } else {
+        await this.localWriteLinuxSiteNginxAtomic(siteSlug, nginxConf, opts.deploymentId);
+      }
+    }
+
+    let macStaticPort: number | undefined;
+    if (serverOs === ServerOs.MACOS && opts.frameworkType === 'static') {
+      const nginxSkipped = !opts.domain?.trim() || macNginxOut.includes('SHIPYARD_NGINX_SKIPPED=1');
+      if (nginxSkipped) {
+        await this.appendLogLine(opts.deploymentId, '[deploy] local macOS：Nginx 不可用，准备使用 PM2 + Node 启动静态站点…');
+        macStaticPort = this.computeStaticFallbackPort(opts.projectSlug);
+        const bash = this.buildMacPm2StaticBashScript(
+          opts.deployPath,
+          opts.projectSlug,
+          macStaticPort,
+          this.getShipyardStaticServerCjsSource(),
+        );
+        await this.localExecBash(bash);
+        const pm2Name = this.pm2StaticAppName(opts.projectSlug);
+        await this.appendLogLine(
+          opts.deploymentId,
+          `[deploy] local：已用 PM2 启动静态站点进程「${pm2Name}」，端口 ${macStaticPort}`,
+        );
+      }
+    }
+
+    return { macStaticPort };
+  }
+
   private async sshDeploy(opts: {
     deploymentId: string;
     host: string;
@@ -2390,6 +3112,9 @@ server.listen(PORT, '0.0.0.0', () => {
       child.stderr?.on('data', (c: Buffer) => {
         combined += c.toString();
       });
+      child.on('error', (err) => {
+        reject(err);
+      });
       child.on('close', (code: number | null) => {
         if (code === 0) resolve();
         else {
@@ -2431,6 +3156,9 @@ server.listen(PORT, '0.0.0.0', () => {
       });
       child.stderr?.on('data', (c: Buffer) => {
         combined += c.toString();
+      });
+      child.on('error', (err) => {
+        reject(err);
       });
       child.on('close', (code: number | null) => {
         if (code === 0) resolve();

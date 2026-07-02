@@ -163,7 +163,14 @@
                 <n-form-item label="触发分支">
                   <n-input v-model:value="envTemplate.triggerBranch" placeholder="main" />
                 </n-form-item>
-                <n-form-item label="部署服务器">
+                <n-form-item label="执行器">
+                  <n-select
+                    v-model:value="envTemplate.executor"
+                    :options="envTemplateExecutorOptions"
+                    placeholder="选择部署执行器"
+                  />
+                </n-form-item>
+                <n-form-item v-if="envTemplate.executor === 'ssh'" label="部署服务器">
                   <n-select
                     v-model:value="envTemplate.serverId"
                     :options="batchServerOptions"
@@ -172,6 +179,9 @@
                     placeholder="请选择一台用于默认环境的服务器"
                   />
                 </n-form-item>
+                <n-alert v-if="envTemplate.executor === 'local'" type="info" :show-icon="false">
+                  默认环境将部署到运行 Shipyard Worker 的本机，不走 SSH。
+                </n-alert>
                 <n-form-item label="部署根目录">
                   <n-input v-model:value="envTemplate.deployRoot" placeholder="/var/www/shipyard" />
                 </n-form-item>
@@ -403,6 +413,10 @@ const gitProviderOptions = GIT_PROVIDER_SELECT_OPTIONS;
 const baseUrlInputPlaceholder = `${DEFAULT_GITLAB_BASE_URL} 或 https://gitea.yourdomain.com`;
 
 const nodeVersionOptions = ['18', '20', '22'].map((v) => ({ label: `Node ${v}`, value: v }));
+const envTemplateExecutorOptions = [
+  { label: 'SSH', value: 'ssh' },
+  { label: '本机', value: 'local' },
+];
 const batchServerOptions = computed(() =>
   orgServers.value.map((server) => ({
     label: `${server.name} (${server.host})`,
@@ -414,6 +428,7 @@ const envTemplate = ref({
   enabled: false,
   name: 'production',
   triggerBranch: 'main',
+  executor: 'ssh' as 'ssh' | 'local',
   serverId: null as string | null,
   deployRoot: '/var/www/shipyard',
   baseDomain: '',
@@ -436,7 +451,7 @@ async function handleCreate() {
   if (batchMode.value) {
     if (!form.value.repoFullName || !form.value.gitAccountId) return;
     if (envTemplate.value.enabled) {
-      if (!envTemplate.value.serverId) {
+      if (envTemplate.value.executor === 'ssh' && !envTemplate.value.serverId) {
         message.error('启用环境模板时请选择部署服务器');
         return;
       }
@@ -481,7 +496,7 @@ async function handleCreate() {
         slug: string;
         frameworkType: string;
       }>;
-      if (envTemplate.value.enabled && envTemplate.value.serverId) {
+      if (envTemplate.value.enabled) {
         creatingEnvironments.value = true;
         const deployRoot = trimTrailingSlashes(envTemplate.value.deployRoot.trim());
         const baseDomain = normalizeBaseDomain(envTemplate.value.baseDomain);
@@ -493,11 +508,14 @@ async function handleCreate() {
             createEnvironment(orgSlug.value, project.slug, {
               name: envName,
               triggerBranch: branch,
-              serverId: envTemplate.value.serverId,
+              serverId: envTemplate.value.executor === 'ssh' ? envTemplate.value.serverId : null,
               deployPath: `${deployRoot}/${project.slug}`,
               domain: baseDomain ? `${project.slug}.${baseDomain}` : undefined,
               healthCheckUrl: buildDefaultHealthCheckUrl(draftBySlug.get(project.slug), baseDomain),
               protected: envTemplate.value.protected,
+              ...(envTemplate.value.executor === 'local'
+                ? { releaseConfig: { executor: 'local', strategy: 'direct' }, environmentTargets: [] }
+                : {}),
             }),
           ),
         );

@@ -102,7 +102,7 @@ export const UpdateServerDto = CreateServerDto.partial().omit({ privateKey: true
 export const CreateEnvironmentDto = z.object({
   name: z.string().min(1).max(64),
   triggerBranch: z.string().min(1),
-  serverId: z.string().uuid(),
+  serverId: z.string().uuid().nullable().optional(),
   deployPath: z.string().min(1),
   domain: z.string().optional(),
   healthCheckUrl: z.string().url().optional(),
