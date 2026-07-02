@@ -72,11 +72,8 @@ export class ApprovalsApplicationService {
       throw new ForbiddenException('审批单已过期');
     }
 
-    // 禁止自审（仅当有发起人时检查）
-    if (approval.requestedByUserId && approval.requestedByUserId === opts.reviewerUserId) {
-      throw new ForbiddenException('不能审批自己发起的部署');
-    }
-
+    // 审批权限仅由角色决定（Owner/Admin，见上方 reviewerRole 校验与路由 @Roles(ADMIN)）；
+    // 允许审批自己发起的部署，以支持单人/小团队场景。
     if (opts.decision === 'rejected') {
       await this.prisma.$transaction([
         this.prisma.approvalRequest.update({
