@@ -303,6 +303,7 @@ export class ProjectsApplicationService {
       containerImageEnabled?: boolean;
       containerImageName?: string | null;
       containerRegistryAuth?: { username?: string; password?: string } | null;
+      containerDockerfilePath?: string | null;
     },
   ) {
     const project = await this.getProject(orgId, projectSlug);
@@ -327,6 +328,13 @@ export class ProjectsApplicationService {
         throw new BadRequestException('workingDirectory 必须是仓库内相对路径，且不能包含 ..');
       }
       data = { ...data, workingDirectory: next || null };
+    }
+    if (data.containerDockerfilePath !== undefined) {
+      const next = data.containerDockerfilePath?.trim() ?? '';
+      if (next.startsWith('/') || next.startsWith('\\') || next.includes('..')) {
+        throw new BadRequestException('containerDockerfilePath 必须是仓库内相对路径，且不能包含 ..');
+      }
+      data = { ...data, containerDockerfilePath: next || null };
     }
     if (data.ssrEntryPoint !== undefined) {
       data = {

@@ -78,6 +78,7 @@ watch(
     form.previewBaseDomain = v.previewBaseDomain ?? '';
     form.containerImageEnabled = v.containerImageEnabled ?? false;
     form.containerImageName = v.containerImageName ?? '';
+    form.containerDockerfilePath = v.containerDockerfilePath ?? '';
     form.registryUsername = v.registryUsername ?? '';
     form.registryPassword = '';
   },

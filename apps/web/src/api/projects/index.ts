@@ -40,6 +40,7 @@ export interface ProjectDetail {
     previewHealthCheckPath: string | null;
     containerImageEnabled?: boolean;
     containerImageName?: string | null;
+    containerDockerfilePath?: string | null;
     updatedAt: string;
   };
   _count?: { deployments: number; environments: number };
@@ -201,6 +202,7 @@ export type UpdatePipelineConfigPayload = Partial<{
   previewHealthCheckPath: string | null;
   containerImageEnabled: boolean;
   containerImageName: string | null;
+  containerDockerfilePath: string | null;
   containerRegistryAuth: { username?: string; password?: string } | null;
 }>;
 

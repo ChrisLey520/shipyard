@@ -24,6 +24,7 @@ export type ProjectEditFormValues = {
   previewBaseDomain: string;
   containerImageEnabled: boolean;
   containerImageName: string;
+  containerDockerfilePath: string;
   registryUsername: string;
   registryPassword: string;
 };
@@ -50,6 +51,7 @@ export function emptyProjectEditForm(): ProjectEditFormValues {
     previewBaseDomain: '',
     containerImageEnabled: false,
     containerImageName: '',
+    containerDockerfilePath: '',
     registryUsername: '',
     registryPassword: '',
   };
@@ -81,6 +83,7 @@ export function projectDetailToEditForm(project: ProjectDetail | null): ProjectE
     previewBaseDomain: p.previewBaseDomain ?? '',
     containerImageEnabled: pc?.containerImageEnabled ?? false,
     containerImageName: pc?.containerImageName ?? '',
+    containerDockerfilePath: pc?.containerDockerfilePath ?? '',
     registryUsername: '',
     registryPassword: '',
   };

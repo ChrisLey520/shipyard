@@ -67,6 +67,12 @@
       <n-form-item label="镜像名（无 tag）">
         <n-input v-model:value="form.containerImageName" placeholder="registry.example.com/org/app" />
       </n-form-item>
+      <n-form-item label="Dockerfile 路径">
+        <n-input
+          v-model:value="form.containerDockerfilePath"
+          placeholder="留空=根 Dockerfile；monorepo 子应用如 apps/web/Dockerfile"
+        />
+      </n-form-item>
       <n-form-item label="Registry 用户">
         <n-input v-model:value="form.registryUsername" placeholder="可选" />
       </n-form-item>
@@ -74,7 +80,7 @@
         <n-input v-model:value="form.registryPassword" type="password" placeholder="留空则保留已保存凭据" />
       </n-form-item>
       <n-text depth="3" style="display: block; margin-bottom: 12px; font-size: 12px">
-        仓库根目录需有 Dockerfile；Worker 须可用 Docker。凭据加密存储，仅保存时发送非空密码。
+        构建上下文为仓库根；Dockerfile 路径留空用根 Dockerfile。Worker 须可用 Docker。凭据加密存储，仅保存时发送非空密码。
       </n-text>
     </template>
 

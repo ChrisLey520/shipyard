@@ -761,6 +761,7 @@ export class BuildWorkerService implements OnModuleInit {
     pipelineConfig: {
       containerImageName: string | null;
       containerRegistryAuthEncrypted: string | null;
+      containerDockerfilePath: string | null;
     };
     nextLog: () => number;
   }): Promise<{ imageRef: string; imageDigest: string }> {
@@ -783,8 +784,15 @@ export class BuildWorkerService implements OnModuleInit {
     }
     const tag = `shipyard-${deploymentId.slice(0, 12)}`;
     const localImage = `${base}:${tag}`;
-    await this.appendLog(deploymentId, opts.nextLog(), `[container] docker build -t ${localImage} .`);
+    const dockerfilePath = pipelineConfig.containerDockerfilePath?.trim();
     const buildCmd: string[] = ['build', '-t', localImage];
+    // 指定了 Dockerfile 路径时用 -f（上下文仍为仓库根 '.'）；留空则用根 Dockerfile
+    if (dockerfilePath) buildCmd.push('-f', dockerfilePath);
+    await this.appendLog(
+      deploymentId,
+      opts.nextLog(),
+      `[container] docker build${dockerfilePath ? ` -f ${dockerfilePath}` : ''} -t ${localImage} .`,
+    );
     const baseOverride = this.safeDockerBaseImageRef(process.env['SHIPYARD_CONTAINER_BASE_IMAGE']);
     if (baseOverride) {
       await this.appendLog(
