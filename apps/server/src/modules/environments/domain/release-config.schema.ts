@@ -76,6 +76,29 @@ export const releaseConfigSchema = z
           )
           .max(16)
           .optional(),
+        /**
+         * 自动生成并 apply Traefik Ingress + Service（按环境 domain 分流）。
+         * opt-in：enabled=true 时，镜像 rollout 成功后依据 Deployment 的 selector/端口
+         * 生成 Service + Traefik Ingress 并 kubectl apply；host 取自环境的 domain。
+         * 不开启则维持原行为（仅 set image，路由由用户自带清单管理）。
+         */
+        ingress: z
+          .object({
+            enabled: z.boolean().optional(),
+            /** Service 名称，默认 `${deploymentName}-shipyard` */
+            serviceName: z.string().min(1).max(253).optional(),
+            /** Service 对外端口，默认 80 */
+            servicePort: z.number().int().min(1).max(65535).optional(),
+            /** 容器端口（Service targetPort）；留空则从 Deployment 首容器读取 */
+            targetPort: z.number().int().min(1).max(65535).optional(),
+            /** Ingress 路径，默认 / */
+            path: z.string().min(1).max(256).optional(),
+            /** ingressClassName，默认 traefik */
+            className: z.string().min(1).max(63).optional(),
+            /** Traefik 入口点，默认 websecure */
+            entrypoints: z.string().min(1).max(128).optional(),
+          })
+          .optional(),
       })
       .optional(),
     objectStorage: z

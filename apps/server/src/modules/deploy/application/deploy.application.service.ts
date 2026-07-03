@@ -267,6 +267,7 @@ export class DeployApplicationService {
             deployment,
             pipelineConfig,
             rc,
+            domain: env.domain ?? null,
           });
           await this.appendLogLine(deploymentId, '[deploy] 远端 Kubernetes 步骤已完成');
         } else if (rc.executor === 'object_storage') {
@@ -1549,8 +1550,9 @@ export class DeployApplicationService {
     deployment: { artifact: { imageRef: string | null; imageDigest: string | null } | null };
     pipelineConfig: { containerImageName: string | null };
     rc: ReleaseConfig;
+    domain: string | null;
   }): Promise<void> {
-    const { deploymentId, orgId, deployment, pipelineConfig, rc } = opts;
+    const { deploymentId, orgId, deployment, pipelineConfig, rc, domain } = opts;
     const k = rc.kubernetes;
     if (!k) throw new Error('缺少 kubernetes 配置');
     const artifact = deployment.artifact;
@@ -1679,6 +1681,18 @@ export class DeployApplicationService {
           `deployment/${target.deploymentName}`,
           `--timeout=${timeoutSec}s`,
         ]);
+      }
+
+      // opt-in：镜像 rollout 成功后，自动生成 Service + Traefik Ingress（按环境 domain 分流）
+      if (k.ingress?.enabled) {
+        await this.applyKubernetesTraefikIngress({
+          deploymentId,
+          ns,
+          kubeArgs: kubeArgs(),
+          deploymentName: primary.deploymentName,
+          domain,
+          ingress: k.ingress,
+        });
       }
 
       await this.appendLogLine(deploymentId, '[deploy] traffic_switch k8s rollout 完成');
@@ -3144,6 +3158,15 @@ server.listen(PORT, '0.0.0.0', () => {
       const dep = depM[1];
       return `${base}\n提示：Deployment "${dep}" 在目标命名空间中不存在。请先按仓库 deploy/k8s 执行 kubectl apply -k base（或你的 overlay）创建 server/worker/web 等清单；并核对环境 releaseConfig.kubernetes.deploymentName、additionalDeployments 是否与集群中 metadata.name 完全一致。`;
     }
+    if (/no matches for kind "Ingress"|networking\.k8s\.io.*Ingress/i.test(tail)) {
+      return `${base}\n提示：集群不支持 networking.k8s.io/v1 Ingress，或未安装 Ingress 控制器（Traefik）。请确认集群已安装 Traefik，或关闭 kubernetes.ingress.enabled 改用自带路由清单。`;
+    }
+    if (/is invalid.*ingressClassName|IngressClass.*not found/i.test(tail)) {
+      return `${base}\n提示：ingressClassName（默认 traefik）在集群中不存在。请确认 Traefik 的 IngressClass 名称，或在 kubernetes.ingress.className 中改为集群实际的类名。`;
+    }
+    if (/services "([^"]+)" is forbidden|admission webhook.*denied|already exists/i.test(tail)) {
+      return `${base}\n提示：Service/Ingress apply 被拒绝或已存在冲突。请核对 kubernetes.ingress.serviceName（默认 <deploymentName>-shipyard）是否与集群中他人管理的资源重名。`;
+    }
     return base;
   }
 
@@ -3165,6 +3188,155 @@ server.listen(PORT, '0.0.0.0', () => {
         else reject(new Error(this.formatSpawnFailureMessage(cmd, code, combined)));
       });
     });
+  }
+
+  /** 同 execLocal，但返回 stdout（用于 kubectl get -o json 等需要读取输出的场景） */
+  private execLocalCapture(cmd: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout?.on('data', (c: Buffer) => {
+        stdout += c.toString();
+      });
+      child.stderr?.on('data', (c: Buffer) => {
+        stderr += c.toString();
+      });
+      child.on('error', (err) => {
+        reject(err);
+      });
+      child.on('close', (code: number | null) => {
+        if (code === 0) resolve(stdout);
+        else reject(new Error(this.formatSpawnFailureMessage(cmd, code, stdout + stderr)));
+      });
+    });
+  }
+
+  /**
+   * 依据已存在 Deployment 的 selector/容器端口，生成 Service + Traefik Ingress 并 apply。
+   * host 取自环境 domain；TLS 复用集群默认证书（router.tls=true，不指定 secret）。
+   */
+  private async applyKubernetesTraefikIngress(opts: {
+    deploymentId: string;
+    ns: string;
+    kubeArgs: string[];
+    deploymentName: string;
+    domain: string | null;
+    ingress: NonNullable<NonNullable<ReleaseConfig['kubernetes']>['ingress']>;
+  }): Promise<void> {
+    const { deploymentId, ns, kubeArgs, deploymentName, domain, ingress } = opts;
+
+    const host = domain?.trim();
+    if (!host) {
+      throw new Error(
+        'K8s 自动 Ingress 已开启（kubernetes.ingress.enabled），但当前环境未配置 domain；请在环境设置中填写 domain 或关闭自动 Ingress',
+      );
+    }
+
+    const serviceName = ingress.serviceName?.trim() || `${deploymentName}-shipyard`;
+    const servicePort = ingress.servicePort ?? 80;
+    const routePath = ingress.path?.trim() || '/';
+    const className = ingress.className?.trim() || 'traefik';
+    const entrypoints = ingress.entrypoints?.trim() || 'websecure';
+
+    // 读取 Deployment 的 selector 与容器端口，Service 必须匹配既有 Pod 标签
+    await this.appendLogLine(
+      deploymentId,
+      `[deploy] k8s ingress：读取 Deployment ${deploymentName} 的 selector/端口…`,
+    );
+    const raw = await this.execLocalCapture('kubectl', [
+      ...kubeArgs,
+      '-n',
+      ns,
+      'get',
+      `deployment/${deploymentName}`,
+      '-o',
+      'json',
+    ]);
+    let dep: {
+      spec?: {
+        selector?: { matchLabels?: Record<string, string> };
+        template?: { spec?: { containers?: Array<{ ports?: Array<{ containerPort?: number }> }> } };
+      };
+    };
+    try {
+      dep = JSON.parse(raw);
+    } catch {
+      throw new Error(`解析 Deployment ${deploymentName} JSON 失败`);
+    }
+    const matchLabels = dep.spec?.selector?.matchLabels;
+    if (!matchLabels || Object.keys(matchLabels).length === 0) {
+      throw new Error(
+        `Deployment ${deploymentName} 缺少 spec.selector.matchLabels，无法生成匹配的 Service`,
+      );
+    }
+    const firstContainerPort = dep.spec?.template?.spec?.containers?.[0]?.ports?.[0]?.containerPort;
+    const targetPort = ingress.targetPort ?? firstContainerPort;
+    if (!targetPort) {
+      throw new Error(
+        `无法确定容器端口：Deployment ${deploymentName} 首容器未声明 ports.containerPort，请在 kubernetes.ingress.targetPort 显式指定`,
+      );
+    }
+
+    const managedLabels = { 'app.kubernetes.io/managed-by': 'shipyard' };
+    const manifest = {
+      apiVersion: 'v1',
+      kind: 'List',
+      items: [
+        {
+          apiVersion: 'v1',
+          kind: 'Service',
+          metadata: { name: serviceName, namespace: ns, labels: managedLabels },
+          spec: {
+            selector: matchLabels,
+            ports: [{ name: 'http', port: servicePort, targetPort }],
+          },
+        },
+        {
+          apiVersion: 'networking.k8s.io/v1',
+          kind: 'Ingress',
+          metadata: {
+            name: serviceName,
+            namespace: ns,
+            labels: managedLabels,
+            annotations: {
+              'traefik.ingress.kubernetes.io/router.entrypoints': entrypoints,
+              'traefik.ingress.kubernetes.io/router.tls': 'true',
+            },
+          },
+          spec: {
+            ingressClassName: className,
+            rules: [
+              {
+                host,
+                http: {
+                  paths: [
+                    {
+                      path: routePath,
+                      pathType: 'Prefix',
+                      backend: { service: { name: serviceName, port: { number: servicePort } } },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const manifestPath = path.join('/tmp', `shipyard-ingress-${deploymentId}.json`);
+    await writeFile(manifestPath, JSON.stringify(manifest), { encoding: 'utf8', mode: 0o600 });
+    try {
+      await this.appendLogLine(
+        deploymentId,
+        `[deploy] k8s ingress apply：host=${host} class=${className} svc=${serviceName}:${servicePort}->${targetPort} path=${routePath}`,
+      );
+      await this.execLocal('kubectl', [...kubeArgs, '-n', ns, 'apply', '-f', manifestPath]);
+      await this.appendLogLine(deploymentId, `[deploy] k8s ingress 就绪：https://${host}`);
+    } finally {
+      await unlink(manifestPath).catch(() => undefined);
+    }
   }
 
   private async healthCheck(url: string, retries = 3): Promise<boolean> {

@@ -3,7 +3,8 @@
     v-model:show="showProxy"
     :title="modalTitle"
     preset="card"
-    style="width: 600px"
+    style="width: min(92vw, 640px)"
+    :content-style="{ maxHeight: '72vh', overflowY: 'auto' }"
     :mask-closable="false"
     :close-on-esc="false"
   >
@@ -214,6 +215,48 @@
             <n-button size="small" secondary @click="addK8sAdditionalRow">+ 添加 Deployment</n-button>
           </n-space>
         </n-form-item>
+        <n-form-item label="自动 Traefik Ingress">
+          <n-space vertical style="width: 100%">
+            <n-checkbox v-model:checked="envForm.k8sIngressEnabled">
+              rollout 成功后按环境 domain 自动生成 Service + Traefik Ingress
+            </n-checkbox>
+            <n-alert v-if="envForm.k8sIngressEnabled" type="info" :show-icon="false">
+              host 取自本环境的
+              <n-text code>domain</n-text>
+              （须已填写）；依据主 Deployment 的 selector/端口生成 Service 并 apply 一份
+              <n-text code>ingressClassName: traefik</n-text>
+              的 Ingress，TLS 复用集群默认证书。className/entrypoints 如需自定义可在下方发布配置 JSON 的
+              <n-text code>kubernetes.ingress</n-text>
+              中补充。
+            </n-alert>
+            <template v-if="envForm.k8sIngressEnabled">
+              <n-input
+                v-model:value="envForm.k8sIngressServiceName"
+                placeholder="Service 名（可选，默认 <deploymentName>-shipyard）"
+              />
+              <n-input-number
+                v-model:value="envForm.k8sIngressServicePort"
+                :min="1"
+                :max="65535"
+                clearable
+                placeholder="Service 端口（可选，默认 80）"
+                style="width: 100%"
+              />
+              <n-input-number
+                v-model:value="envForm.k8sIngressTargetPort"
+                :min="1"
+                :max="65535"
+                clearable
+                placeholder="容器端口 targetPort（可选，留空从 Deployment 读取）"
+                style="width: 100%"
+              />
+              <n-input
+                v-model:value="envForm.k8sIngressPath"
+                placeholder="路径（可选，默认 /）"
+              />
+            </template>
+          </n-space>
+        </n-form-item>
       </template>
 
       <template v-if="envForm.executor === 'object_storage'">
@@ -339,6 +382,7 @@ import {
   NText,
   NInputNumber,
   NAlert,
+  NCheckbox,
   useMessage,
 } from 'naive-ui';
 import { serverOsLabel } from '@shipyard/shared';
@@ -428,6 +472,12 @@ type EnvFormState = {
   k8sPrimaryContainerName: string;
   /** K8s 中与主 Deployment 共用镜像的额外滚动目标（写入 releaseConfig.kubernetes.additionalDeployments） */
   k8sAdditionalRollouts: Array<{ deploymentName: string; containerName: string }>;
+  /** 自动生成 Traefik Ingress + Service（写入 kubernetes.ingress），host 取自环境 domain */
+  k8sIngressEnabled: boolean;
+  k8sIngressServiceName: string;
+  k8sIngressServicePort: number | null;
+  k8sIngressTargetPort: number | null;
+  k8sIngressPath: string;
   ossBucket: string;
   ossPrefix: string;
   ossRegion: string;
@@ -464,6 +514,11 @@ const envForm = ref<EnvFormState>({
   k8sPrimaryDeploymentName: '',
   k8sPrimaryContainerName: '',
   k8sAdditionalRollouts: [],
+  k8sIngressEnabled: false,
+  k8sIngressServiceName: '',
+  k8sIngressServicePort: null,
+  k8sIngressTargetPort: null,
+  k8sIngressPath: '',
   ossBucket: '',
   ossPrefix: '',
   ossRegion: '',
@@ -546,6 +601,11 @@ function releaseConfigFormMeta(rc: unknown) {
     k8sPrimaryDeploymentName: '',
     k8sPrimaryContainerName: '',
     k8sAdditionalRollouts: [] as EnvFormState['k8sAdditionalRollouts'],
+    k8sIngressEnabled: false,
+    k8sIngressServiceName: '',
+    k8sIngressServicePort: null as number | null,
+    k8sIngressTargetPort: null as number | null,
+    k8sIngressPath: '',
   };
   if (!rc || typeof rc !== 'object') {
     return defaults;
@@ -582,6 +642,10 @@ function releaseConfigFormMeta(rc: unknown) {
       : k.kubeconfigSource === 'registered' || typeof k.clusterId === 'string'
         ? 'registered'
         : 'local';
+  const ki =
+    k.ingress && typeof k.ingress === 'object' && k.ingress !== null
+      ? (k.ingress as Record<string, unknown>)
+      : {};
   return {
     executor,
     strategy,
@@ -616,6 +680,11 @@ function releaseConfigFormMeta(rc: unknown) {
     k8sPrimaryContainerName:
       typeof k.containerName === 'string' ? k.containerName.trim() : '',
     k8sAdditionalRollouts: parseK8sAdditionalDeploymentsFromKube(k),
+    k8sIngressEnabled: ki.enabled === true,
+    k8sIngressServiceName: typeof ki.serviceName === 'string' ? ki.serviceName.trim() : '',
+    k8sIngressServicePort: typeof ki.servicePort === 'number' ? ki.servicePort : null,
+    k8sIngressTargetPort: typeof ki.targetPort === 'number' ? ki.targetPort : null,
+    k8sIngressPath: typeof ki.path === 'string' ? ki.path : '',
   };
 }
 
@@ -671,6 +740,11 @@ function resetFromInitial() {
       ossPrefix: meta.ossPrefix,
       ossRegion: meta.ossRegion,
       k8sAdditionalRollouts: (meta.k8sAdditionalRollouts ?? []).map((r) => ({ ...r })),
+      k8sIngressEnabled: meta.k8sIngressEnabled ?? false,
+      k8sIngressServiceName: meta.k8sIngressServiceName ?? '',
+      k8sIngressServicePort: meta.k8sIngressServicePort ?? null,
+      k8sIngressTargetPort: meta.k8sIngressTargetPort ?? null,
+      k8sIngressPath: meta.k8sIngressPath ?? '',
       releaseConfigJson: releaseConfigToJsonString(e.releaseConfig),
     };
     return;
@@ -708,6 +782,11 @@ function resetFromInitial() {
     ossPrefix: '',
     ossRegion: '',
     k8sAdditionalRollouts: [],
+    k8sIngressEnabled: false,
+    k8sIngressServiceName: '',
+    k8sIngressServicePort: null,
+    k8sIngressTargetPort: null,
+    k8sIngressPath: '',
     releaseConfigJson: '',
   };
 }
@@ -873,6 +952,26 @@ function composeReleaseConfigForSubmit():
       });
     } else {
       delete prev.additionalDeployments;
+    }
+    if (envForm.value.k8sIngressEnabled) {
+      const ing: Record<string, unknown> =
+        prev.ingress && typeof prev.ingress === 'object' && prev.ingress !== null
+          ? { ...(prev.ingress as Record<string, unknown>) }
+          : {};
+      ing.enabled = true;
+      const svcName = envForm.value.k8sIngressServiceName.trim();
+      if (svcName) ing.serviceName = svcName;
+      else delete ing.serviceName;
+      if (envForm.value.k8sIngressServicePort != null) ing.servicePort = envForm.value.k8sIngressServicePort;
+      else delete ing.servicePort;
+      if (envForm.value.k8sIngressTargetPort != null) ing.targetPort = envForm.value.k8sIngressTargetPort;
+      else delete ing.targetPort;
+      const ingPath = envForm.value.k8sIngressPath.trim();
+      if (ingPath) ing.path = ingPath;
+      else delete ing.path;
+      prev.ingress = ing;
+    } else {
+      delete prev.ingress;
     }
     out.kubernetes = prev;
     delete out.ssh;
