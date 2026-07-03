@@ -3,10 +3,10 @@ kind: ConfigMap
 metadata:
   name: shipyard-config
 data:
-  # 应用对外地址（用于邮件链接等）
-  APP_URL: "http://shipyard.local"
+  # 应用对外地址（用于邮件链接等）。入口经 Traefik 终止 TLS，统一走 https。
+  APP_URL: "https://shipyard.local"
   # CORS 允许来源（建议与 APP_URL 保持一致）
-  CORS_ORIGIN: "http://shipyard.local"
+  CORS_ORIGIN: "https://shipyard.local"
   # Server 监听端口
   PORT: "3000"
   # Worker 产物目录（容器内路径）

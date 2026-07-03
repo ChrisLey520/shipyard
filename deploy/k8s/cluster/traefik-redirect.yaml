@@ -1,0 +1,20 @@
+# 集群级配置：让 k3s 内置 Traefik 的 web(80) 入口全局跳转到 websecure(443)。
+# 对集群内所有项目统一生效，配合各项目 Ingress 的 host 分流，实现
+# “所有项目统一 80/443 入口，按域名分流”。
+#
+# 注意：这是集群级(kube-system)配置，不属于 shipyard namespace，
+# 因此不纳入 deploy/k8s/base 的 kustomization，单独 apply 一次即可：
+#   kubectl apply -f deploy/k8s/cluster/traefik-redirect.yaml
+#
+# 该 HelmChartConfig 会被 k3s 的 Traefik HelmChart 合并生效。
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        redirectTo:
+          port: websecure

@@ -3,14 +3,19 @@ kind: Ingress
 metadata:
   name: shipyard
   annotations:
-    # 如使用 nginx-ingress，可按需开启下面配置
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # 走 Traefik 的 websecure(443)入口并开启 TLS。
+    # TLS 证书复用集群默认 TLSStore（见 .local/traefik-default-tlsstore.yaml），
+    # 故此处 router.tls=true 不带 secretName，由 Traefik 用默认证书终止 TLS。
+    # 80 -> 443 的跳转在集群级统一配置（见 deploy/k8s/cluster/traefik-redirect.yaml）。
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik
   rules:
     - host: shipyard.local
       http:
         paths:
+          # API 与 WebSocket 直接由 Traefik 分流到 server，不再经 web 容器反代
           - path: /api
             pathType: Prefix
             backend:
@@ -18,6 +23,14 @@ spec:
                 name: shipyard-server
                 port:
                   name: http
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: shipyard-server
+                port:
+                  name: http
+          # 其余路径交给 web 容器做静态托管 + SPA fallback
           - path: /
             pathType: Prefix
             backend:
@@ -25,4 +38,3 @@ spec:
                 name: shipyard-web
                 port:
                   name: http
-

@@ -1,4 +1,19 @@
 services:
+  # 入口网关：与 K8s 的 Traefik Ingress 对齐，按路径分流。
+  # /api、/socket.io -> server:3000，其余 -> web:80。
+  # 本地无需占用 80，宿主机仍映射到 5173（上线才用 80/443）；容器内入口是 80。
+  traefik:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "5173:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -54,9 +69,15 @@ services:
       MAIL_FROM: ${MAIL_FROM:-noreply@shipyard.local}
       PORT: 3000
     ports:
-      - "3000:3000"
+      - "3000:3000"  # 直连调试用；对外流量走 traefik
     volumes:
       - artifact_store:/app/artifacts
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.shipyard-api.rule=PathPrefix(`/api`) || PathPrefix(`/socket.io`)
+      - traefik.http.routers.shipyard-api.entrypoints=web
+      - traefik.http.routers.shipyard-api.priority=10
+      - traefik.http.services.shipyard-api.loadbalancer.server.port=3000
 
   worker:
     build:
@@ -88,8 +109,13 @@ services:
     restart: unless-stopped
     depends_on:
       - server
-    ports:
-      - "5173:80"
+    # 不再直接映射端口，对外统一从 traefik(80) 进入
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.shipyard-web.rule=PathPrefix(`/`)
+      - traefik.http.routers.shipyard-web.entrypoints=web
+      - traefik.http.routers.shipyard-web.priority=1
+      - traefik.http.services.shipyard-web.loadbalancer.server.port=80
 
 volumes:
   postgres_data:
