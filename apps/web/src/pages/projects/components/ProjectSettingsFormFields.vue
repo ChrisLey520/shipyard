@@ -37,8 +37,13 @@
         :placeholder="form.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
       />
     </n-form-item>
-    <n-form-item v-if="form.frameworkType !== 'static'" label="服务端口">
-      <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" :step="1" class="w-full" />
+    <n-form-item v-if="form.frameworkType !== 'static'" label="容器监听端口">
+      <n-space vertical class="w-full">
+        <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" :step="1" class="w-full" />
+        <n-text depth="3" style="font-size: 12px">
+          应用在容器/进程内实际监听的端口（默认 3000），会注入为 PORT 环境变量。入口网关从 80/443 反代到此端口，并非对外访问端口。
+        </n-text>
+      </n-space>
     </n-form-item>
     <n-form-item v-if="form.frameworkType === 'ssr'" label="预览健康路径">
       <n-input v-model:value="form.previewHealthCheckPath" placeholder="/ 或 /health" />
@@ -134,6 +139,7 @@ import {
   NDivider,
   NPopover,
   NText,
+  NSpace,
 } from 'naive-ui';
 import { deriveRuntimeEntryPointForFramework } from '@shipyard/shared';
 import type { ProjectEditFormValues } from '../projectEditForm';

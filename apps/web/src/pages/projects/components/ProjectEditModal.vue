@@ -3,7 +3,7 @@
     :show="show"
     title="编辑项目"
     preset="card"
-    style="width: 620px"
+    style="width: min(92vw, 640px)"
     :mask-closable="false"
     :close-on-esc="false"
     @update:show="(v) => emit('update:show', v)"

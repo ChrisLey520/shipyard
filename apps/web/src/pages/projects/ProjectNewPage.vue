@@ -139,8 +139,13 @@
               :placeholder="form.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
             />
           </n-form-item>
-          <n-form-item v-if="form.frameworkType !== 'static'" label="服务端口">
-            <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" />
+          <n-form-item v-if="form.frameworkType !== 'static'" label="容器监听端口">
+            <n-space vertical style="width: 100%">
+              <n-input-number v-model:value="form.servicePort" :min="1" :max="65535" style="width: 100%" />
+              <n-text depth="3" style="font-size: 12px">
+                应用在容器/进程内实际监听的端口（默认 3000），会注入为 PORT 环境变量。入口网关从 80/443 反代到此端口，并非对外访问端口。
+              </n-text>
+            </n-space>
           </n-form-item>
         </n-form>
         <div v-else class="flex flex-col gap-4">
@@ -230,8 +235,13 @@
                   :placeholder="item.frameworkType === 'nodejs' ? 'dist/main.js' : 'dist/index.js'"
                 />
               </n-form-item>
-              <n-form-item v-if="item.frameworkType !== 'static'" label="服务端口">
-                <n-input-number v-model:value="item.servicePort" :min="1" :max="65535" />
+              <n-form-item v-if="item.frameworkType !== 'static'" label="容器监听端口">
+                <n-space vertical style="width: 100%">
+                  <n-input-number v-model:value="item.servicePort" :min="1" :max="65535" style="width: 100%" />
+                  <n-text depth="3" style="font-size: 12px">
+                    应用容器内监听端口（默认 3000），注入为 PORT；入口网关从 80/443 反代到此端口，非对外端口。
+                  </n-text>
+                </n-space>
               </n-form-item>
             </n-form>
             <div class="mt-2 flex justify-end">
@@ -292,7 +302,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   NPageHeader, NCard, NSteps, NStep, NForm, NFormItem,
   NInput, NInputNumber, NSelect, NRadioGroup, NRadio, NButton, NSpace, NModal, NEmpty, NThing, NTag, NSwitch, useMessage,
-  NCheckbox, NAlert,
+  NCheckbox, NAlert, NText,
 } from 'naive-ui';
 import { useProjectCreationFlow, type GitAccountListItem } from '@/composables/projects/useProjectCreationFlow';
 import { createEnvironment } from '@/api/projects/environments';

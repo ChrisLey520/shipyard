@@ -22,7 +22,7 @@
       v-model:show="showModal"
       :title="editingId ? '编辑开关' : '新增开关'"
       preset="card"
-      style="width: 480px"
+      style="width: min(92vw, 480px)"
       :mask-closable="false"
     >
       <n-form label-placement="left" label-width="72">
